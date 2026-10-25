@@ -5,7 +5,8 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { type Running, startServer } from '@organon/core/testing';
@@ -213,14 +214,38 @@ test('MCP: get_hosts reads the live session (or a capture); get_device walks to 
   assert.equal(body.devices.length, 7);
   assert.ok(body.devices.some((d) => d.name === 'raspberrypi' && d.vendor === 'Raspberry Pi Foundation'));
   assert.ok(body.devices.some((d) => d.role?.startsWith('router')));
+  // What the traffic was for, in plain words: by app, with its share; and each host with what it is.
+  const read = body as unknown as { apps: { app?: string; activity?: string; share: number }[]; remotes: { ip: string; what?: { app?: string } }[] };
+  assert.ok(read.apps.some((a) => a.app === 'YouTube' && a.activity === 'watching video'));
+  assert.ok(read.apps.some((a) => a.app === 'WireGuard'));
+  assert.ok(Math.abs(read.apps.reduce((n, a) => n + a.share, 0) - 100) < 1);
+  assert.equal(read.remotes.find((h) => h.ip === truth.hosts.video.ip)?.what?.app, 'YouTube');
   const pc = await mcp(app.base, 'tools/call', { name: 'get_device', arguments: { device: truth.hosts.me.ip } });
-  const one = JSON.parse(pc.result?.content?.[0]?.text ?? '{}') as { talkedTo: { name: string }[] };
+  const one = JSON.parse(pc.result?.content?.[0]?.text ?? '{}') as {
+    talkedTo: { name: string }[];
+    apps: { app?: string }[];
+    conversations: { with: string; what?: { app?: string; activity?: string; knownBy?: string } }[];
+  };
   assert.ok(one.talkedTo.some((t) => t.name === truth.hosts.web.name));
+  assert.ok(one.apps.some((a) => a.app === 'WhatsApp'));
+  const call = one.conversations.find((c) => c.with === truth.hosts.call.name);
+  assert.deepEqual([call?.what?.app, call?.what?.activity], ['WhatsApp', 'on a call']);
+  assert.match(call?.what?.knownBy ?? '', /^traffic pattern /);
   const captures = JSON.parse((await mcp(app.base, 'tools/call', { name: 'list_captures', arguments: {} })).result?.content?.[0]?.text ?? '[]');
   const saved = await mcp(app.base, 'tools/call', { name: 'get_hosts', arguments: { capture: captures[0].id } });
   assert.equal(JSON.parse(saved.result?.content?.[0]?.text ?? '{}').devices.length, 7);
   const none = await mcp(app.base, 'tools/call', { name: 'get_device', arguments: { device: 'toaster' } });
   assert.equal(none.result?.isError, true);
+});
+
+test("The house's own dictionary, from data/dicionario.json: its words on top of the dictionary's, in what the agent reads", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'argus-casa-'));
+  writeFileSync(path.join(dir, 'dicionario.json'), JSON.stringify({ domains: { 'www.google.com': { company: 'A casa', app: 'Pesquisa da casa', category: 'search' } } }));
+  const { app } = await start({ SEED_PCAP: FIXTURE }, dir);
+  const captures = JSON.parse((await mcp(app.base, 'tools/call', { name: 'list_captures', arguments: {} })).result?.content?.[0]?.text ?? '[]');
+  const saved = JSON.parse((await mcp(app.base, 'tools/call', { name: 'get_hosts', arguments: { capture: captures[0].id } })).result?.content?.[0]?.text ?? '{}');
+  const web = (saved.remotes as { ip: string; what?: { app?: string; company?: string } }[]).find((h) => h.ip === truth.hosts.web.ip);
+  assert.deepEqual([web?.what?.company, web?.what?.app], ['A casa', 'Pesquisa da casa']);
 });
 
 test('Interfaces from dumpcap, named as he would, sources that are not network interfaces left out', async () => {

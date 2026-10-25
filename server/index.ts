@@ -27,6 +27,7 @@ import { Warnings } from '@organon/core/server/warnings';
 import { listInterfaces, ownMacs } from './capture.ts';
 import { Captures } from './captures.ts';
 import { DissectError } from './dissect.ts';
+import { loadHouse } from './dictionary.ts';
 import { app, CAPTURES_DIR, CAPTURES_MB, DUMPCAP, EDITCAP, LIVE_DIR, MERGECAP, RING, SEED_PCAP, SYS_NET, TSHARK } from './config.ts';
 import { Live, LiveError } from './live.ts';
 import { argusTools, instructions } from './tools.ts';
@@ -35,6 +36,9 @@ const warnings = new Warnings();
 const settings = createSettings({ file: app.settingsFile, warnings, apiKey: app.apiKey });
 const store = createStore({ dataDir: app.dataDir, warnings });
 const events = new EventHub();
+// The house's own words for the dictionary, on top of its own (server/dictionary.ts): data/dicionario.json, if any.
+const house = loadHouse(path.join(app.dataDir, 'dicionario.json'));
+if (house.problems.length) warnings.set('dicionario', `Some entries of the house's dictionary were not read: ${house.problems.slice(0, 5).join('; ')}`);
 const tools = { dumpcap: DUMPCAP, tshark: TSHARK, sysNet: SYS_NET };
 const captures = await new Captures(CAPTURES_DIR, store, tools).load();
 if (!captures.all().length && SEED_PCAP) {

@@ -5,6 +5,7 @@
 import { defineTools, error, json, READ_ONLY, z } from '@organon/core/server/mcp';
 import { EntityGraph, keyOf } from '@organon/core/shared/entities';
 import type { Link } from '@organon/core/shared/entities';
+import type { Classification } from '../shared/classify.ts';
 import { serviceName } from '../shared/services.ts';
 import type { Capture, Conversation, Device, Remote, Session } from '../shared/types.ts';
 import type { Captures } from './captures.ts';
@@ -19,12 +20,19 @@ const LIMITS =
   'What is encrypted is not read: only who talked to whom, when and how much. On a PC on a switched network, the capture sees ' +
   "mostly this PC's own traffic and the broadcast and multicast of the others, not what other devices send to each other.";
 
+/** The dictionary's reading is a reading: names, networks and ports say what the traffic usually is, not a proof. */
+const READING =
+  'What each host and conversation is (`what`: company, app, category, activity, whether it is advertising, tracking or ' +
+  "telemetry) is Argus's dictionary reading the names, the address's network and the port: what that usually is, not a " +
+  'proof. A CDN or cloud (Akamai, Cloudflare, AWS) says who carries the bytes, never whose app they are; no `what` means it ' +
+  'does not know. ';
+
 export function instructions(): string {
   return (
     'Argus is a readable network spy on tshark: it listens, live, on the interfaces he turns on, and says which devices are on ' +
     'the local network (name, address, maker, how much they send, how fast right now) and which hosts out on the internet they ' +
     'talk to. He turns listening on and saves captures on the page (https://argus.test); you read. ' +
-    `Start with get_hosts. ${UNTRUSTED}${LIMITS}`
+    `Start with get_hosts: its \`apps\` say, in plain words, what the traffic was for. ${READING}${UNTRUSTED}${LIMITS}`
   );
 }
 
@@ -46,8 +54,55 @@ function deviceLine(d: Device) {
   };
 }
 
+/** What the dictionary says, as the agent reads it. */
+function what(c: Classification | undefined) {
+  if (!c) return undefined;
+  return {
+    ...(c.company ? { company: c.company } : {}),
+    ...(c.app ? { app: c.app } : {}),
+    category: c.label,
+    activity: c.activity,
+    ...(c.tracking ? { tracking: true } : {}),
+    ...(c.carrier ? { carrier: 'a CDN or cloud: it carries the bytes, the app is not known' } : {}),
+    knownBy: `${{ name: 'name', network: 'network', port: 'port', pattern: 'traffic pattern' }[c.by]} ${c.rule}`,
+  };
+}
+
 function remoteLine(r: Remote) {
-  return { ip: r.ip, name: r.name, names: r.names.map((n) => `${n.name} (${n.source})`), sent: r.bytesSent, received: r.bytesReceived };
+  return {
+    ip: r.ip,
+    name: r.name,
+    names: r.names.map((n) => `${n.name} (${n.source})`),
+    ...(r.app ? { what: what(r.app) } : {}),
+    sent: r.bytesSent,
+    received: r.bytesReceived,
+  };
+}
+
+/**
+ * The traffic by what it was for: the conversations added up by app (or by company, or category, when that is all that
+ * is known), busiest first. What nothing is known of is one line of its own, so the shares add up.
+ */
+function appsLine(conversations: Conversation[], n: number) {
+  const by = new Map<string, { bytes: number; conversations: number; what?: ReturnType<typeof what> }>();
+  let total = 0;
+  for (const c of conversations) {
+    const bytes = c.sent + c.received;
+    total += bytes;
+    const a = c.app;
+    const key = a ? `${a.company ?? ''}|${a.carrier ? '' : (a.app ?? '')}|${a.label}|${a.activity}` : '';
+    const e = by.get(key) ?? { bytes: 0, conversations: 0, what: a ? what(a.carrier ? { ...a, app: undefined } : a) : undefined };
+    e.bytes += bytes;
+    e.conversations++;
+    by.set(key, e);
+  }
+  return [...by.values()]
+    .sort((x, y) => y.bytes - x.bytes)
+    .slice(0, n)
+    .map((e) => {
+      const { knownBy: _, ...w } = e.what ?? {};
+      return { ...(e.what ? w : { unknown: 'what the dictionary does not know' }), bytes: e.bytes, share: total ? Math.round((1000 * e.bytes) / total) / 10 : 0, conversations: e.conversations };
+    });
 }
 
 function captureLine(c: Capture) {
@@ -101,23 +156,27 @@ export function argusTools(captures: Captures, live: Live) {
         description:
           'The devices on the local network that a capture saw (name and where it came from: DHCP, mDNS, NetBIOS; IP and MAC ' +
           'addresses; maker from the MAC; bytes sent and received; which is the router and which is this PC), and the hosts out on ' +
-          'the internet, named by DNS answers or TLS SNI when seen. Without `capture`, the live session: what is being listened ' +
-          'on now, since it began, with how fast each device is sending right now. ' +
+          'the internet, named by DNS answers or TLS SNI when seen, with what each is (`what`). `apps`: the traffic added up by ' +
+          'what it was for (Google · YouTube · watching video), busiest first, with its share of the bytes. Without `capture`, the ' +
+          'live session: what is being listened on now, since it began, with how fast each device is sending right now. ' +
+          READING +
           UNTRUSTED +
           LIMITS,
         inputSchema: {
           capture: z.string().optional().describe('A capture id from list_captures'),
           devices: z.number().int().min(1).max(500).optional().describe('How many devices to include, busiest first (default 100)'),
           remotes: z.number().int().min(0).max(500).optional().describe('How many internet hosts to include, busiest first (default 20)'),
+          apps: z.number().int().min(0).max(200).optional().describe('How many lines of the traffic by app to include, busiest first (default 20)'),
         },
       },
-      async ({ capture, remotes, devices }) => {
+      async ({ capture, remotes, devices, apps }) => {
         const v = await view(capture);
         if (typeof v === 'string') return error(v);
         return json({
           ...where(v),
           devices: v.devices.slice(0, devices ?? 100).map(deviceLine),
           devicesTotal: v.devices.length,
+          apps: appsLine(v.conversations, apps ?? 20),
           remotes: v.remotes.slice(0, remotes ?? 20).map(remoteLine),
           remotesTotal: v.remotes.length,
         });
@@ -131,9 +190,10 @@ export function argusTools(captures: Captures, live: Live) {
         title: 'One device and who it talked to',
         description:
           'One device from a capture, found by its name, IP or MAC address: what is known of it, the internet hosts and local ' +
-          'devices it talked to (busiest first, in bytes), its conversations (with whom, by what service as its port says, bytes ' +
-          'each way, first and last seen), and the other devices that talked to the same hosts. Without `capture`, ' +
-          'the live session. ' +
+          'devices it talked to (busiest first, in bytes), what its traffic was for (`apps`, as in get_hosts), its conversations ' +
+          '(with whom, by what service as its port says, what it was for, bytes each way, first and last seen), and the other ' +
+          'devices that talked to the same hosts. Without `capture`, the live session. ' +
+          READING +
           UNTRUSTED +
           LIMITS,
         inputSchema: {
@@ -148,14 +208,15 @@ export function argusTools(captures: Captures, live: Live) {
         const d = graph.find(device, 'device') as Device | undefined;
         if (!d) return error(`No device "${device}" ${v.capture ? `in capture ${v.capture.id}` : 'in the live session'}. get_hosts lists them.`);
         const key = keyOf(d);
+        const mine = v.conversations.filter((c) => c.a === key || c.b === key);
         return json({
           ...deviceLine(d),
+          apps: appsLine(mine, 20),
           talkedTo: graph
             .linked(key)
             .slice(0, 50)
             .map((n) => ({ name: n.entity.name, kind: n.entity.kind, id: n.entity.id, bytes: n.weight })),
-          conversations: v.conversations
-            .filter((c) => c.a === key || c.b === key)
+          conversations: mine
             .sort((x, y) => y.sent + y.received - (x.sent + x.received))
             .slice(0, 50)
             .map((c) => {
@@ -166,6 +227,7 @@ export function argusTools(captures: Captures, live: Live) {
                 kind: other?.kind,
                 service: serviceName(c.service),
                 ...(c.service.includes('/') ? { port: c.service } : {}),
+                ...(c.app ? { what: what(c.app) } : {}),
                 sent: mine ? c.sent : c.received,
                 received: mine ? c.received : c.sent,
                 first: new Date(c.first * 1000).toISOString(),

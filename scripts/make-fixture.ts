@@ -10,7 +10,10 @@
 // - a Raspberry Pi answering ARP and announcing itself over mDNS;
 // - a Windows PC (Intel OUI) registering its NetBIOS name;
 // - this PC talking to a web server out on the internet through the router, after asking DNS for its name;
-// - one broadcast from a device that never says its name, from a locally administered (random) MAC.
+// - one broadcast from a device that never says its name, from a locally administered (random) MAC;
+// - for the dictionary (shared/classify.ts): YouTube's video, named by DNS; a WireGuard tunnel on port 443 to a host
+//   with no name (a VPN, not the web); a WhatsApp call (STUN to a host DNS named); STUN to a host with no name; and
+//   the TV box answering this PC's SSDP question from a port of its own (SSDP, though neither port says so).
 
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -39,8 +42,17 @@ const HOSTS = {
   },
   me6: { ip: '2001:db8:50:1::10' },
   web6: { ip: '2001:db8:ffff:1::200e' },
+  video: { ip: '173.194.188.71', name: 'rr4---sn-aigl6nzr.googlevideo.com' },
+  vpn: { ip: '198.51.100.7' },
+  call: { ip: '157.240.212.60', name: 'e7.whatsapp.net' },
+  turn: { ip: '203.0.113.5' },
 };
 const BROADCAST = 'ff:ff:ff:ff:ff:ff';
+
+/** WireGuard's messages, as its heuristic knows them: the type in the first byte, three zeros, and the length each has. */
+const wireguard = (type: 1 | 2 | 4, length: number) => Buffer.concat([Buffer.from([type, 0, 0, 0]), Buffer.alloc(length - 4, 0x5a)]);
+/** A STUN binding request (RFC 5389): its type, no attributes, the magic cookie, a transaction id. */
+const stunRequest = (id: number) => Buffer.concat([u16(0x0001), u16(0), u32(0x2112a442), Buffer.alloc(8, 0), u32(id)]);
 
 function checksum(b: Buffer): number {
   let sum = 0;
@@ -171,7 +183,7 @@ function nbnsRegistration(name: string, ip: string): Buffer {
   ]);
 }
 
-const { router, phone, pi, windows, me, quiet, web, cast, me6, web6 } = HOSTS;
+const { router, phone, pi, windows, me, quiet, web, cast, me6, web6, video, vpn, call, turn } = HOSTS;
 const packets: Buffer[] = [
   // DHCP: the phone asks, with its name (option 12) and the address it wants (50); the router acks.
   ether(
@@ -215,6 +227,26 @@ const packets: Buffer[] = [
   ether(me.mac, router.mac, 0x86dd, ipv6(web6.ip, me6.ip, 6, tcp(443, 52100, 1, 0x12, Buffer.alloc(200, 0x17)))),
   // A device that says nothing of itself: a random MAC, one broadcast (to a port nobody names).
   ether(BROADCAST, quiet.mac, 0x0800, ipv4(quiet.ip, '255.255.255.255', 17, udp(40000, 9999, Buffer.from('hello')))),
+  // YouTube: DNS names a googlevideo.com host, and the video comes over UDP 443 (QUIC's port).
+  ether(router.mac, me.mac, 0x0800, ipv4(me.ip, router.ip, 17, udp(51001, 53, dns(0x1a2c, 0x0100, [video.name], [])))),
+  ether(me.mac, router.mac, 0x0800, ipv4(router.ip, me.ip, 17, udp(53, 51001, dns(0x1a2c, 0x8180, [video.name], [{ name: video.name, ip: video.ip }])))),
+  ether(router.mac, me.mac, 0x0800, ipv4(me.ip, video.ip, 17, udp(53001, 443, Buffer.alloc(200, 0x40)))),
+  ether(me.mac, router.mac, 0x0800, ipv4(video.ip, me.ip, 17, udp(443, 53001, Buffer.alloc(1300, 0x41)), 118)),
+  ether(me.mac, router.mac, 0x0800, ipv4(video.ip, me.ip, 17, udp(443, 53001, Buffer.alloc(1300, 0x42)), 118)),
+  // A WireGuard tunnel to a host with no name, on UDP 443: the handshake, and one message of data each way.
+  ether(router.mac, me.mac, 0x0800, ipv4(me.ip, vpn.ip, 17, udp(40404, 443, wireguard(1, 148)))),
+  ether(me.mac, router.mac, 0x0800, ipv4(vpn.ip, me.ip, 17, udp(443, 40404, wireguard(2, 92)), 50)),
+  ether(router.mac, me.mac, 0x0800, ipv4(me.ip, vpn.ip, 17, udp(40404, 443, wireguard(4, 160)))),
+  ether(me.mac, router.mac, 0x0800, ipv4(vpn.ip, me.ip, 17, udp(443, 40404, wireguard(4, 1120)), 50)),
+  // A WhatsApp call: DNS names the relay, and the call begins with STUN to it.
+  ether(router.mac, me.mac, 0x0800, ipv4(me.ip, router.ip, 17, udp(51002, 53, dns(0x1a2d, 0x0100, [call.name], [])))),
+  ether(me.mac, router.mac, 0x0800, ipv4(router.ip, me.ip, 17, udp(53, 51002, dns(0x1a2d, 0x8180, [call.name], [{ name: call.name, ip: call.ip }])))),
+  ether(router.mac, me.mac, 0x0800, ipv4(me.ip, call.ip, 17, udp(49152, 3478, stunRequest(1)))),
+  // STUN to a host no name was seen for: a way through the router, for something that does not say what.
+  ether(router.mac, me.mac, 0x0800, ipv4(me.ip, turn.ip, 17, udp(49153, 3478, stunRequest(2)))),
+  // SSDP: this PC asks who is there; the TV box answers it directly, from a port of its own to the one that asked.
+  ether('01:00:5e:7f:ff:fa', me.mac, 0x0800, ipv4(me.ip, '239.255.255.250', 17, udp(50123, 1900, Buffer.from('M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: "ssdp:discover"\r\nMX: 1\r\nST: ssdp:all\r\n\r\n')), 1)),
+  ether(me.mac, cast.mac, 0x0800, ipv4(cast.ip, me.ip, 17, udp(41234, 50123, Buffer.from('HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age=1800\r\nST: upnp:rootdevice\r\n\r\n')))),
 ];
 
 // The classic libpcap format: a global header, then each packet with its time and length. Ethernet (link type 1).
@@ -245,7 +277,9 @@ for (const p of packets) {
   sent.set(src, s);
 }
 // The conversations between two unicast addresses, read off the IP and TCP/UDP headers: the pair in the order first
-// met, the server's port (the lower of the two, as every port here is), and the bytes each way.
+// met, the server's port (the lower of the two, as every port here is, but for an answer to an SSDP question: SSDP's,
+// as the question was), and the bytes each way.
+const askedSsdp = new Set<string>();
 const conversations = new Map<string, { a: string; b: string; service: string; sent: number; received: number; packets: number }>();
 for (const p of packets) {
   const type = p.readUInt16BE(12);
@@ -258,10 +292,12 @@ for (const p of packets) {
   const addr = (b: Buffer) => (v4 ? [...b].join('.') : new URL(`http://[${(b.toString('hex').match(/.{4}/g) ?? []).join(':')}]`).hostname.slice(1, -1));
   const src = v4 ? addr(ip.subarray(12, 16)) : addr(ip.subarray(8, 24));
   const dst = v4 ? addr(ip.subarray(16, 20)) : addr(ip.subarray(24, 40));
-  if (dst.endsWith('.255') || dst.startsWith('224.') || src === '0.0.0.0') continue;
+  const [sport, dport] = [ip.readUInt16BE(head), ip.readUInt16BE(head + 2)];
+  if (proto === 17 && dport === 1900) askedSsdp.add(`${src}|${sport}`);
+  if (dst.endsWith('.255') || dst.startsWith('224.') || dst.startsWith('239.') || src === '0.0.0.0') continue;
   const name = proto === 6 ? 'tcp' : proto === 17 ? 'udp' : '';
   if (!name) continue;
-  const service = `${name}/${Math.min(ip.readUInt16BE(head), ip.readUInt16BE(head + 2))}`;
+  const service = proto === 17 && askedSsdp.has(`${dst}|${dport}`) ? 'udp/1900' : `${name}/${Math.min(sport, dport)}`;
   const back = conversations.get(`${dst} ${src} ${service}`);
   const c = back ?? conversations.get(`${src} ${dst} ${service}`) ?? { a: src, b: dst, service, sent: 0, received: 0, packets: 0 };
   conversations.set(`${c.a} ${c.b} ${service}`, c);

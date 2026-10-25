@@ -376,7 +376,7 @@ export class Live {
       (d) => `${d.bytesSent}:${d.bytesReceived}:${d.lastSeen}:${d.names.length}:${d.ips.length}:${d.role ?? ''}:${d.rate?.sent ?? 0}:${d.rate?.received ?? 0}`,
     );
     const remotes = changed(v.remotes, this.sentRemotes, (r) => `${r.bytesSent + r.bytesReceived}:${r.lastSeen}:${r.names.length}`);
-    const conversations = changed(v.conversations, this.sentConversations, (c) => `${c.sent}:${c.received}:${c.last}`);
+    const conversations = changed(v.conversations, this.sentConversations, (c) => `${c.sent}:${c.received}:${c.last}:${c.app?.app ?? ''}:${c.app?.activity ?? ''}`);
     const links: Link[] = [];
     const current = new Map<string, number>();
     for (const l of v.links) {

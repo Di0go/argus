@@ -1,6 +1,6 @@
 {
-  "packets": 18,
-  "bytes": 5313,
+  "packets": 33,
+  "bytes": 10714,
   "hosts": {
     "router": {
       "mac": "50:c7:bf:12:34:56",
@@ -45,6 +45,20 @@
     },
     "web6": {
       "ip": "2001:db8:ffff:1::200e"
+    },
+    "video": {
+      "ip": "173.194.188.71",
+      "name": "rr4---sn-aigl6nzr.googlevideo.com"
+    },
+    "vpn": {
+      "ip": "198.51.100.7"
+    },
+    "call": {
+      "ip": "157.240.212.60",
+      "name": "e7.whatsapp.net"
+    },
+    "turn": {
+      "ip": "203.0.113.5"
     }
   },
   "sentByMac": {
@@ -53,8 +67,8 @@
       "bytes": 315
     },
     "50:c7:bf:12:34:56": {
-      "packets": 7,
-      "bytes": 3686
+      "packets": 13,
+      "bytes": 7914
     },
     "b8:27:eb:44:55:66": {
       "packets": 2,
@@ -65,12 +79,12 @@
       "bytes": 110
     },
     "3c:a9:f4:10:20:30": {
-      "packets": 5,
-      "bytes": 610
+      "packets": 13,
+      "bytes": 1672
     },
     "f4:f5:d8:c0:ff:ee": {
-      "packets": 1,
-      "bytes": 416
+      "packets": 2,
+      "bytes": 527
     },
     "9a:11:22:33:44:55": {
       "packets": 1,
@@ -90,9 +104,9 @@
       "a": "192.168.50.10",
       "b": "192.168.50.1",
       "service": "udp/53",
-      "sent": 74,
-      "received": 104,
-      "packets": 2
+      "sent": 242,
+      "received": 352,
+      "packets": 6
     },
     {
       "a": "192.168.50.10",
@@ -109,6 +123,46 @@
       "sent": 74,
       "received": 274,
       "packets": 2
+    },
+    {
+      "a": "192.168.50.10",
+      "b": "173.194.188.71",
+      "service": "udp/443",
+      "sent": 242,
+      "received": 2684,
+      "packets": 3
+    },
+    {
+      "a": "192.168.50.10",
+      "b": "198.51.100.7",
+      "service": "udp/443",
+      "sent": 392,
+      "received": 1296,
+      "packets": 4
+    },
+    {
+      "a": "192.168.50.10",
+      "b": "157.240.212.60",
+      "service": "udp/3478",
+      "sent": 62,
+      "received": 0,
+      "packets": 1
+    },
+    {
+      "a": "192.168.50.10",
+      "b": "203.0.113.5",
+      "service": "udp/3478",
+      "sent": 62,
+      "received": 0,
+      "packets": 1
+    },
+    {
+      "a": "192.168.50.63",
+      "b": "192.168.50.10",
+      "service": "udp/1900",
+      "sent": 111,
+      "received": 0,
+      "packets": 1
     }
   ]
 }

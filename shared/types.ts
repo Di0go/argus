@@ -5,6 +5,7 @@
 // And what the live session is: the interfaces being listened on, what they add up to, and the bandwidth over time.
 
 import type { EntityRef, Link } from '@organon/core/shared/entities';
+import type { Classification } from './classify.ts';
 
 export type Kind = 'device' | 'remote' | 'site' | 'interface' | 'capture';
 
@@ -46,6 +47,8 @@ export interface Remote extends EntityRef, Traffic {
   kind: 'remote';
   ip: string;
   names: { name: string; source: NameSource }[];
+  /** Who runs it and what it is for, as the dictionary says (shared/classify.ts); absent when it says nothing. */
+  app?: Classification;
 }
 
 /** Who runs a set of hosts out on the internet: a company everyone meets (Google, Meta), or a site by its name. */
@@ -106,7 +109,10 @@ export interface Conversation {
   packets: number;
   /** Epoch seconds. */
   first: number;
-  last: number;
+  last: number;  /** What tshark recognised it as, above TCP or UDP ("wg", "stun", "quic"), when it did. */
+  protocol?: string;
+  /** What it is, in plain words: the app, the category, the activity (shared/classify.ts); absent when unknown. */
+  app?: Classification;
 }
 
 export interface HostsView {

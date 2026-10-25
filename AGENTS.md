@@ -11,7 +11,7 @@ What Argus needs that is mechanism (the server, MCP and its bridge, control, rel
 search, the hover card, the look) comes from `@organon/core`. A fix or a new piece is made in `~/Projects/Organon`,
 with tests, in a new version, through its own process (`pnpm gates`, `canary`, `pack:release`, `CHANGELOG.md`), and
 Argus moves its pin; it is never copied here. What is Argus's own stays here: listening (`server/live.ts`), adding
-up (`server/tally.ts`, `server/dissect.ts`), the interfaces and captures (`server/capture.ts`, `server/captures.ts`), the entity kinds (`shared/types.ts`), the MCP tools
+up (`server/tally.ts`, `server/dissect.ts`), the dictionary that says what traffic is for (`shared/classify.ts`, `shared/dictionary/`, `server/dictionary.ts`, [docs/dicionario.md](docs/dicionario.md)), the interfaces and captures (`server/capture.ts`, `server/captures.ts`), the entity kinds (`shared/types.ts`), the MCP tools
 (`server/tools.ts`), the pages (`ui/src`). `python3 ~/Projects/Organon/docs/inventario.py --against .` checks no
 file here is a copy of Aristotle's or Galen's infrastructure (exceptions, with the reason, in `organon-exceptions.tsv`).
 

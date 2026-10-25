@@ -50,6 +50,12 @@ others' after, or the others left out altogether (remembered).
 **Conversations.** Open a device, a host, a company or a network and it says whom it talked to, by what service (as
 the port says: HTTPS, DNS, QUIC…), how much each way and when, live; the other end is a click away.
 
+**What it was for.** A dictionary reads each conversation's names, address and port, and what the traffic looks like,
+into the company, the app and what someone is doing: `rr3---sn-…googlevideo.com` is Google · YouTube · watching video;
+WhatsApp over STUN is a call; a WireGuard tunnel on port 443 is a VPN, not the web. A CDN says who carries the bytes,
+never whose app they are. Built on open lists (v2fly's, the Public Suffix List, iptoasn); which, why, and how much of
+a real house it says: [docs/dicionario.md](docs/dicionario.md).
+
 **Live.** A bandwidth chart for the whole network and for each device, a second at a time for the last ten minutes, a
 minute at a time for the day. Rows hold still while you read them, and a device that just turned up is marked.
 

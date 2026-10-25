@@ -23,6 +23,7 @@
 
 import type { Link } from '@organon/core/shared/entities';
 import { serviceOf, serviceOfProtocol } from '../shared/services.ts';
+import { classify } from './dictionary.ts';
 import type { Conversation, Device, NameSource, Remote } from '../shared/types.ts';
 
 export const FIELDS = [
@@ -59,6 +60,7 @@ export const FIELDS = [
   'udp.dstport',
   'ip.proto',
   'ipv6.nxt',
+  'frame.protocols',
 ] as const;
 type Field = (typeof FIELDS)[number];
 /** Between a field's repeats, in tshark's output (-E aggregator). */
@@ -69,6 +71,7 @@ const ADDRESSES = 16;
 const NAME_LENGTH = 100;
 const DNS_NAMES = 8;
 const SNI_NAMES = 4;
+const SSDP_ASKERS = 64;
 /** Past this many MACs that carried another network's address, only the likeliest routers are kept. */
 const MAYBE_ROUTERS = 256;
 
@@ -120,6 +123,8 @@ interface Flow {
   last: number;
   /** Server names TLS handshakes in it asked for. */
   sni?: string[];
+  /** What tshark recognised it as, above TCP or UDP ("wg", "stun", "quic"): what the port alone may not say. */
+  protocol?: string;
 }
 
 /** A device as counted so far: everything but what depends on which MAC is the router. */
@@ -236,6 +241,11 @@ export class Tally {
   private readonly carriesRemote = new Map<string, number>();
   /** Names remote addresses got from DNS answers. */
   private readonly dnsNames = new Map<string, string[]>();
+  /**
+   * The addresses and ports that asked SSDP who is there (M-SEARCH to port 1900): the answers come back to them from
+   * any port, and are SSDP too, though neither port says so. Only the newest SSDP_ASKERS.
+   */
+  private readonly ssdpAskers = new Set<string>();
   readonly fine: Series;
   readonly coarse: Series;
   private readonly fineByDevice = new Map<string, Series>();
@@ -309,7 +319,7 @@ export class Tally {
 
     // The conversation, for what depends on the router: hosts out on the internet, addresses, links.
     if (ipSrc || ipDst) {
-      const service = frameService(r);
+      const service = this.ssdp(r, ipSrc, ipDst) ?? frameService(r);
       const key = flowKey({ iface, src, dst, ipSrc, ipDst, service });
       let f = this.flows.get(key);
       if (!f) {
@@ -327,6 +337,7 @@ export class Tally {
       f.last = Math.max(f.last, time);
       for (const sni of r['tls.handshake.extensions_server_name'])
         if (!f.sni?.includes(sni) && (f.sni?.length ?? 0) < SNI_NAMES) (f.sni ??= []).push(clip(sni));
+      f.protocol ??= frameProtocol(r);
     }
 
     // ARP: a MAC saying which address is its own.
@@ -385,6 +396,20 @@ export class Tally {
     return new Map([...best].map(([iface, [mac]]) => [iface, mac]));
   }
 
+  /** "udp/1900" for an SSDP question, and for an answer to one; else nothing. */
+  private ssdp(r: Row, ipSrc?: string, ipDst?: string): string | undefined {
+    const [sp, dp] = [r['udp.srcport'][0], r['udp.dstport'][0]];
+    if (!sp || !dp) return undefined;
+    if (dp === '1900' && ipSrc) {
+      const key = `${ipSrc}|${sp}`;
+      this.ssdpAskers.delete(key);
+      this.ssdpAskers.add(key);
+      if (this.ssdpAskers.size > SSDP_ASKERS) this.ssdpAskers.delete(this.ssdpAskers.values().next().value!);
+      return 'udp/1900';
+    }
+    return ipDst && this.ssdpAskers.has(`${ipDst}|${dp}`) ? 'udp/1900' : undefined;
+  }
+
   /** Counts a MAC that carried another network's address, on an interface; prunes to the likeliest past the ceiling. */
   private maybeRouter(iface: string, mac: string) {
     const key = `${iface}|${mac}`;
@@ -424,6 +449,7 @@ export class Tally {
         c = { id, a, b, service, interfaces: [], sent: 0, received: 0, packets: 0, first: f.first, last: f.last };
         conversations.set(id, c);
       }
+      if (f.protocol && !c.protocol) c.protocol = f.protocol;
       if (out) c.sent += f.bytes;
       else c.received += f.bytes;
       c.packets += f.packets;
@@ -505,6 +531,15 @@ export class Tally {
       h.name = h.names[0]?.name ?? h.ip;
       h.aka = [h.ip, ...h.names.map((n) => n.name)];
       h.summary = h.names.length ? h.ip : 'No name seen';
+      // What it is, in plain words (server/dictionary.ts): by the names it was given, TLS's first, else its network.
+      const app = classify({ names: telling(h), ip: h.ip });
+      if (app) h.app = app;
+    }
+    // And each conversation, by its other end's names and its service: WhatsApp over UDP is a call, DNS is DNS.
+    for (const c of conversations.values()) {
+      const h = c.b.startsWith('remote:') ? remotes.get(c.b.slice('remote:'.length)) : undefined;
+      const app = classify({ names: h && telling(h), ip: h?.ip, service: c.service, protocol: c.protocol });
+      if (app) c.app = app;
     }
     const byTraffic = <T extends { bytesSent: number; bytesReceived: number }>(a: T, b: T) =>
       b.bytesSent + b.bytesReceived - (a.bytesSent + a.bytesReceived);
@@ -668,6 +703,15 @@ function flowKey(f: Pick<Flow, 'iface' | 'src' | 'dst' | 'ipSrc' | 'ipDst' | 'se
   return `${f.iface ?? ''}|${f.src ?? ''}|${f.dst ?? ''}|${f.ipSrc ?? ''}|${f.ipDst ?? ''}|${f.service ?? ''}`;
 }
 
+/**
+ * The names that say what a host is: those TLS asked it for, which are what its connections were for; only when there
+ * are none, those DNS answered with its address (the same address answers for many names, at other times).
+ */
+function telling(h: Remote): string[] {
+  const tls = h.names.filter((n) => n.source === 'TLS');
+  return (tls.length ? tls : h.names).map((n) => n.name);
+}
+
 /** A frame's service: by its TCP or UDP ports, else by IP's protocol number (ICMP), else none. */
 function frameService(r: Row): string | undefined {
   const port = (f: Field) => Number(r[f][0] ?? Number.NaN);
@@ -677,6 +721,17 @@ function frameService(r: Row): string | undefined {
   // IPv6's next header may be an extension header before the protocol: the last one listed is the protocol's.
   const proto = Number(r['ip.proto'][0] ?? r['ipv6.nxt'].at(-1) ?? Number.NaN);
   return Number.isFinite(proto) ? serviceOfProtocol(proto) : undefined;
+}
+
+/**
+ * What tshark recognised a frame as, above TCP or UDP: "eth:ethertype:ip:udp:wg" → "wg". Not "data" (it did not
+ * know), and only a name of its own kind, never anything else that came in the frame.
+ */
+function frameProtocol(r: Row): string | undefined {
+  const layers = (r['frame.protocols'][0] ?? '').split(':');
+  const i = layers.findIndex((l) => l === 'tcp' || l === 'udp');
+  const p = i < 0 ? undefined : layers[i + 1];
+  return p && p !== 'data' && /^[a-z0-9._-]{1,32}$/.test(p) ? p : undefined;
 }
 
 /** A name from the network, at most NAME_LENGTH characters, its control characters out. */

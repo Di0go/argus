@@ -94,6 +94,27 @@ test('Every conversation, by its two ends and its service, with the bytes each w
   assert.equal(web?.service, 'tcp/443');
 });
 
+test('Each conversation and host in plain words: YouTube by name, a VPN by how it goes, a call, SSDP answered from any port', () => {
+  const to = (ip: string) => r.conversations.find((c) => c.b === `remote:${ip}`);
+  const video = to(H.video.ip);
+  assert.deepEqual([video?.app?.company, video?.app?.app, video?.app?.activity], ['Google', 'YouTube', 'watching video']);
+  assert.equal(r.remotes.find((h) => h.ip === H.video.ip)?.app?.app, 'YouTube');
+  // WireGuard on UDP 443, to a host with no name: tshark knows it, and it is a VPN, not QUIC.
+  const vpn = to(H.vpn.ip);
+  assert.equal(vpn?.service, 'udp/443');
+  assert.equal(vpn?.protocol, 'wg');
+  assert.deepEqual([vpn?.app?.app, vpn?.app?.category], ['WireGuard', 'vpn']);
+  // STUN to WhatsApp's relay is a call; to a host nobody named, only a way through the router.
+  assert.deepEqual([to(H.call.ip)?.app?.app, to(H.call.ip)?.app?.activity], ['WhatsApp', 'on a call']);
+  assert.deepEqual([to(H.turn.ip)?.app?.app, to(H.turn.ip)?.app?.category], ['STUN', 'network']);
+  // The TV box's answer to this PC's SSDP question, from a port of its own: SSDP.
+  const ssdp = r.conversations.find((c) => c.service === 'udp/1900');
+  assert.equal(ssdp?.app?.app, 'SSDP');
+  // DNS with the router is DNS; the web server (www.google.com) is Google's search.
+  assert.equal(r.conversations.find((c) => c.service === 'udp/53')?.app?.app, 'DNS');
+  assert.equal(to(H.web.ip)?.app?.app, 'Google Search');
+});
+
 test('Addresses: local, unicast, random MACs, and makers shortened', () => {
   assert.ok(isLocal('192.168.50.5') && isLocal('10.0.0.1') && isLocal('100.101.1.1') && isLocal('fe80::1'));
   assert.ok(!isLocal('142.250.184.14') && !isLocal('2a00:1450::1') && !isLocal('172.32.0.1'));
