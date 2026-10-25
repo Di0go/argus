@@ -22,7 +22,7 @@
   },
   "packageManager": "pnpm@10.34.5",
   "dependencies": {
-    "@organon/core": "file:~/Projects/Organon/releases/organon-core-0.4.0.tgz"
+    "@organon/core": "file:~/Projects/Organon/releases/organon-core-0.4.1.tgz"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
