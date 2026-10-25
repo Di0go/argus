@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@organon/core':
-        specifier: file:~/Projects/Organon/releases/organon-core-0.4.1.tgz
-        version: file:../Organon/releases/organon-core-0.4.1.tgz(svelte@5.57.2)(vite@8.3.4(@types/node@26.6.5))
+        specifier: https://github.com/Di0go/organon/releases/download/v0.4.1/organon-core-0.4.1.tgz
+        version: https://github.com/Di0go/organon/releases/download/v0.4.1/organon-core-0.4.1.tgz(svelte@5.57.2)(vite@8.3.4(@types/node@26.6.5))
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^7.3.1
@@ -68,8 +68,8 @@ packages:
       '@cfworker/json-schema':
         optional: true
 
-  '@organon/core@file:../Organon/releases/organon-core-0.4.1.tgz':
-    resolution: {integrity: sha512-tu+EqrNqqS0nL6rkeMTNqwpAz4u8NbvDTtUtCn5IxCBCI2/5fsDPBbAzoNAHN6EQSh7tLOHqUE58HORZLTNT+Q==, tarball: file:../Organon/releases/organon-core-0.4.1.tgz}
+  '@organon/core@https://github.com/Di0go/organon/releases/download/v0.4.1/organon-core-0.4.1.tgz':
+    resolution: {integrity: sha512-tu+EqrNqqS0nL6rkeMTNqwpAz4u8NbvDTtUtCn5IxCBCI2/5fsDPBbAzoNAHN6EQSh7tLOHqUE58HORZLTNT+Q==, tarball: https://github.com/Di0go/organon/releases/download/v0.4.1/organon-core-0.4.1.tgz}
     version: 0.4.1
     engines: {node: '>=24.2'}
     peerDependencies:
@@ -873,7 +873,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@organon/core@file:../Organon/releases/organon-core-0.4.1.tgz(svelte@5.57.2)(vite@8.3.4(@types/node@26.6.5))':
+  '@organon/core@https://github.com/Di0go/organon/releases/download/v0.4.1/organon-core-0.4.1.tgz(svelte@5.57.2)(vite@8.3.4(@types/node@26.6.5))':
     dependencies:
       '@modelcontextprotocol/sdk': 1.32.1(zod@4.6.5)
       zod: 4.6.5
