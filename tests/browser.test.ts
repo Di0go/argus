@@ -72,7 +72,11 @@ test('Search finds a device by its maker; hovering a link shows its card', { ski
   assert.equal(await hit.count(), 1);
   assert.match(await hit.innerText(), /raspberrypi/);
   await p.getByRole('searchbox', { name: 'Procurar' }).fill('');
-  await p.getByRole('table', { name: 'Dispositivos' }).getByRole('link', { name: 'DESKTOP-STUDY' }).hover();
+  // Scrolled to first, as a person does: a scroll closes the card (it would be left pointing at nothing).
+  const link = p.getByRole('table', { name: 'Dispositivos' }).getByRole('link', { name: 'DESKTOP-STUDY' });
+  await link.scrollIntoViewIfNeeded();
+  await p.waitForTimeout(100);
+  await link.hover();
   const card = p.getByRole('tooltip');
   await card.waitFor();
   assert.match(await card.innerText(), /Intel Corporate/);
