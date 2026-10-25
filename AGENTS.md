@@ -2,16 +2,16 @@
 
 A readable network spy for one person, on `tshark`, live: turn on one or more network interfaces and see, as it
 happens and in plain words, which devices are there (name, address, maker, how fast they move data now) and which
-hosts and companies out on the internet they talk to; save the last minutes as a capture. The agent asks the same over MCP (`get_hosts`, `get_device`, `list_captures`). The first app
-born on the saga's shared core, [Organon](../Organon) (`@organon/core`, pinned at an exact version in `package.json`).
+hosts and companies out on the internet they talk to; save the last minutes as a capture. The agent asks the same
+over MCP (`get_hosts`, `get_device`, `list_captures`). The first app born on the saga's shared core, [Organon](../Organon) (`@organon/core`, pinned at an exact version in `package.json`).
 
 ## The rule of the core
 
 What Argus needs that is mechanism (the server, MCP and its bridge, control, release, `.test`, systemd, entities,
 search, the hover card, the look) comes from `@organon/core`. A fix or a new piece is made in `~/Projects/Organon`,
 with tests, in a new version, through its own process (`pnpm gates`, `canary`, `pack:release`, `CHANGELOG.md`), and
-Argus moves its pin; it is never copied here. What is Argus's own stays here: captures (`server/capture.ts`,
-`server/captures.ts`), dissection (`server/dissect.ts`), the entity kinds (`shared/types.ts`), the MCP tools
+Argus moves its pin; it is never copied here. What is Argus's own stays here: listening (`server/live.ts`), adding
+up (`server/tally.ts`, `server/dissect.ts`), the interfaces and captures (`server/capture.ts`, `server/captures.ts`), the entity kinds (`shared/types.ts`), the MCP tools
 (`server/tools.ts`), the pages (`ui/src`). `python3 ~/Projects/Organon/docs/inventario.py --against .` checks no
 file here is a copy of Aristotle's or Galen's infrastructure (exceptions, with the reason, in `organon-exceptions.tsv`).
 
