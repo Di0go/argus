@@ -12,13 +12,9 @@
   import { link } from './router.svelte.ts';
   import Spark from './Spark.svelte';
 
-  let { variant = 'list' }: { variant?: 'list' | 'menu' } = $props();
-
   let problem = $state('');
   let busy = $state<string | null>(null);
   let more = $state(false);
-  let open = $state(false);
-  let root = $state<HTMLElement>();
 
   const stateOf = (id: string) => argus.session?.listening.find((l) => l.id === id);
   const minor = (i: Interface) => i.up === false || i.type === 'docker' || i.type === 'loopback' || i.type === 'any' || i.type === 'other';
@@ -71,13 +67,7 @@
     any: 'Every interface',
     other: 'Other',
   };
-
-  function outside(e: PointerEvent) {
-    if (open && root && !root.contains(e.target as Node)) open = false;
-  }
 </script>
-
-<svelte:window onpointerdown={outside} onkeydown={(e) => e.key === 'Escape' && (open = false)} />
 
 {#snippet row(i: Interface)}
   {@const s = stateOf(i.id)}
@@ -117,19 +107,7 @@
   {/if}
 {/snippet}
 
-{#if variant === 'menu'}
-  <div class="menu-wrap" bind:this={root}>
-    <button class="menu-button" aria-haspopup="true" aria-expanded={open} onclick={() => (open = !open)}>
-      {#if on.length}<i class="live" aria-hidden="true"></i>{/if}
-      <span class="mb-l">{on.length ? `Listening on ${on.map((i) => i.name).join(' and ')}` : 'Choose where to listen'}</span>
-      {#if on.length}<span class="mb-r">{rate(argus.meter)}</span>{/if}
-      <ChevronDown size={15} strokeWidth={2} />
-    </button>
-    {#if open}<div class="menu-pop">{@render list()}</div>{/if}
-  </div>
-{:else}
-  <div class="panel listen">{@render list()}</div>
-{/if}
+<div class="panel listen">{@render list()}</div>
 
 {#each argus.session?.listening.filter((l) => l.on && l.status === 'failed') ?? [] as l (l.id)}
   <p class="why" role="status">{l.id} stopped {l.since ? since(l.since) : ''}: {l.error}. It tries again by itself.</p>
@@ -351,66 +329,6 @@
     margin: 10px 0 0;
     font-size: 0.84rem;
     color: var(--shaky);
-  }
-
-  /* The other way: one button that says where it listens, the same list in a menu under it. */
-  .menu-wrap {
-    position: relative;
-    display: inline-block;
-    max-width: 100%;
-  }
-
-  .menu-button {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    max-width: 100%;
-    min-height: 38px;
-    padding: 6px 12px 6px 14px;
-    border: 1px solid var(--rule-strong);
-    border-radius: var(--radius);
-    background: var(--b0);
-    color: var(--fg);
-    font-size: 0.9rem;
-    font-weight: 550;
-    cursor: pointer;
-  }
-
-  .menu-button:hover {
-    background: var(--hover);
-  }
-
-  .mb-l {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mb-r {
-    color: var(--muted);
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .live {
-    flex: none;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--acc);
-  }
-
-  .menu-pop {
-    position: absolute;
-    z-index: 30;
-    top: calc(100% + 6px);
-    left: 0;
-    width: min(900px, calc(100vw - 32px));
-    padding: 6px 8px;
-    border: 1px solid var(--rule);
-    border-radius: var(--radius-lg);
-    background: var(--b0);
-    box-shadow: var(--shadow);
   }
 
   @media (max-width: 900px) {

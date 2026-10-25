@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img alt="Live, on tshark" src="https://img.shields.io/badge/live-on%20tshark-2f6fde?style=flat-square">
+  <img alt="Live, on tshark" src="https://img.shields.io/badge/live-on%20tshark-bf124e?style=flat-square">
   <img alt="Only listens" src="https://img.shields.io/badge/only-listens-2e8b57?style=flat-square">
   <img alt="On @organon/core" src="https://img.shields.io/badge/on-%40organon%2Fcore-a8742a?style=flat-square">
   <img alt="Svelte 5" src="https://img.shields.io/badge/Svelte-5-ff3e00?style=flat-square&logo=svelte&logoColor=white">
@@ -28,7 +28,7 @@ moving data right now, and which companies out on the internet they talk to. It 
 only, and keeps nothing but the last minutes on disk. An agent can ask it the same over MCP.
 
 <p align="center">
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/now-dark.webp"><img src="docs/images/now-light.webp" alt="Argus's Agora page: listening on the Wi-Fi for a minute, ten devices and twelve hosts; 2.0 MB/s right now over a chart of the last minutes; the devices busiest first with their rate and a small chart each; the companies on the internet, Netflix first." width="100%"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/now-dark.webp"><img src="docs/images/now-light.webp" alt="Argus's Now page: the networks as a list, the Wi-Fi and Docker listening with their devices and rate, the VPN off; the whole network's rate now over a chart of the last minutes; below, the devices with their network, and the companies on the internet." width="100%"></picture>
 </p>
 
 <p align="center"><sub>Every picture here is of <code>pnpm demo</code>: a made-up house, no real traffic.</sub></p>
@@ -43,11 +43,18 @@ this PC are known by what they do.
 **The internet, by company.** Hosts are named by the DNS answers your network got for them and by the server name an
 encrypted connection asks for in the clear (SNI), then grouped by who runs them: `rr3---sn-…googlevideo.com` is Google.
 
+**Networks.** Where it listens is a list: each network with its kind, how it is going, the devices heard on it and
+its rate now. Every device says which network it is on, and one network can be chosen: its devices first and the
+others' after, or the others left out altogether (remembered).
+
+**Conversations.** Open a device, a host, a company or a network and it says whom it talked to, by what service (as
+the port says: HTTPS, DNS, QUIC…), how much each way and when, live; the other end is a click away.
+
 **Live.** A bandwidth chart for the whole network and for each device, a second at a time for the last ten minutes, a
 minute at a time for the day. Rows hold still while you read them, and a device that just turned up is marked.
 
 <p align="center">
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/device-dark.webp"><img src="docs/images/device-light.webp" alt="A device's page: its MAC, addresses, maker, where each name came from, how much it sent and received, its bandwidth over the last minutes, and the companies it talks to." width="49%"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/device-dark.webp"><img src="docs/images/device-light.webp" alt="A device's page: its conversations, each with whom, by what service, how much each way and when, below its bandwidth chart; then the companies and devices it talks to." width="49%"></picture>
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/search-dark.webp"><img src="docs/images/search-light.webp" alt="The search palette over everything Argus has seen: typing living finds the Living Room TV." width="49%"></picture>
 </p>
 
