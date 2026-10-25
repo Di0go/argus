@@ -5,3 +5,5 @@
 svelte.config.js	Svelte's own two-line config (vitePreprocess), the same in every Svelte app.
 tsconfig.json	The compiler options every app on the core uses (erasable syntax, bundler resolution); a shared base in the core is possible later, but TypeScript's extends from a package adds nothing at this size.
 ui/src/vite-env.d.ts	Two reference lines Vite and Svelte ask for.
+LICENSE	The MIT licence text, word for word as every repository of the saga carries it.
+ui/index.html	The page skeleton Vite serves (charset, viewport, the core's theme-boot.js with the app's key, the title and the app's own icon): the same eight lines in every app, the parts that differ are the app's.

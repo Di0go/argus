@@ -2,7 +2,7 @@
   "name": "argus",
   "private": true,
   "type": "module",
-  "description": "A readable network spy for one person: what devices a capture saw, in his words, on tshark. Built on @organon/core.",
+  "description": "A readable network spy for one person, live, on tshark: which devices are on the network and which companies they talk to, in plain words. Built on @organon/core.",
   "license": "MIT",
   "engines": {
     "node": ">=24.2"
@@ -24,7 +24,7 @@
   "packageManager": "pnpm@10.34.5",
   "dependencies": {
     "@lucide/svelte": "1.51.0",
-    "@organon/core": "file:/tmp/scratch/organon-core-0.5.0.tgz"
+    "@organon/core": "https://github.com/Di0go/organon/releases/download/v0.5.0/organon-core-0.5.0.tgz"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

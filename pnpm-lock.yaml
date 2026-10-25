@@ -12,8 +12,8 @@ importers:
         specifier: 1.51.0
         version: 1.51.0(svelte@5.57.2)
       '@organon/core':
-        specifier: file:/tmp/scratch/organon-core-0.5.0.tgz
-        version: file:../core-wip/organon-core-0.5.0.tgz(svelte@5.57.2)(vite@8.3.4(@types/node@26.6.5))
+        specifier: https://github.com/Di0go/organon/releases/download/v0.5.0/organon-core-0.5.0.tgz
+        version: https://github.com/Di0go/organon/releases/download/v0.5.0/organon-core-0.5.0.tgz(svelte@5.57.2)(vite@8.3.4(@types/node@26.6.5))
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^7.3.1
@@ -82,8 +82,8 @@ packages:
       '@cfworker/json-schema':
         optional: true
 
-  '@organon/core@file:../core-wip/organon-core-0.5.0.tgz':
-    resolution: {integrity: sha512-hWAt7WxtCCB5nZK2SuB3RQ4xAjwj3K7WSuRvs2qUgTEoSCIvO8UM6p06HSrVya0acAfRgrMrkAkUvFZQRHg3DA==, tarball: file:../core-wip/organon-core-0.5.0.tgz}
+  '@organon/core@https://github.com/Di0go/organon/releases/download/v0.5.0/organon-core-0.5.0.tgz':
+    resolution: {integrity: sha512-hWAt7WxtCCB5nZK2SuB3RQ4xAjwj3K7WSuRvs2qUgTEoSCIvO8UM6p06HSrVya0acAfRgrMrkAkUvFZQRHg3DA==, tarball: https://github.com/Di0go/organon/releases/download/v0.5.0/organon-core-0.5.0.tgz}
     version: 0.5.0
     engines: {node: '>=24.2'}
     peerDependencies:
@@ -895,7 +895,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@organon/core@file:../core-wip/organon-core-0.5.0.tgz(svelte@5.57.2)(vite@8.3.4(@types/node@26.6.5))':
+  '@organon/core@https://github.com/Di0go/organon/releases/download/v0.5.0/organon-core-0.5.0.tgz(svelte@5.57.2)(vite@8.3.4(@types/node@26.6.5))':
     dependencies:
       '@fontsource-variable/inter': 5.3.0
       '@fontsource-variable/jetbrains-mono': 5.3.0
