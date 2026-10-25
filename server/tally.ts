@@ -401,7 +401,7 @@ export class Tally {
     for (const h of remotes.values()) {
       h.name = h.names[0]?.name ?? h.ip;
       h.aka = [h.ip, ...h.names.map((n) => n.name)];
-      h.summary = h.names.length ? `${h.ip} na internet` : 'Na internet, sem nome visto';
+      h.summary = h.names.length ? h.ip : 'Sem nome visto';
     }
     const byTraffic = <T extends { bytesSent: number; bytesReceived: number }>(a: T, b: T) =>
       b.bytesSent + b.bytesReceived - (a.bytesSent + a.bytesReceived);

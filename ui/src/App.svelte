@@ -104,19 +104,43 @@
 
   const KINDS = { device: 'Dispositivo', remote: 'Internet', site: 'Empresa', interface: 'Interface', capture: 'Captura' };
 
-  /** Every entity of what the page shows (the live session or its capture), and the captures by date or interface. */
+  /** The order hits come in: what he most likely means first. */
+  const RANK: Record<string, number> = { device: 0, site: 1, interface: 2, remote: 3, capture: 4 };
+
+  /**
+   * Every entity of what the page shows (the live session or its capture), and the captures by date or interface.
+   * A name many addresses share (www.google.com) is one hit, its busiest address; the words around the match are
+   * shown only when the match is not in the name itself.
+   */
   function search(q: string): SearchHit[] {
     const capture = router.route.capture;
     const src = argus.sourceFor(capture);
-    const hits: SearchHit[] = (src?.graph.search(q, 30) ?? []).map((h) => ({
-      kind: h.entity.kind,
-      title: h.entity.name,
-      href: entityHref(h.entity.kind, h.entity.id, capture),
-      context: h.entity.summary,
-      snippet: h.snippet !== h.entity.name ? h.snippet : undefined,
-      entity: keyOf(h.entity),
-    }));
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    const seen = new Map<string, number>();
+    const hits: SearchHit[] = [];
+    const found = (src?.graph.search(q, 200) ?? []).sort((a, b) => (RANK[a.entity.kind] ?? 9) - (RANK[b.entity.kind] ?? 9));
+    for (const h of found) {
+      const e = h.entity;
+      const same = `${e.kind}:${e.name}`;
+      if (seen.has(same)) {
+        seen.set(same, (seen.get(same) ?? 1) + 1);
+        continue;
+      }
+      seen.set(same, 1);
+      const inTitle = words.every((w) => e.name.toLowerCase().includes(w));
+      hits.push({
+        kind: e.kind,
+        title: e.name,
+        href: entityHref(e.kind, e.id, capture),
+        context: e.summary,
+        snippet: inTitle ? undefined : h.snippet,
+        entity: keyOf(e),
+      });
+    }
+    for (const h of hits) {
+      const n = seen.get(`${h.kind}:${h.title}`) ?? 1;
+      if (n > 1) h.context = `${h.context ? `${h.context}, ` : ''}e mais ${n - 1} ${n - 1 === 1 ? 'endereço' : 'endereços'}`;
+    }
     for (const c of argus.captures) {
       const text = `${when(c.started)} ${c.interfaces.join(' ')} captura`.toLowerCase();
       if (words.every((w) => text.includes(w))) hits.push({ kind: 'capture', title: `Captura de ${when(c.started)}`, href: link.capture(c.id), context: c.interfaces.join(', ') });

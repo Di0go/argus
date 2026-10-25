@@ -116,7 +116,7 @@
           <HostList items={sites.map((n) => n.entity).filter((e) => e.kind === 'site')} {capture} {live} label="Empresas e sites" />
           {#if unnamed.length}
             <p class="sub-h">Sem nome visto</p>
-            <HostList items={unnamed.map((n) => n.entity).filter((e) => e.kind === 'remote').slice(0, 12)} {capture} {live} label="Anfitriões sem nome" />
+            <HostList items={unnamed.map((n) => n.entity).filter((e) => e.kind === 'remote').slice(0, 12)} {capture} {live} label="Anfitriões sem nome" aside={() => ''} />
           {/if}
         {:else}
           <p class="empty">
