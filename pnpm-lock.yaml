@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@organon/core':
-        specifier: file:/tmp/scratch/core/organon-core-0.4.0.tgz
-        version: file:../../../../tmp/scratch/core/organon-core-0.4.0.tgz(svelte@5.57.2)(vite@8.3.4(@types/node@26.6.5))
+        specifier: file:~/Projects/Organon/releases/organon-core-0.4.0.tgz
+        version: file:../Organon/releases/organon-core-0.4.0.tgz(svelte@5.57.2)(vite@8.3.4(@types/node@26.6.5))
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^7.3.1
@@ -68,8 +68,8 @@ packages:
       '@cfworker/json-schema':
         optional: true
 
-  '@organon/core@file:../../../../tmp/scratch/core/organon-core-0.4.0.tgz':
-    resolution: {integrity: sha512-HXx0JFMYlM/HopwB1Y1vCukt5UowW5GhTHfj/71KTosMzkyFezUCXoEyPXWkmFFw8ChioplZ1WERDjIBlKZwEw==, tarball: file:../../../../tmp/scratch/core/organon-core-0.4.0.tgz}
+  '@organon/core@file:../Organon/releases/organon-core-0.4.0.tgz':
+    resolution: {integrity: sha512-BeVyKpzmH+tQXAI11L0VgZAPSYlcCAMdchwGSQ3QhqIrpIHS19cEl5B5wXadKtsF8/m+kZD3LYffnbTTchscug==, tarball: file:../Organon/releases/organon-core-0.4.0.tgz}
     version: 0.4.0
     engines: {node: '>=24.2'}
     peerDependencies:
@@ -873,7 +873,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@organon/core@file:../../../../tmp/scratch/core/organon-core-0.4.0.tgz(svelte@5.57.2)(vite@8.3.4(@types/node@26.6.5))':
+  '@organon/core@file:../Organon/releases/organon-core-0.4.0.tgz(svelte@5.57.2)(vite@8.3.4(@types/node@26.6.5))':
     dependencies:
       '@modelcontextprotocol/sdk': 1.32.1(zod@4.6.5)
       zod: 4.6.5
