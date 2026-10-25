@@ -1,11 +1,13 @@
-// The tools an agent uses to ask Argus what it saw, over MCP (the core's handler, server/index.ts). They only read:
-// a capture is started by him, on the page. The descriptions are all a client knows of each tool, so they carry
-// what the answers can and cannot say.
+// The tools an agent uses to ask Argus what it sees, over MCP (the core's handler, server/index.ts). They only read:
+// he turns listening on and off, and saves captures, on the page. The descriptions are all a client knows of each
+// tool, so they carry what the answers can and cannot say.
 
 import { defineTools, error, json, READ_ONLY, z } from '@organon/core/server/mcp';
 import { EntityGraph, keyOf } from '@organon/core/shared/entities';
-import type { Capture, Device, HostsView, Remote } from '../shared/types.ts';
+import type { Link } from '@organon/core/shared/entities';
+import type { Capture, Device, Remote, Session } from '../shared/types.ts';
 import type { Captures } from './captures.ts';
+import type { Live } from './live.ts';
 
 const LIMITS =
   'What is encrypted is not read: only who talked to whom, when and how much. On a PC on a switched network, the capture sees ' +
@@ -13,8 +15,9 @@ const LIMITS =
 
 export function instructions(): string {
   return (
-    'Argus is a readable network spy on tshark: the devices a capture saw on the local network (name, address, maker, how much ' +
-    'they sent), and the hosts out on the internet they talked to. He starts captures on the page; you read them. ' +
+    'Argus is a readable network spy on tshark: it listens, live, on the interfaces he turns on, and says which devices are on ' +
+    'the local network (name, address, maker, how much they send, how fast right now) and which hosts out on the internet they ' +
+    'talk to. He turns listening on and saves captures on the page (https://argus.test); you read. ' +
     `Start with get_hosts. ${LIMITS}`
   );
 }
@@ -31,6 +34,8 @@ function deviceLine(d: Device) {
     names: d.names.map((n) => `${n.name} (${n.source})`),
     sent: d.bytesSent,
     received: d.bytesReceived,
+    ...(d.rate ? { bytesPerSecondNow: d.rate.sent + d.rate.received } : {}),
+    lastSeen: new Date(d.lastSeen * 1000).toISOString(),
     interfaces: d.interfaces,
   };
 }
@@ -52,15 +57,34 @@ function captureLine(c: Capture) {
   };
 }
 
-export function argusTools(captures: Captures) {
-  /** The capture asked for, or the newest finished one. */
-  const pick = (id?: string) => (id ? captures.get(id) : captures.latest());
-  const view = async (id?: string): Promise<HostsView | string> => {
-    const c = pick(id);
-    if (!c) return id ? `No capture "${id}". list_captures lists them.` : 'No capture yet: he starts one on the page (https://argus.test).';
+function sessionLine(s: Session) {
+  return {
+    since: s.started ? new Date(s.started * 1000).toISOString() : undefined,
+    listeningOn: s.listening.filter((l) => l.on).map((l) => ({ interface: l.id, status: l.status, ...(l.error ? { error: l.error } : {}) })),
+    packets: s.packets,
+    bytesPerSecondNow: s.rate,
+  };
+}
+
+type View = { devices: Device[]; remotes: Remote[]; links: Link[]; capture?: Capture; session?: Session };
+
+export function argusTools(captures: Captures, live: Live) {
+  /** The capture asked for, or the live session. */
+  const view = async (id?: string): Promise<View | string> => {
+    if (!id) {
+      const session = live.session();
+      if (!session.packets)
+        return session.listening.some((l) => l.on)
+          ? 'Listening, but nothing seen yet: give it a few seconds.'
+          : 'Not listening: he turns an interface on at https://argus.test. list_captures has the captures saved.';
+      return { session, ...live.hosts() };
+    }
+    const c = captures.get(id);
+    if (!c) return `No capture "${id}". list_captures lists them.`;
     if (c.status !== 'done') return `Capture ${c.id} is ${c.status}${c.error ? `: ${c.error}` : ''}.`;
     return captures.hosts(c);
   };
+  const where = (v: View) => (v.capture ? { capture: captureLine(v.capture) } : { live: sessionLine(v.session!) });
 
   return defineTools((mcp) => {
     mcp.registerTool(
@@ -71,7 +95,8 @@ export function argusTools(captures: Captures) {
         description:
           'The devices on the local network that a capture saw (name and where it came from: DHCP, mDNS, NetBIOS; IP and MAC ' +
           'addresses; maker from the MAC; bytes sent and received; which is the router and which is this PC), and the hosts out on ' +
-          'the internet, named by DNS answers or TLS SNI when seen. Without `capture`, the newest finished capture. ' +
+          'the internet, named by DNS answers or TLS SNI when seen. Without `capture`, the live session: what is being listened ' +
+          'on now, since it began, with how fast each device is sending right now. ' +
           LIMITS,
         inputSchema: {
           capture: z.string().optional().describe('A capture id from list_captures'),
@@ -82,7 +107,7 @@ export function argusTools(captures: Captures) {
         const v = await view(capture);
         if (typeof v === 'string') return error(v);
         return json({
-          capture: captureLine(v.capture),
+          ...where(v),
           devices: v.devices.map(deviceLine),
           remotes: v.remotes.slice(0, remotes ?? 20).map(remoteLine),
           remotesTotal: v.remotes.length,
@@ -97,7 +122,8 @@ export function argusTools(captures: Captures) {
         title: 'One device and who it talked to',
         description:
           'One device from a capture, found by its name, IP or MAC address: what is known of it, the internet hosts and local ' +
-          'devices it talked to (busiest first, in bytes), and the other devices that talked to the same hosts. ' +
+          'devices it talked to (busiest first, in bytes), and the other devices that talked to the same hosts. Without `capture`, ' +
+          'the live session. ' +
           LIMITS,
         inputSchema: {
           device: z.string().min(1).describe('A name, IP or MAC, as get_hosts gives it'),
@@ -109,7 +135,7 @@ export function argusTools(captures: Captures) {
         if (typeof v === 'string') return error(v);
         const graph = new EntityGraph<Device | Remote>([...v.devices, ...v.remotes], v.links);
         const d = graph.find(device, 'device') as Device | undefined;
-        if (!d) return error(`No device "${device}" in capture ${v.capture.id}. get_hosts lists them.`);
+        if (!d) return error(`No device "${device}" ${v.capture ? `in capture ${v.capture.id}` : 'in the live session'}. get_hosts lists them.`);
         const key = keyOf(d);
         return json({
           ...deviceLine(d),
@@ -124,7 +150,8 @@ export function argusTools(captures: Captures) {
       {
         annotations: READ_ONLY,
         title: 'The captures',
-        description: 'Every capture, newest first: when, how long, on which interfaces, whether it finished, how many packets.',
+        description:
+          'Every capture he saved from the live session (or brought in), newest first: when, how long, on which interfaces, how many packets.',
       },
       async () => json(captures.all().map(captureLine)),
     );

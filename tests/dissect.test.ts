@@ -98,3 +98,45 @@ test('Interfaces named as he would: Wi-Fi, Cabo, Docker, VPN, Loopback, Todas; d
     { name: 'any', description: 'Pseudo-device that captures on all interfaces' },
   ]);
 });
+
+test('Frames one at a time add up to the same as the file read whole, and a saved session reads back the same', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { Tally, fieldArgs } = await import('../server/tally.ts');
+  const text = execFileSync(TSHARK, ['-r', FIXTURE, ...fieldArgs()], { encoding: 'utf8' });
+  const t = new Tally({ ownMacs: [H.me.mac] });
+  for (const line of text.split('\n').filter(Boolean)) t.addText(line);
+  assert.deepEqual(t.view(), r);
+  const back = Tally.load(JSON.parse(JSON.stringify(t.save())), { ownMacs: [H.me.mac] });
+  // As JSON both: on disk a missing maker and an undefined one are the same.
+  assert.deepEqual(JSON.parse(JSON.stringify(back.view())), JSON.parse(JSON.stringify(r)));
+  assert.deepEqual(back.fine.tail(), t.fine.tail());
+});
+
+test('Bounded: past the ceilings the conversations and devices quiet longest are forgotten', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { Tally, fieldArgs } = await import('../server/tally.ts');
+  const text = execFileSync(TSHARK, ['-r', FIXTURE, ...fieldArgs()], { encoding: 'utf8' });
+  const t = new Tally({ maxFlows: 4, maxDevices: 3 }).addText(text);
+  const saved = t.save();
+  assert.ok(saved.flows.length <= 4, String(saved.flows.length));
+  assert.ok(saved.devices.length <= 3, String(saved.devices.length));
+  // What was counted still adds up: the totals are not the ceiling's to change.
+  assert.equal(t.packets, truth.packets);
+  assert.equal(t.bytes, truth.bytes);
+});
+
+test('The bandwidth over time: each byte in the bucket of its second, the oldest dropped as time moves on', async () => {
+  const { Series } = await import('../server/tally.ts');
+  const s = new Series(1, 5);
+  s.add(100.2, 10, 0);
+  s.add(100.9, 5, 1);
+  s.add(102.5, 0, 7);
+  assert.deepEqual(s.tail(), { step: 1, end: 102, sent: [0, 0, 15, 0, 0], received: [0, 0, 1, 0, 7] });
+  s.advance(104);
+  assert.deepEqual(s.tail().sent, [15, 0, 0, 0, 0]);
+  s.advance(200);
+  assert.deepEqual(s.tail().sent, [0, 0, 0, 0, 0]);
+  // A frame older than what is kept is not counted in the series (it still is in the totals).
+  s.add(150, 9, 9);
+  assert.deepEqual(s.tail().sent, [0, 0, 0, 0, 0]);
+});

@@ -1,7 +1,6 @@
-// The network interfaces this machine has, named as he would name them, and a capture on one or more of them for a
-// number of seconds. Only dumpcap touches the network (it is the one program with the capture capabilities,
-// scripts/install-capture.sh); Argus runs as the user and reads the file dumpcap wrote. It only listens: no monitor
-// mode, nothing sent.
+// The network interfaces this machine has, named as he would name them, and whether this user can capture on them
+// (dumpcap lists them only if it can open them: it is the one program with the capture capabilities,
+// scripts/install-capture.sh). The listening itself is live.ts.
 
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -91,15 +90,6 @@ export function ownMacs(sysNet = '/sys/class/net'): string[] {
       }
     })
     .filter((m) => m && m !== '00:00:00:00:00:00');
-}
-
-/**
- * Captures on `interfaces` for `seconds` into `file` (pcapng, which keeps which interface each packet came on).
- * Resolves when dumpcap has stopped and written it.
- */
-export function capture(tools: CaptureTools, interfaces: string[], seconds: number, file: string): Promise<void> {
-  const args = [...interfaces.flatMap((i) => ['-i', i]), '-a', `duration:${seconds}`, '-q', '-w', file];
-  return run(tools.dumpcap, args, (seconds + 30) * 1000).then(() => undefined);
 }
 
 function run(cmd: string, args: string[], timeout = 15_000): Promise<string> {

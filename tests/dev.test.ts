@@ -46,7 +46,10 @@ test('pnpm dev: Vite serves the page from source, /api goes through to the dev s
     await new Promise((r) => setTimeout(r, 100));
   }
   await page.goto(base);
-  await page.locator('tr', { hasText: 'Alexs-iPhone' }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'Agora' }).waitFor({ timeout: 10_000 });
+  // The recording brought in, listed: the API went through Vite to the dev server.
+  await page.goto(`${base}/#/captures`);
+  await page.getByRole('table', { name: 'Capturas' }).locator('tbody tr').first().waitFor({ timeout: 10_000 });
   assert.deepEqual(errors, []);
   assert.doesNotMatch(viteLog, /error/i, viteLog);
   await page.close();
