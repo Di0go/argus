@@ -1,0 +1,214 @@
+<!doctype html>
+<!-- Three ways to lay out Argus's home page, drawn over the same made-up house (the demo's: invented names, documentation
+     addresses), for docs/apresentacao.md. Not the app: a sketch in the family's tokens. #a, #b, #c pick the variant. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Argus home: three layouts</title>
+<style>
+@font-face { font-family: Inter; src: url('../../node_modules/.pnpm/@fontsource-variable+inter@5.3.0/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2'); font-weight: 100 900; }
+@font-face { font-family: JBM; src: url('../../node_modules/.pnpm/@fontsource-variable+jetbrains-mono@5.3.0/node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2') format('woff2'); font-weight: 100 900; }
+:root { --b0:#fff; --b1:#f6f6f6; --b2:#ededed; --fg:#222; --fg-2:#4a4a4a; --muted:#6b6b6b; --faint:#9b9b9b; --rule:#e4e4e4; --rule-strong:#d2d2d2; --acc:#bf124e; --warn:#c2410c; --warn-soft:color-mix(in srgb,#c2410c 12%,transparent); --data:#5b6470; --data-soft:color-mix(in srgb,#5b6470 18%,transparent); --s1:#2a78d6; --s2:#2b8f55; --s3:#eb6834; --s4:#8c5cd6; --s5:#b8860b; --s6:#9b9b9b; }
+@media (prefers-color-scheme: dark) { :root { --b0:#1e1e1e; --b1:#262626; --b2:#2f2f2f; --fg:#dcddde; --fg-2:#bdbdbd; --muted:#a0a0a0; --faint:#6f6f6f; --rule:#333; --rule-strong:#444; --acc:#f15f7f; --warn:#fb923c; --warn-soft:color-mix(in srgb,#fb923c 15%,transparent); --data:#aab2bd; --data-soft:color-mix(in srgb,#aab2bd 20%,transparent); --s1:#6ea8ff; --s2:#5dbb85; --s3:#f08a5d; --s4:#a98bf0; --s5:#d9a441; --s6:#6f6f6f; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--b0); color:var(--fg); font:400 15px/1.55 Inter, sans-serif; -webkit-font-smoothing:antialiased; }
+.mono { font-family: JBM, monospace; font-size: .82em; }
+.frame { display:grid; grid-template-columns: 52px 1fr; min-height:100vh; }
+.ribbon { background:var(--b1); border-right:1px solid var(--rule); display:flex; flex-direction:column; align-items:center; gap:14px; padding-top:12px; font-size:10px; color:var(--muted); }
+.ribbon span { display:grid; place-items:center; width:44px; height:40px; border-radius:8px; }
+.ribbon span.on { background:color-mix(in srgb,var(--acc) 13%,transparent); color:var(--acc); }
+main { padding: 36px 56px 40px; max-width: 1400px; }
+h1 { font-size: 2rem; margin: 0 0 4px; letter-spacing: -.02em; }
+h2 { font-size: 1.05rem; margin: 0 0 10px; font-weight: 650; }
+.lede { color: var(--muted); margin: 0 0 22px; }
+.muted { color: var(--muted); } .faint { color: var(--faint); }
+a { color: var(--acc); text-decoration: none; }
+.warn { color: var(--warn); }
+.lock { display:inline-block; width:.9em; }
+/* status */
+.status { display:flex; align-items:center; gap:14px; padding:14px 18px; border-radius:12px; background:var(--b1); margin-bottom: 28px; font-size: 1.02rem; }
+.status .dot { width:10px; height:10px; border-radius:50%; background:var(--data); flex:none; }
+.status b { font-weight: 650; }
+.status .clear { margin-left:auto; padding:5px 12px; border-radius:999px; background:var(--warn-soft); color:var(--warn); font-weight:600; font-size:.9rem; white-space:nowrap; }
+.grid { display:grid; grid-template-columns: minmax(0,1.75fr) minmax(300px,1fr); gap: 32px 48px; }
+/* who */
+.who { list-style:none; margin:0; padding:0; }
+.who li { display:grid; grid-template-columns: 34px minmax(0,1fr) 110px 82px; gap: 2px 14px; align-items:center; padding: 11px 0; border-bottom:1px solid var(--rule); }
+.ic { width:30px; height:30px; border-radius:8px; background:var(--b2); display:grid; place-items:center; font-size:15px; }
+.nm { font-weight: 600; }
+.id { font-size:.8rem; color:var(--muted); }
+.act { font-size: .98rem; }
+.act b { font-weight: 600; }
+.spark { height: 22px; display:flex; align-items:flex-end; gap:1px; }
+.spark i { flex:1; background: var(--data-soft); border-top: 1.5px solid var(--data); }
+.rt { text-align:right; font-variant-numeric: tabular-nums; font-weight:600; }
+.quiet { padding: 10px 0; font-size:.88rem; color:var(--muted); }
+.row-warn { box-shadow: inset 3px 0 0 var(--warn); padding-left: 10px !important; background: linear-gradient(90deg, var(--warn-soft), transparent 60%); }
+.tag { font-size:.75rem; padding:1px 7px; border-radius:999px; background:var(--warn-soft); color:var(--warn); font-weight:600; margin-left:6px; white-space:nowrap; }
+/* diary */
+.diary { list-style:none; margin:0; padding:0; }
+.diary li { display:grid; grid-template-columns: 52px minmax(0,1fr) auto; gap: 12px; padding: 7px 0; border-bottom:1px solid var(--rule); font-size:.92rem; }
+.diary time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.diary .amt { color: var(--muted); font-variant-numeric: tabular-nums; }
+.hour { font-size:.75rem; color:var(--faint); text-transform:uppercase; letter-spacing:.05em; padding: 14px 0 2px; }
+/* side */
+.side section { margin-bottom: 26px; }
+.kv { list-style:none; padding:0; margin:0; font-size:.9rem; }
+.kv li { display:flex; justify-content:space-between; gap: 10px; padding:6px 0; border-bottom:1px solid var(--rule); }
+.clearbox { border:1px solid color-mix(in srgb,var(--warn) 45%,transparent); background:var(--warn-soft); border-radius:12px; padding: 12px 14px; }
+.clearbox h2 { color: var(--warn); }
+.clearbox li { border-color: color-mix(in srgb,var(--warn) 20%,transparent); }
+.bar { height: 8px; border-radius: 4px; display:flex; overflow:hidden; margin: 6px 0 8px; }
+.bar i { display:block; height:100%; }
+.legend { font-size:.8rem; color:var(--muted); display:flex; flex-wrap:wrap; gap: 4px 12px; }
+.legend i { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:5px; }
+.cols { display:flex; align-items:flex-end; gap:4px; height: 120px; margin-top: 8px; }
+.cols div { flex:1; display:flex; flex-direction:column-reverse; gap:1px; }
+.cols div i { display:block; }
+.axis { display:flex; justify-content:space-between; font-size:.72rem; color:var(--faint); margin-top:4px; }
+.head { display:flex; align-items:baseline; justify-content:space-between; gap: 20px; }
+.listen { font-size:.86rem; color:var(--muted); }
+.listen .on { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--s2); margin-right:6px; }
+/* B */
+.map { position:relative; height: 560px; background: var(--b1); border-radius: 14px; }
+.map svg { position:absolute; inset:0; width:100%; height:100%; }
+.node { position:absolute; transform: translate(-50%,-50%); font-size:.84rem; background:var(--b0); border:1px solid var(--rule-strong); border-radius:999px; padding: 3px 10px; white-space:nowrap; }
+.node.dev { font-weight:600; }
+.node.w { border-color: var(--warn); color: var(--warn); }
+/* C */
+.tiles { display:grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+.tile { background:var(--b1); border-radius:12px; padding: 14px 16px; }
+.tile .l { font-size:.8rem; color:var(--muted); } .tile .v { font-size:1.9rem; font-weight:650; letter-spacing:-.02em; }
+.donut { width: 200px; height: 200px; border-radius:50%; margin: 10px auto; }
+table { width:100%; border-collapse:collapse; font-size:.9rem; }
+th { text-align:left; font-weight:500; color:var(--muted); font-size:.8rem; border-bottom:1px solid var(--rule-strong); padding:6px 4px; }
+td { border-bottom:1px solid var(--rule); padding:7px 4px; }
+.variant { display:none; } :target { display:block; }
+@media (max-width: 700px) {
+  .frame { grid-template-columns: 1fr; } .ribbon { display:none; }
+  main { padding: 18px 16px 30px; }
+  h1 { font-size: 1.6rem; }
+  .grid { grid-template-columns: 1fr; gap: 26px; }
+  .who li { grid-template-columns: 30px minmax(0,1fr) 64px; }
+  .who li .spark { display:none; }
+  .status { flex-wrap: wrap; font-size: .95rem; }
+  .status .clear { margin-left: 24px; }
+  .head { flex-direction: column; gap: 2px; }
+  .tiles { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="frame">
+<nav class="ribbon"><span class="on">Now</span><span>Network</span><span>Internet</span><span>Privacy</span><span>Diary</span><span>Captures</span></nav>
+<main>
+
+<!-- A: the newsroom. A sentence first, who is doing what, the day as a diary, privacy beside it. -->
+<div class="variant" id="a">
+  <div class="head"><h1>Now</h1><span class="listen"><span class="on"></span>Listening on Wi-Fi and Docker · 4.6 MB/s</span></div>
+  <p class="lede">Saturday 25 October, 22:41</p>
+  <div class="status"><span class="dot"></span><span><b>Busy.</b> 4 of 11 devices are using the network: the TV is on Netflix, this PC is on a call.</span>
+    <a class="clear" href="#">⚠ 2 unencrypted in the last hour</a></div>
+  <div class="grid">
+    <div>
+      <h2>Who is using the network</h2>
+      <ul class="who">
+        <li><span class="ic">📺</span><span><span class="nm">Living Room TV</span> <span class="id">· Chromecast with Google TV · sure</span><br><span class="act"><b>Watching Netflix</b> <span class="muted">for 27 min</span></span></span><span class="spark"><i style="height:60%"></i><i style="height:80%"></i><i style="height:75%"></i><i style="height:90%"></i><i style="height:70%"></i><i style="height:85%"></i><i style="height:95%"></i><i style="height:80%"></i></span><span class="rt">3.1 MB/s</span></li>
+        <li><span class="ic">💻</span><span><span class="nm">This PC</span> <span class="id">· Linux laptop · sure</span><br><span class="act"><b>On a Google Meet call</b>, building (npm) <span class="muted">· 12 min</span></span></span><span class="spark"><i style="height:30%"></i><i style="height:40%"></i><i style="height:35%"></i><i style="height:60%"></i><i style="height:45%"></i><i style="height:40%"></i><i style="height:50%"></i><i style="height:45%"></i></span><span class="rt">1.2 MB/s</span></li>
+        <li class="row-warn"><span class="ic">🖨</span><span><span class="nm">Office Printer</span> <span class="id">· HP printer · likely</span><br><span class="act"><b>Sending to its cloud</b> <span class="tag">🔓 HTTP, unencrypted</span></span></span><span class="spark"><i style="height:5%"></i><i style="height:5%"></i><i style="height:30%"></i><i style="height:5%"></i><i style="height:5%"></i><i style="height:5%"></i><i style="height:10%"></i><i style="height:5%"></i></span><span class="rt">14 KB/s</span></li>
+        <li><span class="ic">📱</span><span><span class="nm">Alex's iPhone</span> <span class="id">· iPhone, iOS · sure</span><br><span class="act"><b>On Instagram</b> <span class="muted">· 3 min</span></span></span><span class="spark"><i style="height:20%"></i><i style="height:10%"></i><i style="height:25%"></i><i style="height:15%"></i><i style="height:30%"></i><i style="height:10%"></i><i style="height:12%"></i><i style="height:18%"></i></span><span class="rt">220 KB/s</span></li>
+      </ul>
+      <p class="quiet">7 quiet now: Kitchen Speaker, Galaxy Tab, DESKTOP-OFFICE, raspberrypi, Router TP-Link, 2 more</p>
+      <h2 style="margin-top:22px">Today</h2>
+      <div class="cols">
+        <div><i style="height:6px;background:var(--s6)"></i></div><div><i style="height:4px;background:var(--s6)"></i></div><div><i style="height:3px;background:var(--s6)"></i></div><div><i style="height:3px;background:var(--s6)"></i></div><div><i style="height:3px;background:var(--s6)"></i></div><div><i style="height:3px;background:var(--s6)"></i></div><div><i style="height:3px;background:var(--s6)"></i></div><div><i style="height:20px;background:var(--s3)"></i><i style="height:6px;background:var(--s6)"></i></div><div><i style="height:30px;background:var(--s2)"></i><i style="height:8px;background:var(--s6)"></i></div><div><i style="height:44px;background:var(--s2)"></i><i style="height:10px;background:var(--s4)"></i></div><div><i style="height:52px;background:var(--s2)"></i><i style="height:12px;background:var(--s4)"></i></div><div><i style="height:38px;background:var(--s2)"></i></div><div><i style="height:10px;background:var(--s3)"></i><i style="height:12px;background:var(--s1)"></i></div><div><i style="height:30px;background:var(--s2)"></i></div><div><i style="height:40px;background:var(--s2)"></i><i style="height:8px;background:var(--s3)"></i></div><div><i style="height:20px;background:var(--s2)"></i></div><div><i style="height:14px;background:var(--s3)"></i></div><div><i style="height:18px;background:var(--s3)"></i><i style="height:10px;background:var(--s1)"></i></div><div><i style="height:12px;background:var(--s3)"></i></div><div><i style="height:30px;background:var(--s1)"></i><i style="height:8px;background:var(--s3)"></i></div><div><i style="height:70px;background:var(--s1)"></i><i style="height:10px;background:var(--s4)"></i></div><div><i style="height:96px;background:var(--s1)"></i><i style="height:14px;background:var(--s4)"></i></div><div><i style="height:80px;background:var(--s1)"></i></div><div><i style="height:2px;background:var(--s6)"></i></div>
+      </div>
+      <div class="axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
+      <div class="legend" style="margin-top:6px"><span><i style="background:var(--s1)"></i>Video 6.1 GB</span><span><i style="background:var(--s2)"></i>Work 2.4 GB</span><span><i style="background:var(--s3)"></i>Calls 640 MB</span><span><i style="background:var(--s4)"></i>Social 410 MB</span><span><i style="background:var(--s6)"></i>Other 120 MB</span></div>
+      <h2 style="margin-top:22px">What happened</h2>
+      <ul class="diary">
+        <li class="hour">Tonight</li>
+        <li><time>22:14</time><span><b>Living Room TV</b> started Netflix</span><span class="amt">2.3 GB · 27 min</span></li>
+        <li><time>22:02</time><span class="warn">🔓 <b>Office Printer</b> talked HTTP, unencrypted, to 198.51.100.77</span><span class="amt">40 KB</span></li>
+        <li><time>21:30</time><span><b>This PC</b> on a Google Meet call</span><span class="amt">640 MB · 1 h 08</span></li>
+        <li><time>20:55</time><span><b>Alex's iPhone</b> joined the network <span class="muted">(new today)</span></span><span class="amt"></span></li>
+        <li class="hour">Afternoon</li>
+        <li><time>15:20</time><span><b>This PC</b> working: GitHub, npm, Anthropic</span><span class="amt">2.4 GB · 4 h 10</span></li>
+        <li><time>14:02</time><span><b>DESKTOP-OFFICE</b> updated Windows</span><span class="amt">1.1 GB · 18 min</span></li>
+      </ul>
+    </div>
+    <aside class="side">
+      <section class="clearbox"><h2>🔓 Without encryption · last hour</h2>
+        <ul class="kv"><li><span><b>Office Printer</b> → 198.51.100.77</span><span>HTTP · 3 min ago</span></li><li><span><b>raspberrypi</b> → ftp.example.net</span><span>FTP, a password · 41 min ago</span></li></ul>
+        <p class="faint" style="font-size:.8rem;margin:8px 0 0">Anyone on the path can read these. DNS in the clear: 9 devices (normal at home).</p></section>
+      <section><h2>Tracking and telemetry</h2>
+        <div class="bar"><i style="width:4%;background:var(--warn)"></i><i style="width:96%;background:var(--b2)"></i></div>
+        <ul class="kv"><li><span>Google ads and analytics</span><span class="muted">6 devices · 41 MB</span></li><li><span>Samsung telemetry</span><span class="muted">Galaxy Tab · 8 MB</span></li><li><span>Meta</span><span class="muted">Alex's iPhone · 5 MB</span></li></ul></section>
+      <section><h2>Where the data goes</h2>
+        <div class="bar"><i style="width:68%;background:var(--s1)"></i><i style="width:14%;background:var(--s2)"></i><i style="width:9%;background:var(--s3)"></i><i style="width:9%;background:var(--s6)"></i></div>
+        <div class="legend"><span><i style="background:var(--s1)"></i>United States 68%</span><span><i style="background:var(--s2)"></i>Ireland 14%</span><span><i style="background:var(--s3)"></i>Portugal 9%</span><span><i style="background:var(--s6)"></i>9 others</span></div></section>
+      <section><h2>DNS and TLS</h2>
+        <ul class="kv"><li><span>Ask the router</span><span class="muted">9 devices</span></li><li><span>Alex's iPhone</span><span class="muted">encrypted DNS, Apple</span></li><li><span>Galaxy Tab</span><span class="warn">asks 8.8.8.8 directly</span></li><li><span>Old TLS (1.0, 1.1)</span><span class="muted">none</span></li></ul></section>
+    </aside>
+  </div>
+</div>
+
+<!-- B: the map. Devices on the left, who they talk to on the right, the thickness the bytes, cleartext in colour. -->
+<div class="variant" id="b">
+  <div class="head"><h1>Now</h1><span class="listen"><span class="on"></span>Listening on Wi-Fi and Docker · 4.6 MB/s</span></div>
+  <p class="lede">Who talks to whom, the last ten minutes</p>
+  <div class="map">
+    <svg viewBox="0 0 1000 560" preserveAspectRatio="none">
+      <g fill="none" stroke="var(--data)" stroke-opacity=".35">
+        <path d="M180 90 C 500 90, 500 80, 820 80" stroke-width="26"/>
+        <path d="M180 180 C 500 180, 500 170, 820 170" stroke-width="10"/>
+        <path d="M180 180 C 500 180, 500 250, 820 250" stroke-width="7"/>
+        <path d="M180 180 C 500 180, 500 330, 820 330" stroke-width="4"/>
+        <path d="M180 360 C 500 360, 500 410, 820 410" stroke-width="3"/>
+        <path d="M180 450 C 500 450, 500 330, 820 330" stroke-width="2"/>
+      </g>
+      <path d="M180 270 C 500 270, 500 490, 820 490" stroke="var(--warn)" stroke-width="3" fill="none" stroke-dasharray="6 4"/>
+    </svg>
+    <span class="node dev" style="left:18%;top:16%">📺 Living Room TV</span>
+    <span class="node dev" style="left:18%;top:32%">💻 This PC</span>
+    <span class="node dev w" style="left:18%;top:48%">🖨 Office Printer</span>
+    <span class="node dev" style="left:18%;top:64%">📱 Alex's iPhone</span>
+    <span class="node dev" style="left:18%;top:80%">📟 Galaxy Tab</span>
+    <span class="node" style="left:82%;top:14%">Netflix</span>
+    <span class="node" style="left:82%;top:30%">Google Meet</span>
+    <span class="node" style="left:82%;top:45%">npm</span>
+    <span class="node" style="left:82%;top:59%">Google</span>
+    <span class="node" style="left:82%;top:73%">Meta</span>
+    <span class="node w" style="left:82%;top:87%">🔓 198.51.100.77 (HTTP)</span>
+  </div>
+  <p class="muted" style="font-size:.86rem">Hover a line for its bytes; click a device or company to open it.</p>
+</div>
+
+<!-- C: the dashboard. Tiles, a donut by category, the top lists. -->
+<div class="variant" id="c">
+  <div class="head"><h1>Now</h1><span class="listen"><span class="on"></span>Listening on Wi-Fi and Docker · 4.6 MB/s</span></div>
+  <p class="lede">Today so far</p>
+  <div class="tiles">
+    <div class="tile"><div class="l">Devices online</div><div class="v">11</div></div>
+    <div class="tile"><div class="l">Data today</div><div class="v">9.7 GB</div></div>
+    <div class="tile"><div class="l">Unencrypted</div><div class="v warn">2</div></div>
+    <div class="tile"><div class="l">Tracking</div><div class="v">4%</div></div>
+  </div>
+  <div class="grid">
+    <div><h2>Top devices</h2>
+      <table><tr><th>Device</th><th>Now</th><th>Today</th></tr>
+        <tr><td>Living Room TV</td><td>3.1 MB/s</td><td>6.1 GB</td></tr><tr><td>This PC</td><td>1.2 MB/s</td><td>3.0 GB</td></tr><tr><td>Alex's iPhone</td><td>220 KB/s</td><td>410 MB</td></tr><tr><td>DESKTOP-OFFICE</td><td>—</td><td>1.1 GB</td></tr><tr><td>Office Printer</td><td>14 KB/s</td><td>2 MB</td></tr></table>
+      <h2 style="margin-top:20px">Top apps</h2>
+      <table><tr><th>App</th><th>Devices</th><th>Today</th></tr>
+        <tr><td>Netflix</td><td>1</td><td>6.1 GB</td></tr><tr><td>GitHub</td><td>1</td><td>1.2 GB</td></tr><tr><td>Windows Update</td><td>1</td><td>1.1 GB</td></tr><tr><td>Google Meet</td><td>1</td><td>640 MB</td></tr></table></div>
+    <div><h2>By category</h2>
+      <div class="donut" style="background:conic-gradient(var(--s1) 0 63%, var(--s2) 0 88%, var(--s3) 0 94%, var(--s4) 0 98%, var(--s6) 0)"></div>
+      <div class="legend"><span><i style="background:var(--s1)"></i>Video</span><span><i style="background:var(--s2)"></i>Work</span><span><i style="background:var(--s3)"></i>Calls</span><span><i style="background:var(--s4)"></i>Social</span><span><i style="background:var(--s6)"></i>Other</span></div></div>
+  </div>
+</div>
+
+</main>
+</div>
+</body>
+</html>
