@@ -15,11 +15,13 @@
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "test": "vite build --logLevel warn && node --test 'tests/*.test.ts'",
-    "gates": "pnpm check && pnpm test",
+    "gates": "pnpm check && pnpm check:leaks && pnpm test",
+    "check:leaks": "node scripts/check-leaks.ts",
     "release": "node scripts/release.ts",
     "tls": "bash node_modules/@organon/core/scripts/tls.sh .",
     "fixtures": "node scripts/make-fixture.ts",
-    "demo": "pnpm build && node scripts/demo.ts"
+    "demo": "pnpm build && node scripts/demo.ts",
+    "pictures": "pnpm build && node scripts/pictures.ts"
   },
   "packageManager": "pnpm@10.34.5",
   "dependencies": {
