@@ -175,3 +175,48 @@ test('A name as long as the network allows never widens a page, at 1440 or on a 
     await long.stop();
   }
 });
+
+test('The devices and hosts tables show their Total column whole, on every page they are on, at 1440 and on a phone', { skip: !CHROMIUM }, async () => {
+  // Found by the reviewer: the table sat in a box that scrolled sideways, and Total was cut off at both widths. Here
+  // with the fixture, and with names and makers as long as the network gives them.
+  const fake = await fakeCapture();
+  const long = await startServer(ROOT, {
+    env: { TSHARK: path.join(ROOT, 'tests/fixtures/long-names-tshark.ts'), DUMPCAP: fake.dumpcap, SYS_NET: fake.sysNet, EMIT_MS: '250' },
+  });
+  try {
+    for (const base of [app.base, long.base]) {
+      await fetch(`${base}/api/live/wlan0`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"on":true}' });
+      for (const width of [1440, 390]) {
+        const { p, errors } = await page({ width, height: 900 });
+        for (const [hash, label] of [
+          ['#/', 'Dispositivos'],
+          ['#/devices', 'Dispositivos'],
+          ['#/internet', 'Anfitriões'],
+        ] as const) {
+          await p.goto(`${base}/${hash}`);
+          await p.getByRole('table', { name: label }).locator('tbody tr').first().waitFor();
+          await p.waitForTimeout(300);
+          const fit = await p.evaluate((label) => {
+            const table = document.querySelector(`table[aria-label="${label}"]`)!;
+            const wrap = table.closest('.records-wrap')!;
+            const total = [...table.querySelectorAll('th')].find((th) => th.textContent?.trim() === 'Total')!;
+            return {
+              scrolls: wrap.scrollWidth - wrap.clientWidth,
+              totalRight: total.getBoundingClientRect().right,
+              wrapRight: wrap.getBoundingClientRect().right,
+              page: document.documentElement.scrollWidth - innerWidth,
+            };
+          }, label);
+          const where = `${base === app.base ? 'fixture' : 'long names'} ${width} ${hash}`;
+          assert.ok(fit.scrolls <= 0, `${where}: the table scrolls sideways by ${fit.scrolls}px`);
+          assert.ok(fit.totalRight <= fit.wrapRight + 0.5, `${where}: Total ends at ${fit.totalRight}, past ${fit.wrapRight}`);
+          assert.equal(fit.page, 0, `${where}: the page is wider than the screen`);
+        }
+        assert.deepEqual(errors, []);
+        await p.close();
+      }
+    }
+  } finally {
+    await long.stop();
+  }
+});

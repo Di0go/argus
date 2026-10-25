@@ -56,7 +56,7 @@
             <tbody>
               {#each hosts.slice(0, 200) as { r, company } (r.id)}
                 <tr>
-                  <td class="host"><EntityLink entity={r} {capture} />{#if company}<span class="co">{company}</span>{/if}</td>
+                  <td class="host" title={r.name}><EntityLink entity={r} {capture} />{#if company}<span class="co">{company}</span>{/if}</td>
                   <td class="mono hide-s">{r.ip}</td>
                   <td class="num">{bytes(r.bytesSent + r.bytesReceived)}</td>
                   {#if live}<td class="num hide-s muted">{since(r.lastSeen)}</td>{/if}
@@ -88,10 +88,22 @@
     break-inside: avoid;
   }
 
+  /* The host's name gives way (cut with an ellipsis), so the figures on the right are always whole: max-width: 0 lets a
+     cell of an auto table go below its text's width. */
   .host {
-    max-width: 34rem;
+    width: 100%;
+    max-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .host :global(.el) {
+    overflow-wrap: normal;
+  }
+
+  td.num,
+  td.mono {
     white-space: nowrap;
   }
 

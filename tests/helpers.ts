@@ -89,7 +89,7 @@ echo $$ >> ${pidsFile}
 echo "Capturing on '$listen'" >&2
 # The ring file holds the fixture as if captured now: its times moved to this moment.
 first=$(capinfos -S -a -T -r ${FIXTURE} | cut -f2)
-editcap -t "$(awk "BEGIN{print $(date +%s.%N) - $first}")" ${FIXTURE} "\${ring%.pcapng}_$$_$(date +%s%N).pcapng"
+editcap -t "$(awk -v now="$(date +%s.%N)" -v first="$first" 'BEGIN { printf "%.6f", now - first }')" ${FIXTURE} "\${ring%.pcapng}_$$_$(date +%s%N).pcapng"
 trap 'kill $(jobs -p) 2>/dev/null; exit 0' TERM INT
 ${TSHARK} -r ${FIXTURE} "\${rest[@]}" | while IFS= read -r line; do
   printf '%s\t%s\n' "$(date +%s.%N)" "\${line#*$'\t'}"

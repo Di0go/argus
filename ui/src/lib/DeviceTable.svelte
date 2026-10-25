@@ -64,7 +64,7 @@
     <tbody>
       {#each rows as d (d.id)}
         <tr class:quiet={quiet(d)} data-device={d.id}>
-          <td>
+          <td class="name">
             <span class="who">
               <EntityIcon entity={d} size={26} />
               <span class="nm">
@@ -78,7 +78,7 @@
             </span>
           </td>
           <td class="mono hide-s">{d.ips[0] ?? '—'}{#if d.ips.length > 1}<span class="more"> +{d.ips.length - 1}</span>{/if}</td>
-          <td class="hide-m vendor">
+          <td class="hide-m vendor" title={d.vendor}>
             {#if d.vendor}{d.vendor}{:else if d.randomMac}<span
                 class="muted"
                 data-tip="O dispositivo inventou esta MAC (os telemóveis e os portáteis fazem-no em cada rede), por isso não diz o fabricante."
@@ -101,6 +101,19 @@
     vertical-align: middle;
   }
 
+  /* The name and the maker give way: they shrink, cut with an ellipsis, so the figures on the right are always whole
+     (a long name widened the table past its box, and Total was cut off). max-width: 0 lets a cell of an auto table go
+     below its text's width; the width says how the room left is shared. */
+  .devices td.name {
+    width: 58%;
+    max-width: 0;
+  }
+
+  .devices td.vendor {
+    width: 42%;
+    max-width: 0;
+  }
+
   .devices td.num,
   .devices th.num {
     white-space: nowrap;
@@ -117,7 +130,6 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-    max-width: 26rem;
     line-height: 1.35;
   }
 
@@ -152,7 +164,6 @@
   }
 
   .vendor {
-    max-width: 16rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -167,6 +178,11 @@
 
   .spark {
     width: 104px;
+    min-width: 104px;
+  }
+
+  .devices td.mono {
+    white-space: nowrap;
   }
 
   tr.quiet {
