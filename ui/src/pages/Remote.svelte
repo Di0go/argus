@@ -1,11 +1,11 @@
 <script lang="ts">
   // One host out on the internet: its address, the names it went by and who said them, who runs it, how much went
   // each way, and which devices here talked to it.
-  import { keyOf } from '@organon/core/shared/entities';
   import type { Remote } from '../../../shared/types.ts';
   import { argus } from '../lib/argus.svelte.ts';
   import EntityIcon from '../lib/EntityIcon.svelte';
   import EntityLink from '../lib/EntityLink.svelte';
+  import Conversations from '../lib/Conversations.svelte';
   import { bytes, since, when } from '../lib/format.ts';
   import { link } from '../lib/router.svelte.ts';
   import SourceHead from '../lib/SourceHead.svelte';
@@ -16,7 +16,8 @@
   const r = $derived(source?.graph.get(`remote:${id}`) as Remote | undefined);
   const linked = $derived(r && source ? source.graph.linked(`remote:${id}`) : []);
   const site = $derived(linked.find((n) => n.entity.kind === 'site')?.entity);
-  const devices = $derived(linked.filter((n) => n.entity.kind === 'device'));
+  const key = $derived(`remote:${id}`);
+  const talks = $derived(source ? source.conversations.filter((c) => c.b === key || c.a === key) : []);
   const WHO = { DNS: 'pela resposta de DNS', TLS: 'pelo início da ligação cifrada (SNI)' } as Record<string, string>;
 </script>
 
@@ -57,16 +58,11 @@
       <div class="stat"><span class="stat-v">{bytes(r.bytesReceived)}</span><span class="stat-l">recebeu daqui</span></div>
       <div class="stat"><span class="stat-v">{r.packets.toLocaleString('pt-PT')}</span><span class="stat-l">pacotes</span></div>
     </div>
-    <section class="band">
-      <div class="band-h"><h2>Quem lhe falou</h2></div>
-      <ul class="recs" aria-label="Quem lhe falou">
-        {#each devices as n (keyOf(n.entity))}
-          <li class="rec acc"><span class="rec-t"><EntityLink entity={n.entity} {capture} /></span><span class="rec-m">{bytes(n.weight)}</span></li>
-        {:else}
-          <li class="rec empty">Nenhum dispositivo daqui em particular.</li>
-        {/each}
-      </ul>
-    </section>
+    {#if source}
+      <section class="band">
+        <Conversations conversations={talks} me={new Set([key])} {source} {capture} title="Quem lhe falou" label="Quem lhe falou" />
+      </section>
+    {/if}
   {/if}
 </div>
 

@@ -5,6 +5,7 @@
   import { argus } from '../lib/argus.svelte.ts';
   import EntityIcon from '../lib/EntityIcon.svelte';
   import EntityLink from '../lib/EntityLink.svelte';
+  import Conversations from '../lib/Conversations.svelte';
   import { bytes, since } from '../lib/format.ts';
   import HostList from '../lib/HostList.svelte';
   import { link } from '../lib/router.svelte.ts';
@@ -15,6 +16,7 @@
   const live = $derived(source?.kind === 'live');
   const s = $derived(source?.graph.get(`site:${id}`) as Site | undefined);
   const hosts = $derived(s && source ? s.hosts.map((h) => source.graph.get(`remote:${h}`)).filter((r): r is Remote => Boolean(r)) : []);
+  const talks = $derived(s && source ? source.conversations.filter((c) => s.hosts.includes(c.b.slice('remote:'.length)) && c.b.startsWith('remote:')) : []);
   const users = $derived(s && source ? source.graph.linked(`site:${id}`).filter((n) => n.entity.kind === 'device') : []);
 </script>
 
@@ -57,6 +59,11 @@
         <HostList items={hosts} {capture} {live} label="Anfitriões" aside={(x) => (x.kind === 'remote' ? x.ip : '')} />
       </section>
     </div>
+    {#if source}
+      <section class="band">
+        <Conversations conversations={talks} {source} {capture} />
+      </section>
+    {/if}
   {/if}
 </div>
 

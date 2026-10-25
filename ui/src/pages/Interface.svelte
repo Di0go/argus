@@ -2,6 +2,7 @@
   // One interface: what it is, whether Argus listens on it and how that goes, and the devices heard on it.
   import type { Interface } from '../../../shared/types.ts';
   import { argus } from '../lib/argus.svelte.ts';
+  import Conversations from '../lib/Conversations.svelte';
   import DeviceTable from '../lib/DeviceTable.svelte';
   import EntityIcon from '../lib/EntityIcon.svelte';
   import { bytes, since, span } from '../lib/format.ts';
@@ -11,6 +12,7 @@
   const i = $derived(argus.interfaces.find((x) => x.id === id) as Interface | undefined);
   const l = $derived(argus.session?.listening.find((x) => x.id === id));
   const devices = $derived(argus.liveSource.devices.filter((d) => d.interfaces.includes(id)));
+  const talks = $derived(argus.liveSource.conversations.filter((c) => c.interfaces.includes(id)));
   let problem = $state('');
 </script>
 
@@ -58,6 +60,9 @@
     <section class="band">
       <div class="band-h"><h2>Ouvidos aqui</h2><span class="aside">{devices.length}</span></div>
       <DeviceTable {devices} live />
+    </section>
+    <section class="band">
+      <Conversations conversations={talks} source={argus.liveSource} title="Ligações nesta rede" />
     </section>
   {:else if l?.on}
     <p class="muted">Ainda ninguém {l.since ? `desde ${since(l.since)}` : ''}.</p>

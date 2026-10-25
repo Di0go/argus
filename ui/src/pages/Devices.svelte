@@ -1,16 +1,15 @@
 <script lang="ts">
-  // Every device the live session (or a saved capture) saw, busiest first, by interface if he wants.
+  // Every device the live session (or a saved capture) saw, busiest first, each with its network; one network first,
+  // or alone, if he chooses (NetFilter).
   import { argus } from '../lib/argus.svelte.ts';
   import DeviceTable from '../lib/DeviceTable.svelte';
+  import NetFilter from '../lib/NetFilter.svelte';
   import SourceHead from '../lib/SourceHead.svelte';
 
   let { capture }: { capture?: string } = $props();
-  let only = $state<string | null>(null);
 
   const source = $derived(argus.sourceFor(capture));
-  const ifaces = $derived([...new Set(source?.devices.flatMap((d) => d.interfaces) ?? [])]);
-  const shown = $derived(source ? source.devices.filter((d) => !only || d.interfaces.includes(only)) : []);
-  const ifaceName = (id: string) => argus.interfaces.find((i) => i.id === id)?.name ?? id;
+  const shown = $derived(source?.devices ?? []);
 </script>
 
 <div class="page">
@@ -23,15 +22,10 @@
     </p>
     {#if source}<SourceHead {source} />{/if}
   </header>
-  {#if ifaces.length > 1}
-    <div class="chips filter" role="group" aria-label="Interface">
-      <button class="chip" class:on={!only} onclick={() => (only = null)}>Todas</button>
-      {#each ifaces as i (i)}<button class="chip" class:on={only === i} onclick={() => (only = i)}>{ifaceName(i)}</button>{/each}
-    </div>
-  {/if}
   {#if source}
     {#if shown.length}
-      <DeviceTable devices={shown} live={source.kind === 'live'} {capture} />
+      <div class="filter"><NetFilter devices={shown} /></div>
+      <DeviceTable devices={shown} live={source.kind === 'live'} {capture} byNetwork />
     {:else}
       <div class="empty-state">
         <h2>Nenhum dispositivo ainda</h2>
@@ -45,6 +39,8 @@
 
 <style>
   .filter {
-    margin: -12px 0 20px;
+    display: flex;
+    justify-content: flex-end;
+    margin: -12px 0 8px;
   }
 </style>

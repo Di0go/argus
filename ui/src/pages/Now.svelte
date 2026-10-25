@@ -7,6 +7,7 @@
   import { bytes, rate, span } from '../lib/format.ts';
   import HostList from '../lib/HostList.svelte';
   import Limits from '../lib/Limits.svelte';
+  import NetFilter from '../lib/NetFilter.svelte';
   import Listen from '../lib/Listen.svelte';
   import RateChart from '../lib/RateChart.svelte';
   import { link } from '../lib/router.svelte.ts';
@@ -109,9 +110,12 @@
       <section class="band">
         <div class="band-h">
           <h2>Na rede local</h2>
-          <a href={link.devices()}>{src.devices.length > 8 ? `Todos os ${src.devices.length}` : 'Dispositivos'}</a>
+          <span class="band-tools">
+            <NetFilter devices={src.devices} />
+            <a href={link.devices()}>{src.devices.length > 8 ? `Todos os ${src.devices.length}` : 'Dispositivos'}</a>
+          </span>
         </div>
-        <DeviceTable devices={src.devices} live limit={8} />
+        <DeviceTable devices={src.devices} live limit={8} byNetwork />
       </section>
       <section class="band side">
         <div class="band-h">
@@ -184,6 +188,18 @@
     --cols: 1;
     grid-template-columns: minmax(0, 1.9fr) minmax(280px, 1fr);
     gap: 16px 40px;
+  }
+
+  .band-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 0.86rem;
+  }
+
+  .band-tools > a {
+    font-size: 0.84rem;
+    color: var(--acc);
   }
 
   .note {

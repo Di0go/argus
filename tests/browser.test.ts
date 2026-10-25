@@ -1,7 +1,10 @@
 // In a headless Chromium, on the built interface, with the pretend dumpcap and tshark (the fixture played back as if
 // it were coming in now): turning the Wi-Fi on fills the page live, without a reload; a device opens its page and
-// walks to the company it talks to and back; search, the hover card and the menu reach the entities; a reload loses
-// nothing; a saved capture opens as it was; on a phone the ribbon slides in.
+// walks to the company it talks to and back; its conversations say with whom, by what service and how much, and lead
+// to the other end; search, the hover card and the menu reach the entities; a reload loses nothing; a saved capture
+// opens as it was; on a phone the ribbon slides in. With the demo's two networks (the house on Wi-Fi, containers on
+// Docker): each device says its network, and one network can be chosen, the others' devices put after or left out,
+// remembered across a reload.
 
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -87,7 +90,7 @@ test('A device opens its page; from there the company it talks to, and back; eac
   await p.getByRole('list', { name: 'Anfitriões' }).getByRole('link', { name: truth.hosts.web.name }).first().click();
   await p.getByRole('heading', { name: truth.hosts.web.name }).waitFor();
   assert.match(await p.locator('.page-head').innerText(), new RegExp(truth.hosts.web.ip.replaceAll('.', '\\.')));
-  await p.getByRole('list', { name: 'Quem lhe falou' }).getByRole('link', { name: 'Este PC' }).click();
+  await p.getByRole('table', { name: 'Quem lhe falou' }).getByRole('link', { name: 'Este PC' }).click();
   await p.getByRole('heading', { name: 'Este PC' }).waitFor();
   assert.ok((await p.getByRole('tab').count()) >= 3);
   assert.deepEqual(errors, []);
@@ -218,5 +221,93 @@ test('The devices and hosts tables show their Total column whole, on every page 
     }
   } finally {
     await long.stop();
+  }
+});
+
+test("A device's conversations: with whom, by what service, how much each way, and the other end a click away", { skip: !CHROMIUM }, async () => {
+  const { p, errors } = await page();
+  await p.goto(`${app.base}/#/device/${encodeURIComponent(truth.hosts.me.mac)}`);
+  const table = p.getByRole('table', { name: 'Ligações' });
+  const web = table.locator('tr', { hasText: truth.hosts.web.name });
+  await web.waitFor();
+  // The truth worked these out from the packets' headers: this PC and the web server, over HTTPS (tcp 443).
+  const c = truth.conversations.find((x: { b: string }) => x.b === truth.hosts.web.ip);
+  const text = await web.innerText();
+  assert.match(text, /HTTPS/);
+  assert.match(text, /tcp 443/);
+  assert.match(text, new RegExp(`${c.sent} B`));
+  assert.match(text, /2,9 KB/, `${c.received} bytes received`);
+  // DNS with the router is a conversation too, with a device here.
+  assert.match(await table.locator('tr', { hasText: 'Router' }).innerText(), /DNS/);
+  await web.getByRole('link', { name: truth.hosts.web.name }).click();
+  await p.getByRole('heading', { name: truth.hosts.web.name }).waitFor();
+  const back = p.getByRole('table', { name: 'Quem lhe falou' }).locator('tr', { hasText: 'Este PC' });
+  // From the host's side, what it sent is what this PC received.
+  assert.match(await back.innerText(), /2,9 KB\s+462 B/);
+  await back.getByRole('link', { name: 'Este PC' }).click();
+  await p.getByRole('heading', { name: 'Este PC' }).waitFor();
+  assert.deepEqual(errors, []);
+  await p.close();
+});
+
+test('Two networks: each device says its network; one chosen puts the others after, or leaves them out, remembered; conversations move live', { skip: !CHROMIUM }, async () => {
+  const fake = await fakeCapture();
+  const demo = await startServer(ROOT, {
+    env: { TSHARK: path.join(ROOT, 'scripts/demo-tshark.ts'), DUMPCAP: fake.dumpcap, SYS_NET: fake.sysNet, EMIT_MS: '250' },
+  });
+  try {
+    for (const i of ['wlan0', 'docker0'])
+      await fetch(`${demo.base}/api/live/${i}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"on":true}' });
+    const { p, errors } = await page();
+    await p.goto(`${demo.base}/#/devices`);
+    const rows = devices(p);
+    // The house (the router, this PC, eight others) on Wi-Fi; on Docker, this PC's bridge and three containers.
+    await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Dispositivos"] tbody tr[data-device]').length === 14, null, { timeout: 15_000 });
+    const net = (id: string) => p.locator(`tr[data-device="${id}"] td.net`).innerText();
+    assert.match(await net('02:42:ac:1e:00:03'), /Docker/);
+    assert.match(await net('3c:22:fb:ab:cd:ef'), /Wi-Fi/);
+
+    // Docker chosen: its four first, the others after a line, faded.
+    await p.getByRole('button', { name: /Rede: Todas as redes/ }).click();
+    await p.getByRole('menuitemradio', { name: /Docker/ }).click();
+    await p.locator('tr.others-h').waitFor();
+    const order = await rows.evaluateAll((trs) => trs.map((tr) => (tr.classList.contains('others-h') ? '|' : tr.classList.contains('other') ? 'o' : 'm')).join(''));
+    assert.equal(order, `mmmm|${'o'.repeat(10)}`);
+
+    // The others left out altogether, and so after a reload.
+    await p.getByRole('button', { name: /Rede: Docker/ }).click();
+    await p.getByRole('menuitemcheckbox', { name: /Esconder os das outras redes/ }).click();
+    await p.keyboard.press('Escape');
+    await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Dispositivos"] tbody tr').length === 4);
+    await p.reload();
+    await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Dispositivos"] tbody tr[data-device]').length === 4, null, { timeout: 15_000 });
+    await p.waitForTimeout(500);
+    assert.equal(await rows.count(), 4);
+    assert.match(await p.getByRole('button', { name: /Rede: Docker/ }).innerText(), /só esta/);
+    // Agora's table follows the same choice.
+    await p.goto(`${demo.base}/#/`);
+    await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Dispositivos"] tbody tr[data-device]').length === 4, null, { timeout: 15_000 });
+
+    // Every network again: all fourteen.
+    await p.goto(`${demo.base}/#/devices`);
+    await p.getByRole('button', { name: /Rede: Docker/ }).click();
+    await p.getByRole('menuitemradio', { name: /Todas as redes/ }).click();
+    await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Dispositivos"] tbody tr[data-device]').length === 14);
+    assert.equal(await p.locator('tr.others-h').count(), 0);
+
+    // The Docker network's page: its conversations, both ends, moving as they come (no reload).
+    await p.goto(`${demo.base}/#/interface/docker0`);
+    const talk = p.getByRole('table', { name: 'Ligações' }).locator('tr', { hasText: 'PostgreSQL' });
+    await talk.waitFor({ timeout: 15_000 });
+    const before = await talk.locator('td.num').nth(1).innerText();
+    await p.waitForFunction(
+      ([b]) => document.querySelector('tr[data-conversation*="tcp/5432"] td.num:nth-of-type(4)')?.textContent?.trim() !== b,
+      [before],
+      { timeout: 15_000 },
+    );
+    assert.deepEqual(errors, []);
+    await p.close();
+  } finally {
+    await demo.stop();
   }
 });

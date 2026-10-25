@@ -1,6 +1,6 @@
 // pnpm demo: Argus with a made-up house instead of a capture (scripts/demo-tshark.ts), for a look without the
-// capture permissions, and for the README's pictures. Its own data in .demo/, its own port (4950), the Wi-Fi turned
-// on at start; nothing touches the network.
+// capture permissions, and for the README's pictures. Its own data in .demo/, its own port (4950), the Wi-Fi and
+// Docker's bridge turned on at start; nothing touches the network.
 //
 //   pnpm demo          then http://localhost:4950
 
@@ -32,17 +32,18 @@ const server = spawn(process.execPath, ['server/index.ts'], {
     ARGUS_SYS_NET: fake.sysNet,
   },
 });
-for (let i = 0; i < 100; i++) {
-  try {
-    const res = await fetch(`http://127.0.0.1:${PORT}/api/live/wlan0`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ on: true }),
-    });
-    if (res.ok) break;
-  } catch {}
-  await new Promise((r) => setTimeout(r, 100));
-}
+for (const iface of ['wlan0', 'docker0'])
+  for (let i = 0; i < 100; i++) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${PORT}/api/live/${iface}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ on: true }),
+      });
+      if (res.ok) break;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 100));
+  }
 console.log(`\n  Argus, the demo: http://localhost:${PORT}  (a made-up house; Ctrl+C stops it)\n`);
 for (const s of ['SIGINT', 'SIGTERM'] as const) process.on(s, () => server.kill('SIGTERM'));
 server.on('exit', (code) => process.exit(code ?? 0));

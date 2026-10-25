@@ -6,11 +6,13 @@
   import { keyOf } from '@organon/core/shared/entities';
   import type { Device, SeriesData } from '../../../shared/types.ts';
   import { argus } from '../lib/argus.svelte.ts';
+  import Conversations from '../lib/Conversations.svelte';
   import EntityIcon from '../lib/EntityIcon.svelte';
   import EntityLink from '../lib/EntityLink.svelte';
   import { bytes, rate, since, when } from '../lib/format.ts';
   import HostList from '../lib/HostList.svelte';
   import { KIND_WORD, deviceKind, subline } from '../lib/kinds.ts';
+  import NetTag from '../lib/NetTag.svelte';
   import RateChart from '../lib/RateChart.svelte';
   import { link } from '../lib/router.svelte.ts';
   import Seg from '../lib/Seg.svelte';
@@ -22,13 +24,13 @@
   const live = $derived(source?.kind === 'live');
   const d = $derived(source?.graph.get(`device:${id}`) as Device | undefined);
   const key = $derived(`device:${id}`);
+  const talks = $derived(source ? source.conversations.filter((c) => c.a === key || c.b === key) : []);
   const linked = $derived(d && source ? source.graph.linked(key) : []);
   const sites = $derived(linked.filter((n) => n.entity.kind === 'site'));
   const hosts = $derived(linked.filter((n) => n.entity.kind === 'remote'));
   const locals = $derived(linked.filter((n) => n.entity.kind === 'device'));
   const unnamed = $derived(hosts.filter((n) => !sites.some((s) => (s.entity.kind === 'site' ? s.entity.hosts.includes(n.entity.id) : false))));
   const others = $derived(d && source ? source.graph.twoSteps(key, 'uses', 'uses').filter((o) => o.entity.kind === 'device') : []);
-  const ifaces = $derived(d ? d.interfaces.map((i) => source?.graph.get(`interface:${i}`) ?? null) : []);
   let period = $state<'minutes' | 'day'>('minutes');
   const PERIODS = [
     { id: 'minutes' as const, label: '10 min' },
@@ -52,6 +54,7 @@
           <h1 class="page-title">{d.name}</h1>
           <p class="who">
             {d.role === 'gateway' ? 'A saída para a internet' : subline(d) || KIND_WORD[deviceKind(d)]}{d.model && d.role ? `, ${d.model}` : ''}
+            {#if d.interfaces.length}<span class="on-net">na rede <NetTag ids={d.interfaces} /></span>{/if}
           </p>
         </div>
       </div>
@@ -74,8 +77,8 @@
               class="muted">Não disse o nome</span
             >{/each}
         </dd>
-        <dt>Visto em</dt>
-        <dd>{#each ifaces as i, k (k)}{k ? ', ' : ''}{#if i}<EntityLink entity={i} />{/if}{/each}</dd>
+        <dt>Rede</dt>
+        <dd><NetTag ids={d.interfaces} />{#if d.interfaces.length > 1}<span class="muted small"> (ouvido em {d.interfaces.length})</span>{/if}</dd>
         <dt>Visto</dt>
         <dd>{when(d.firstSeen)} a {when(d.lastSeen)}{live ? ` (${since(d.lastSeen)})` : ''}</dd>
       </dl>
@@ -105,6 +108,12 @@
         {/if}
       {/if}
     </section>
+
+    {#if source}
+      <section class="band">
+        <Conversations conversations={talks} me={new Set([key])} {source} {capture} />
+      </section>
+    {/if}
 
     <div class="bands">
       <section class="band">
@@ -176,6 +185,15 @@
   .who {
     margin: 4px 0 0;
     color: var(--muted);
+  }
+
+  .on-net {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 10px;
+    padding-left: 10px;
+    border-left: 1px solid var(--rule-strong);
   }
 
   .src {
