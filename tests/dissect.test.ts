@@ -140,3 +140,52 @@ test('The bandwidth over time: each byte in the bucket of its second, the oldest
   s.add(150, 9, 9);
   assert.deepEqual(s.tail().sent, [0, 0, 0, 0, 0]);
 });
+
+test('A neighbour that floods mDNS and ARP with new names and addresses is bounded, and cheap to add up', async () => {
+  const { Tally, FIELDS, SEP } = await import('../server/tally.ts');
+  const row = (f: Record<string, string>) => FIELDS.map((k) => f[k] ?? '').join('\t');
+  const lines: string[] = [];
+  const mac = '9a:11:22:33:44:66';
+  for (let i = 0; i < 20_000; i++) {
+    lines.push(row({ 'frame.time_epoch': String(1000 + i / 100), 'frame.len': '100', 'eth.src': mac, 'eth.dst': '01:00:5e:00:00:fb', 'ip.src': '192.168.50.99', 'ip.dst': '224.0.0.251', 'dns.flags.response': '1', 'dns.resp.name': `h${i}.local`, 'dns.resp.type': '1' }));
+    lines.push(row({ 'frame.time_epoch': String(1000 + i / 100), 'frame.len': '60', 'eth.src': mac, 'eth.dst': 'ff:ff:ff:ff:ff:ff', 'arp.src.hw_mac': mac, 'arp.src.proto_ipv4': `10.${(i >> 8) & 255}.${i & 255}.7` }));
+  }
+  lines.push(row({ 'frame.time_epoch': '1300', 'frame.len': '342', 'eth.src': '9a:11:22:33:44:77', 'eth.dst': 'ff:ff:ff:ff:ff:ff', 'dhcp.hw.mac_addr': '9a:11:22:33:44:77', 'dhcp.option.hostname': `Router ${'x'.repeat(300)}` }));
+  void SEP;
+  const t0 = performance.now();
+  const v = new Tally().addText(lines.join('\n')).view();
+  const ms = performance.now() - t0;
+  // Before: 13 s for 20 000 names (and four times as long for twice as many), and one device of 1.6 MB.
+  assert.ok(ms < 3000, `${Math.round(ms)} ms`);
+  const d = v.devices.find((x) => x.mac === mac)!;
+  assert.ok(d.names.length <= 12, String(d.names.length));
+  assert.ok(d.ips.length <= 16, String(d.ips.length));
+  assert.ok(JSON.stringify(d).length < 4000, String(JSON.stringify(d).length));
+  // A name of 300 characters is cut at 100; one that says "Router" is told apart from the real one by its MAC.
+  const long = v.devices.find((x) => x.mac === '9a:11:22:33:44:77')!;
+  assert.ok(long.names[0]!.name.length <= 100);
+  assert.match(long.name, /·44:77$/);
+});
+
+test('At the ceilings the session kept on disk stays small: 500 devices heard once a minute for a day', async () => {
+  const { Tally, FIELDS } = await import('../server/tally.ts');
+  const t = new Tally();
+  const cols = FIELDS.map(() => [] as string[]);
+  const at = (k: string) => FIELDS.indexOf(k as (typeof FIELDS)[number]);
+  const day = 86_400;
+  for (let m = 0; m < day / 60; m++) {
+    for (let n = 0; n < 500; n++) {
+      const row = Object.fromEntries(FIELDS.map((k) => [k, [] as string[]])) as Parameters<typeof t.add>[0];
+      row['frame.time_epoch'] = [String(1_800_000_000 + m * 60 + (n % 60))];
+      row['frame.len'] = ['90'];
+      row['eth.src'] = [`9a:00:00:00:${(n >> 8).toString(16).padStart(2, '0')}:${(n & 255).toString(16).padStart(2, '0')}`];
+      row['eth.dst'] = ['ff:ff:ff:ff:ff:ff'];
+      t.add(row);
+    }
+  }
+  void cols;
+  void at;
+  const size = JSON.stringify(t.save()).length;
+  // Before: 107 MB for 2000 devices; the coarse day per device is now 144 buckets, kept only where heard.
+  assert.ok(size < 12_000_000, `${(size / 1e6).toFixed(1)} MB`);
+});

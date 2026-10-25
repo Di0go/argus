@@ -78,6 +78,13 @@ export class Captures {
     return c;
   }
 
+  /** What the captures' files take on disk, together. */
+  async diskBytes(): Promise<number> {
+    let n = 0;
+    for (const c of this.list) n += (await stat(this.file(c)).catch(() => undefined))?.size ?? 0;
+    return n;
+  }
+
   async remove(id: string): Promise<boolean> {
     const c = this.get(id);
     if (!c) return false;
@@ -91,11 +98,16 @@ export class Captures {
   /** The capture's devices and hosts, from its file. */
   read(c: Capture): Promise<Dissected> {
     let r = this.readings.get(c.id);
-    if (!r) {
-      r = dissect(this.file(c), { tshark: this.tools.tshark, ownMacs: ownMacs(this.tools.sysNet) });
+    if (r) {
+      // The most recently read last: the readings kept are the last few looked at.
+      this.readings.delete(c.id);
       this.readings.set(c.id, r);
-      r.catch(() => this.readings.delete(c.id));
+      return r;
     }
+    r = dissect(this.file(c), { tshark: this.tools.tshark, ownMacs: ownMacs(this.tools.sysNet) });
+    this.readings.set(c.id, r);
+    r.catch(() => this.readings.delete(c.id));
+    while (this.readings.size > 4) this.readings.delete(this.readings.keys().next().value!);
     return r;
   }
 

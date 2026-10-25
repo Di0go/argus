@@ -76,9 +76,10 @@ class Argus {
       this.coarse = view.total.coarse;
       this.byDevice = view.byDevice;
       this.measure(true);
-      return state.build;
+      return { build: state.build, seq: view.seq };
     },
     apply: (e) => this.apply(e),
+    seq: (e) => (e.type === 'live' ? e.seq : undefined),
   });
 
   /** The live session as entities. */
@@ -151,17 +152,25 @@ class Argus {
       return;
     }
     this.session = e.session;
-    this.devices = e.devices;
+    // Only what changed comes: laid over what the page has, in the order it had (the table keeps its own order).
+    if (e.devices.length || e.goneDevices.length) {
+      const by = new Map(this.devices.map((d) => [d.id, d]));
+      for (const d of e.devices) by.set(d.id, d);
+      for (const id of e.goneDevices) by.delete(id);
+      this.devices = [...by.values()];
+    }
     for (const r of e.remotes) this.remotes[r.id] = r;
     for (const id of e.gone) delete this.remotes[id];
     for (const l of e.links) this.links[`${l.from}>${l.to}`] = l;
+    // A host or device forgotten takes its links with it.
+    const gone = new Set([...e.gone.map((id) => `remote:${id}`), ...e.goneDevices.map((id) => `device:${id}`)]);
+    if (gone.size) for (const [k, l] of Object.entries(this.links)) if (gone.has(l.from) || gone.has(l.to)) delete this.links[k];
     this.fine = overlay(this.fine, e.total.fine);
     this.coarse = overlay(this.coarse, e.total.coarse);
-    const next: Record<string, SeriesData> = {};
-    for (const d of e.devices) {
-      const tail = e.byDevice[d.id];
-      next[d.id] = tail ? overlay(this.byDevice[d.id] ?? { ...tail, sent: [], received: [] }, tail, this.fine.sent.length) : (this.byDevice[d.id] ?? EMPTY_SERIES);
-    }
+    // The series that had traffic move on with it; a quiet device's stays as it was until it is heard again.
+    const next: Record<string, SeriesData> = { ...this.byDevice };
+    for (const id of e.goneDevices) delete next[id];
+    for (const [id, tail] of Object.entries(e.byDevice)) next[id] = overlay(next[id] ?? { ...tail, sent: [], received: [] }, tail, this.fine.sent.length);
     this.byDevice = next;
     this.measure();
   }
@@ -247,17 +256,18 @@ function groupSites(remotes: Remote[], links: Link[]): { sites: Site[]; siteLink
     hostSite.set(`remote:${r.id}`, company);
   }
   const siteLinks: Link[] = [];
-  const toSite = new Map<string, number>();
+  // Keyed by the pair itself, never by a string split again: a name from the network may hold any character.
+  const toSite = new Map<string, Link>();
   for (const l of links) {
     const company = hostSite.get(l.to);
     if (!company || !l.from.startsWith('device:')) continue;
-    const key = `${l.from}>site:${company}`;
-    toSite.set(key, (toSite.get(key) ?? 0) + (l.weight ?? 0));
+    const to = `site:${company}`;
+    const key = JSON.stringify([l.from, to]);
+    const have = toSite.get(key) ?? { from: l.from, to, rel: 'uses', weight: 0 };
+    have.weight = (have.weight ?? 0) + (l.weight ?? 0);
+    toSite.set(key, have);
   }
-  for (const [key, weight] of toSite) {
-    const [from, to] = key.split('>') as [string, string];
-    siteLinks.push({ from, to, rel: 'uses', weight });
-  }
+  siteLinks.push(...toSite.values());
   for (const s of by.values()) {
     s.aka = s.sites.filter((x) => x !== s.name);
     s.summary = s.sites.length === 1 && s.sites[0] === s.name ? `${s.hosts.length} anfitriões` : s.sites.slice(0, 4).join(', ');

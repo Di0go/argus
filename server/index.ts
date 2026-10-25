@@ -27,7 +27,7 @@ import { Warnings } from '@organon/core/server/warnings';
 import { listInterfaces, ownMacs } from './capture.ts';
 import { Captures } from './captures.ts';
 import { DissectError } from './dissect.ts';
-import { app, CAPTURES_DIR, DUMPCAP, LIVE_DIR, MERGECAP, RING, SEED_PCAP, SYS_NET, TSHARK } from './config.ts';
+import { app, CAPTURES_DIR, CAPTURES_MB, DUMPCAP, EDITCAP, LIVE_DIR, MERGECAP, RING, SEED_PCAP, SYS_NET, TSHARK } from './config.ts';
 import { Live, LiveError } from './live.ts';
 import { argusTools, instructions } from './tools.ts';
 
@@ -44,7 +44,7 @@ if (!captures.all().length && SEED_PCAP) {
     warnings.set('seed', `A gravação de exemplo não se leu: ${(err as Error).message}`);
   }
 }
-const live = await new Live({ tshark: TSHARK, dir: LIVE_DIR, store, events, ownMacs: () => ownMacs(SYS_NET), ...RING }).load();
+const live = await new Live({ tshark: TSHARK, editcap: EDITCAP, dir: LIVE_DIR, store, events, ownMacs: () => ownMacs(SYS_NET), ...RING }).load();
 
 await serve(app, {
   warnings,
@@ -113,17 +113,26 @@ async function routes(...[req, res, route, params]: Parameters<Route>): Promise<
   return false;
 }
 
-/** What the ring buffers hold (the last minutes of each interface), merged in time order into one capture. */
+/**
+ * What the ring buffers hold (the last minutes of each interface listened on), merged in time order into one capture
+ * and cut at the session's start. Refused past the ceiling for all captures saved (ARGUS_CAPTURES_MB).
+ */
 async function saveRing(ids?: string[]) {
   const files = await live.ringFiles(ids);
   if (!files.length) throw new ApiError(409, 'Ainda não há nada no ring buffer para guardar: liga uma interface primeiro');
+  const used = await captures.diskBytes();
+  if (used > CAPTURES_MB * 1024 * 1024)
+    throw new ApiError(409, `As capturas guardadas já ocupam ${Math.round(used / 1048576)} MB (o tecto é ${CAPTURES_MB} MB): apaga alguma primeiro`);
   const dir = await mkdtemp(path.join(tmpdir(), 'argus-save-'));
   try {
+    const merged = path.join(dir, 'merged.pcapng');
     const out = path.join(dir, 'saved.pcapng');
-    await promisify(execFile)(MERGECAP, ['-w', out, ...files], { timeout: 120_000 }).catch((err: Error & { stderr?: string }) => {
-      throw new ApiError(503, `O mergecap não juntou os ficheiros: ${(err.stderr || err.message).slice(0, 300)}`);
-    });
-    const names = ids ?? [...new Set(files.map((f) => path.basename(path.dirname(f))))];
+    const fail = (what: string) => (err: Error & { stderr?: string }) => {
+      throw new ApiError(503, `O ${what} não gravou a captura: ${(err.stderr || err.message).slice(0, 300)}`);
+    };
+    await promisify(execFile)(MERGECAP, ['-w', merged, ...files], { timeout: 120_000 }).catch(fail('mergecap'));
+    await live.cut(merged, out).catch(fail('editcap'));
+    const names = ids ?? live.session().listening.map((l) => l.id);
     const c = await captures.import(out, names, 'live');
     events.send({ type: 'captures', captures: captures.all() });
     return c;

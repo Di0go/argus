@@ -14,6 +14,7 @@
   .el {
     color: var(--fg);
     font-weight: 500;
+    overflow-wrap: anywhere;
   }
 
   .el:hover {

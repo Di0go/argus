@@ -152,3 +152,26 @@ test('On a phone: the bar says it is listening, the ribbon slides in from the me
   assert.deepEqual(errors, []);
   await p.close();
 });
+
+test('A name as long as the network allows never widens a page, at 1440 or on a phone', { skip: !CHROMIUM }, async () => {
+  const fake = await fakeCapture();
+  const long = await startServer(ROOT, {
+    env: { TSHARK: path.join(ROOT, 'tests/fixtures/long-names-tshark.ts'), DUMPCAP: fake.dumpcap, SYS_NET: fake.sysNet, EMIT_MS: '250' },
+  });
+  try {
+    await fetch(`${long.base}/api/live/wlan0`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"on":true}' });
+    for (const width of [1440, 390]) {
+      const { p, errors } = await page({ width, height: 900 });
+      for (const hash of ['#/', '#/devices', `#/device/${encodeURIComponent('9a:11:22:33:44:77')}`, `#/device/${encodeURIComponent('00:04:3c:11:22:33')}`]) {
+        await p.goto(`${long.base}/${hash}`);
+        await p.locator('.page-title').first().waitFor();
+        await p.waitForTimeout(400);
+        assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, `${width} ${hash}`);
+      }
+      assert.deepEqual(errors, []);
+      await p.close();
+    }
+  } finally {
+    await long.stop();
+  }
+});

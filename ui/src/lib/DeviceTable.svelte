@@ -117,11 +117,26 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    max-width: 26rem;
     line-height: 1.35;
+  }
+
+  /* A name from the network can be 100 characters: one line, cut with an ellipsis; the card and the page say it whole. */
+  .nm :global(.el) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+
+  .sub {
+    overflow: hidden;
+    white-space: nowrap;
   }
 
   .sub {
     display: flex;
+    min-width: 0;
     align-items: center;
     gap: 6px;
     font-size: 0.76rem;

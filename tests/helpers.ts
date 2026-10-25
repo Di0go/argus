@@ -59,12 +59,14 @@ cp ${FIXTURE} "$out"
 /**
  * A tshark that, asked to listen (-i), plays the fixture back instead, each frame stamped with the time it is played
  * at (a tenth of a second apart) and written into the ring buffer folder it was given, then waits to be stopped, as
- * the real one does; asked anything else (-r, a file), it is the real tshark. Its arguments are written beside it.
+ * the real one does; asked anything else (-r, a file), it is the real tshark. Its arguments are written beside it,
+ * and the pid of each one that listens.
  * Listening on tailscale0 fails at once, as on an interface that went away.
  */
-export async function fakeTshark(): Promise<{ tshark: string; argsFile: string }> {
+export async function fakeTshark(): Promise<{ tshark: string; argsFile: string; pidsFile: string }> {
   const dir = await mkdtemp(path.join(tmpdir(), 'argus-tshark-'));
   const argsFile = path.join(dir, 'args');
+  const pidsFile = path.join(dir, 'pids');
   const tshark = path.join(dir, 'tshark');
   await writeFile(
     tshark,
@@ -83,8 +85,11 @@ while [[ $# -gt 0 ]]; do
 done
 if [[ -z "$listen" ]]; then exec ${TSHARK} "\${rest[@]}"; fi
 if [[ "$listen" == tailscale0 ]]; then echo "tshark: The capture session could not be initiated (No such device exists)." >&2; exit 2; fi
+echo $$ >> ${pidsFile}
 echo "Capturing on '$listen'" >&2
-cp ${FIXTURE} "\${ring%.pcapng}_00001_20260101000000.pcapng"
+# The ring file holds the fixture as if captured now: its times moved to this moment.
+first=$(capinfos -S -a -T -r ${FIXTURE} | cut -f2)
+editcap -t "$(awk "BEGIN{print $(date +%s.%N) - $first}")" ${FIXTURE} "\${ring%.pcapng}_$$_$(date +%s%N).pcapng"
 trap 'kill $(jobs -p) 2>/dev/null; exit 0' TERM INT
 ${TSHARK} -r ${FIXTURE} "\${rest[@]}" | while IFS= read -r line; do
   printf '%s\t%s\n' "$(date +%s.%N)" "\${line#*$'\t'}"
@@ -94,5 +99,5 @@ sleep 3600 & wait
 `,
   );
   await chmod(tshark, 0o755);
-  return { tshark, argsFile };
+  return { tshark, argsFile, pidsFile };
 }

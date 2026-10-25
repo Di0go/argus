@@ -15,6 +15,15 @@
   const main = $derived(argus.interfaces.filter((i) => !minor(i) || stateOf(i.id)?.on));
   const rest = $derived(argus.interfaces.filter((i) => minor(i) && !stateOf(i.id)?.on));
 
+  /** Interfaces that carry the same frames: listening on both counts them twice. */
+  const overlap = $derived.by(() => {
+    const on = argus.interfaces.filter((i) => stateOf(i.id)?.on);
+    if (on.some((i) => i.type === 'any') && on.length > 1) return '«Todas» já inclui as outras: o que passa nelas conta duas vezes.';
+    if (on.some((i) => i.id.startsWith('veth')) && on.some((i) => i.type === 'docker' && !i.id.startsWith('veth')))
+      return 'Uma ponte do Docker e os contentores dela levam os mesmos pacotes: contam duas vezes.';
+    return '';
+  });
+
   async function toggle(i: Interface) {
     busy = i.id;
     problem = await argus.listen(i.id, !stateOf(i.id)?.on);
@@ -68,6 +77,7 @@
     Ainda não dá para escutar: {argus.interfacesProblem}. Falta correr, uma vez, <code>pkexec bash scripts/install-capture.sh</code>.
   </p>
 {/if}
+{#if overlap}<p class="why">{overlap}</p>{/if}
 {#if problem}<p class="why" role="alert">{problem}</p>{/if}
 
 <style>

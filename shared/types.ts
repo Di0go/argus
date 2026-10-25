@@ -132,24 +132,30 @@ export interface Session {
 
 /** GET /api/live: the session and everything it saw, with the bandwidth over time. */
 export interface LiveView {
+  /** The number of the last event this view includes. */
+  seq: number;
   session: Session;
   devices: Device[];
   remotes: Remote[];
   links: Link[];
   /** The whole network: fine (a second per bucket, the last minutes) and coarse (a minute per bucket, the day). */
   total: { fine: SeriesData; coarse: SeriesData };
-  /** Each device's fine series. */
+  /** The fine series of each device heard in the last ten minutes. */
   byDevice: Record<string, SeriesData>;
 }
 
 /**
- * On the live stream, once a second while something changes: the session, every device, the hosts and links that
- * changed, and the newest buckets of each series (to lay over what the page has).
+ * On the live stream, once a second while something changes: the session, the devices, hosts and links that changed,
+ * and the newest buckets of the series that had traffic (to lay over what the page has).
  */
 export interface LiveEvent {
   type: 'live';
+  /** Numbered, so a page that loads the view whole skips the events it already includes. */
+  seq: number;
   session: Session;
+  /** The devices that changed, and those forgotten (past the ceiling). */
   devices: Device[];
+  goneDevices: string[];
   remotes: Remote[];
   links: Link[];
   /** Hosts forgotten (past the ceiling) since the last event. */

@@ -13,8 +13,13 @@
 // first half (Wireshark's OUI list). Hosts out on the internet are named by the DNS answers this network got for
 // them and by the server name a TLS handshake asked for (SNI). What is encrypted is not read: only who, when, how much.
 //
-// Bounded: past `maxFlows` conversations the ones quiet longest are forgotten (their hosts with them, when nothing
-// else names them), past `maxDevices` devices the quietest, and the DNS names kept are capped too.
+// Bounded, because anyone on the network can talk to it (mDNS and ARP reach every PC): past `maxFlows` conversations
+// the ones quiet longest are forgotten (their hosts with them), past `maxDevices` devices the quietest; each device
+// keeps at most NAMES names and ADDRESSES addresses, each name at most NAME_LENGTH characters, each address at most
+// DNS_NAMES names from DNS, each conversation SNI_NAMES server names; the MACs that might be a router are pruned to the
+// likeliest. The bandwidth over time is kept only for the seconds and minutes that had traffic.
+//
+// The router is decided per interface: two uplinks (the Wi-Fi and a phone on USB) each have their own.
 
 import type { Link } from '@organon/core/shared/entities';
 import type { Device, NameSource, Remote } from '../shared/types.ts';
@@ -52,6 +57,14 @@ type Field = (typeof FIELDS)[number];
 /** Between a field's repeats, in tshark's output (-E aggregator). */
 export const SEP = '\x1f';
 
+const NAMES = 12;
+const ADDRESSES = 16;
+const NAME_LENGTH = 100;
+const DNS_NAMES = 8;
+const SNI_NAMES = 4;
+/** Past this many MACs that carried another network's address, only the likeliest routers are kept. */
+const MAYBE_ROUTERS = 256;
+
 /** tshark's arguments for the fields, one line per frame, tab between fields. */
 export function fieldArgs(): string[] {
   const args = ['-n', '-T', 'fields', '-E', 'separator=/t', '-E', 'occurrence=a', '-E', `aggregator=${SEP}`, '-E', 'quote=n'];
@@ -82,6 +95,8 @@ export interface Dissected {
 
 /** One way of a conversation: from a MAC and address to a MAC and address. */
 interface Flow {
+  /** The interface it was heard on: each has its own way out. */
+  iface?: string;
   src?: string;
   dst?: string;
   ipSrc?: string;
@@ -109,58 +124,86 @@ export interface TallyOptions {
   /** The bandwidth over time: seconds per bucket, and how many buckets are kept, fine and coarse. */
   fine?: { step: number; count: number };
   coarse?: { step: number; count: number };
+  /** Each device's day, coarser than the network's (10 minutes a bucket): 500 devices heard once a minute stay small. */
+  deviceCoarse?: { step: number; count: number };
 }
 
-/** Bytes over time, in buckets of `step` seconds, sent and received, the newest `count`. */
+/**
+ * Bytes over time, in buckets of `step` seconds, sent and received, the newest `count`. Only the buckets that had
+ * traffic are kept (a device heard once a day costs a few numbers, not 2 × 1440), and given dense to the page.
+ */
 export class Series {
   readonly step: number;
   readonly count: number;
   /** The bucket index (epoch seconds / step) of the newest bucket. */
   end = 0;
-  sent: number[];
-  received: number[];
+  private readonly buckets = new Map<number, [number, number]>();
 
   constructor(step: number, count: number) {
     this.step = step;
     this.count = count;
-    this.sent = new Array(count).fill(0);
-    this.received = new Array(count).fill(0);
   }
 
   add(time: number, sent: number, received: number) {
     const b = Math.floor(time / this.step);
     if (b > this.end) this.advance(b);
-    const i = this.count - 1 - (this.end - b);
-    if (i < 0) return;
-    this.sent[i]! += sent;
-    this.received[i]! += received;
+    if (b <= this.end - this.count) return;
+    const v = this.buckets.get(b);
+    if (v) {
+      v[0] += sent;
+      v[1] += received;
+    } else this.buckets.set(b, [sent, received]);
   }
 
-  /** Moves the newest bucket to `b`, dropping the oldest. */
+  /** Moves the newest bucket to `b`, dropping what falls out. */
   advance(b: number) {
     if (b <= this.end) return;
-    const shift = Math.min(this.count, b - this.end);
-    this.sent.splice(0, shift);
-    this.received.splice(0, shift);
-    for (let k = 0; k < shift; k++) {
-      this.sent.push(0);
-      this.received.push(0);
-    }
     this.end = b;
+    for (const k of this.buckets.keys()) if (k <= b - this.count) this.buckets.delete(k);
   }
 
-  /** The newest `n` buckets, as plain data. */
+  /** Whether any of the newest `n` buckets had traffic. */
+  active(n: number): boolean {
+    for (const k of this.buckets.keys()) if (k > this.end - n) return true;
+    return false;
+  }
+
+  /** The newest `n` buckets, dense, as plain data. */
   tail(n = this.count): SeriesData {
-    return { step: this.step, end: this.end, sent: this.sent.slice(-n), received: this.received.slice(-n) };
+    const sent = new Array<number>(n).fill(0);
+    const received = new Array<number>(n).fill(0);
+    for (const [k, [s, r]] of this.buckets) {
+      const i = n - 1 - (this.end - k);
+      if (i < 0 || i >= n) continue;
+      sent[i] = s;
+      received[i] = r;
+    }
+    return { step: this.step, end: this.end, sent, received };
   }
 
-  static from(d: SeriesData, count: number): Series {
+  /** What is kept on disk: only the buckets with traffic. */
+  sparse(): SparseSeries {
+    return { step: this.step, end: this.end, buckets: [...this.buckets].map(([k, [s, r]]) => [k, s, r]) };
+  }
+
+  static from(d: SeriesData | SparseSeries, count: number): Series {
     const s = new Series(d.step, count);
     s.end = d.end;
-    s.sent = [...new Array(Math.max(0, count - d.sent.length)).fill(0), ...d.sent.slice(-count)];
-    s.received = [...new Array(Math.max(0, count - d.received.length)).fill(0), ...d.received.slice(-count)];
+    if ('buckets' in d) for (const [k, a, b] of d.buckets) s.buckets.set(k, [a, b]);
+    else
+      d.sent.forEach((v, i) => {
+        const r = d.received[i] ?? 0;
+        if (v || r) s.buckets.set(d.end - (d.sent.length - 1 - i), [v, r]);
+      });
+    s.advance(s.end + 0);
     return s;
   }
+}
+
+export interface SparseSeries {
+  step: number;
+  end: number;
+  buckets: [number, number, number][];
 }
 
 /** A series as sent to the page and kept on disk: the newest bucket's index (epoch seconds / step), oldest first. */
@@ -192,11 +235,12 @@ export class Tally {
   constructor(options: TallyOptions = {}) {
     this.own = new Set((options.ownMacs ?? []).map((m) => m.toLowerCase()));
     this.options = {
-      maxFlows: options.maxFlows ?? 100_000,
-      maxDevices: options.maxDevices ?? 2_000,
+      maxFlows: options.maxFlows ?? 20_000,
+      maxDevices: options.maxDevices ?? 500,
       maxDnsNames: options.maxDnsNames ?? 50_000,
       fine: options.fine ?? { step: 1, count: 600 },
       coarse: options.coarse ?? { step: 60, count: 1440 },
+      deviceCoarse: options.deviceCoarse ?? { step: 600, count: 144 },
     };
     this.fine = new Series(this.options.fine.step, this.options.fine.count);
     this.coarse = new Series(this.options.coarse.step, this.options.coarse.count);
@@ -216,15 +260,15 @@ export class Tally {
     this.last = Math.max(this.last, time);
     this.fine.add(time, len, 0);
     this.coarse.add(time, len, 0);
-    const iface = r['frame.interface_name'][0];
+    const iface = r['frame.interface_name'][0] ?? '';
     const src = r['eth.src'][0];
     const dst = r['eth.dst'][0];
     const ipSrc = r['ip.src'][0] ?? r['ipv6.src'][0];
     const ipDst = r['ip.dst'][0] ?? r['ipv6.dst'][0];
     const s4 = r['ip.src'][0];
     const d4 = r['ip.dst'][0];
-    if (src && s4 && !isLocal(s4) && isUnicastIp(s4)) this.carriesRemote.set(src, (this.carriesRemote.get(src) ?? 0) + 1);
-    if (dst && d4 && !isLocal(d4) && isUnicastIp(d4)) this.carriesRemote.set(dst, (this.carriesRemote.get(dst) ?? 0) + 1);
+    if (src && s4 && !isLocal(s4) && isUnicastIp(s4)) this.maybeRouter(iface, src);
+    if (dst && d4 && !isLocal(d4) && isUnicastIp(d4)) this.maybeRouter(iface, dst);
 
     // Who sent it and who it was for, on the local network.
     let sender: Counted | undefined;
@@ -248,10 +292,10 @@ export class Tally {
 
     // The conversation, for what depends on the router: hosts out on the internet, addresses, links.
     if (ipSrc || ipDst) {
-      const key = `${src ?? ''}|${dst ?? ''}|${ipSrc ?? ''}|${ipDst ?? ''}`;
+      const key = flowKey({ iface, src, dst, ipSrc, ipDst });
       let f = this.flows.get(key);
       if (!f) {
-        f = { src, dst, ipSrc, ipDst, sender: sender?.id, receiver: receiver?.id, packets: 0, bytes: 0, first: time, last: time };
+        f = { iface, src, dst, ipSrc, ipDst, sender: sender?.id, receiver: receiver?.id, packets: 0, bytes: 0, first: time, last: time };
         this.flows.set(key, f);
         if (this.flows.size > this.options.maxFlows) this.forgetFlows();
       } else {
@@ -263,13 +307,14 @@ export class Tally {
       f.bytes += len;
       f.first = Math.min(f.first, time);
       f.last = Math.max(f.last, time);
-      for (const sni of r['tls.handshake.extensions_server_name']) if (!f.sni?.includes(sni)) (f.sni ??= []).push(sni);
+      for (const sni of r['tls.handshake.extensions_server_name'])
+        if (!f.sni?.includes(sni) && (f.sni?.length ?? 0) < SNI_NAMES) (f.sni ??= []).push(clip(sni));
     }
 
     // ARP: a MAC saying which address is its own.
     const arpMac = r['arp.src.hw_mac'][0];
     const arpIp = r['arp.src.proto_ipv4'][0];
-    if (arpMac && arpIp && isUnicastMac(arpMac) && arpIp !== '0.0.0.0') addTo(this.device(arpMac, time).fixedIps, arpIp);
+    if (arpMac && arpIp && isUnicastMac(arpMac) && arpIp !== '0.0.0.0') addCapped(this.device(arpMac, time).fixedIps, arpIp);
 
     // DHCP: the name a device gives when it asks for an address, and the address it gets.
     const dhcpMac = r['dhcp.hw.mac_addr'][0];
@@ -277,9 +322,9 @@ export class Tally {
       const d = this.device(dhcpMac, time);
       for (const n of r['dhcp.option.hostname']) addName(d.names, n, 'DHCP');
       const got = r['dhcp.ip.your'][0];
-      if (got && got !== '0.0.0.0') addTo(d.fixedIps, got);
+      if (got && got !== '0.0.0.0') addCapped(d.fixedIps, got);
       const asked = r['dhcp.option.requested_ip_address'][0];
-      if (asked && asked !== '0.0.0.0' && !d.fixedIps.length) addTo(d.fixedIps, asked);
+      if (asked && asked !== '0.0.0.0' && !d.fixedIps.length) addCapped(d.fixedIps, asked);
     }
 
     // DNS and mDNS answers.
@@ -292,9 +337,9 @@ export class Tally {
           for (const ip of [...r['dns.a'], ...r['dns.aaaa']]) {
             const list = this.dnsNames.get(ip);
             if (list) {
-              if (!list.includes(asked)) list.push(asked);
+              if (!list.includes(asked) && list.length < DNS_NAMES) list.push(clip(asked));
             } else {
-              this.dnsNames.set(ip, [asked]);
+              this.dnsNames.set(ip, [clip(asked)]);
               if (this.dnsNames.size > this.options.maxDnsNames) this.dnsNames.delete(this.dnsNames.keys().next().value!);
             }
           }
@@ -311,29 +356,40 @@ export class Tally {
     }
   }
 
-  /** The MAC that is the way out to the internet, as things stand. */
-  gateway(): string | undefined {
-    let best: string | undefined;
-    let n = 0;
-    for (const [mac, count] of this.carriesRemote) {
-      if (count > n) {
-        best = mac;
-        n = count;
-      }
+  /** The MAC that is the way out to the internet on each interface, as things stand. */
+  gateways(): Map<string, string> {
+    const best = new Map<string, [string, number]>();
+    for (const [key, count] of this.carriesRemote) {
+      const [iface = '', mac = ''] = key.split('|');
+      const b = best.get(iface);
+      if (!b || count > b[1]) best.set(iface, [mac, count]);
     }
-    return best;
+    return new Map([...best].map(([iface, [mac]]) => [iface, mac]));
+  }
+
+  /** Counts a MAC that carried another network's address, on an interface; prunes to the likeliest past the ceiling. */
+  private maybeRouter(iface: string, mac: string) {
+    const key = `${iface}|${mac}`;
+    this.carriesRemote.set(key, (this.carriesRemote.get(key) ?? 0) + 1);
+    if (this.carriesRemote.size <= MAYBE_ROUTERS) return;
+    const keep = [...this.carriesRemote].sort((a, b) => b[1] - a[1]).slice(0, MAYBE_ROUTERS / 8);
+    this.carriesRemote.clear();
+    for (const [k, v] of keep) this.carriesRemote.set(k, v);
   }
 
   /** What it all adds up to so far. */
   view(): Dissected {
-    const gateway = this.gateway();
+    const gateways = this.gateways();
+    const routers = new Set(gateways.values());
     /**
      * Whether `ip`, on the side of the frame whose MAC is `mac`, is a host out on the internet: an address of another
      * network that came through the way out. The same address behind another MAC is that device's own (this PC's
      * global IPv6), and with no Ethernet at all (a VPN) any address not of a private range is out there.
      */
-    const outside = (ip: string | undefined, mac: string | undefined) =>
-      Boolean(ip && isUnicastIp(ip) && !isLocal(ip) && (!mac || !gateway || mac === gateway));
+    const outside = (ip: string | undefined, mac: string | undefined, iface: string | undefined) => {
+      const gateway = gateways.get(iface ?? '');
+      return Boolean(ip && isUnicastIp(ip) && !isLocal(ip) && (!mac || !gateway || mac === gateway));
+    };
     const ips = new Map<string, string[]>();
     const remotes = new Map<string, Remote>();
     const links = new Map<string, Link>();
@@ -355,13 +411,13 @@ export class Tally {
     };
     const ipOf = (id: string, ip: string) => {
       const list = ips.get(id) ?? [];
-      if (!list.includes(ip)) list.push(ip);
+      if (!list.includes(ip) && list.length < ADDRESSES) list.push(ip);
       ips.set(id, list);
     };
 
     for (const f of this.flows.values()) {
-      const srcOut = outside(f.ipSrc, f.src);
-      const dstOut = outside(f.ipDst, f.dst);
+      const srcOut = outside(f.ipSrc, f.src, f.iface);
+      const dstOut = outside(f.ipDst, f.dst, f.iface);
       if (f.sender && f.ipSrc && !srcOut && isUnicastIp(f.ipSrc)) ipOf(f.sender, f.ipSrc);
       if (f.receiver && f.ipDst && !dstOut && isUnicastIp(f.ipDst)) ipOf(f.receiver, f.ipDst);
       if (f.ipSrc && srcOut) {
@@ -389,9 +445,9 @@ export class Tally {
     for (const c of this.devices.values()) {
       const { fixedIps, ...rest } = c;
       const d: Device = { ...rest, names: [...c.names], interfaces: [...c.interfaces], ips: [...(ips.get(c.id) ?? [])], name: '' };
-      for (const ip of fixedIps) addTo(d.ips, ip);
+      for (const ip of fixedIps) if (d.ips.length < ADDRESSES) addTo(d.ips, ip);
       if (d.mac && this.own.has(d.mac)) d.role = 'self';
-      else if (d.mac && d.mac === gateway) d.role = 'gateway';
+      else if (d.mac && routers.has(d.mac)) d.role = 'gateway';
       d.ips.sort(compareIp);
       d.name = deviceName(d);
       d.aka = [...d.names.map((n) => n.name), ...d.ips, ...(d.mac ? [d.mac] : [])];
@@ -414,15 +470,22 @@ export class Tally {
     };
   }
 
-  /** A device's bandwidth over time, fine (the last minutes) and coarse (the day). */
-  deviceSeries(id: string): { fine?: SeriesData; coarse?: SeriesData } {
-    return { fine: this.fineByDevice.get(id)?.tail(), coarse: this.coarseByDevice.get(id)?.tail() };
+  /** A device's bandwidth over time, fine (the last minutes) and coarse (the day); only the newest `fine` buckets if asked. */
+  deviceSeries(id: string, fine?: number): { fine?: SeriesData; coarse?: SeriesData } {
+    return { fine: this.fineByDevice.get(id)?.tail(fine), coarse: fine ? undefined : this.coarseByDevice.get(id)?.tail() };
   }
 
-  /** The newest `n` fine buckets of every device: what the page is sent each second. */
+  /** The newest `n` fine buckets of the devices that had traffic in them: what the page is sent each second. */
   recentByDevice(n: number): Record<string, SeriesData> {
     const out: Record<string, SeriesData> = {};
-    for (const [id, s] of this.fineByDevice) out[id] = s.tail(n);
+    for (const [id, s] of this.fineByDevice) if (s.active(n)) out[id] = s.tail(n);
+    return out;
+  }
+
+  /** The fine series of the devices that had traffic in the last `seconds`: what a page loads. */
+  activeByDevice(seconds: number): Record<string, SeriesData> {
+    const out: Record<string, SeriesData> = {};
+    for (const [id, s] of this.fineByDevice) if (s.active(Math.ceil(seconds / s.step))) out[id] = s.tail();
     return out;
   }
 
@@ -442,10 +505,10 @@ export class Tally {
       flows: [...this.flows.values()],
       carriesRemote: [...this.carriesRemote],
       dnsNames: [...this.dnsNames],
-      fine: this.fine.tail(),
-      coarse: this.coarse.tail(),
-      fineByDevice: [...this.fineByDevice].map(([id, s]) => [id, s.tail()]),
-      coarseByDevice: [...this.coarseByDevice].map(([id, s]) => [id, s.tail()]),
+      fine: this.fine.sparse(),
+      coarse: this.coarse.sparse(),
+      fineByDevice: [...this.fineByDevice].map(([id, s]) => [id, s.sparse()]),
+      coarseByDevice: [...this.coarseByDevice].map(([id, s]) => [id, s.sparse()]),
     };
   }
 
@@ -455,14 +518,16 @@ export class Tally {
     t.bytes = d.bytes;
     t.last = d.last;
     for (const c of d.devices) t.devices.set(c.id, c);
-    for (const f of d.flows) t.flows.set(`${f.src ?? ''}|${f.dst ?? ''}|${f.ipSrc ?? ''}|${f.ipDst ?? ''}`, f);
-    for (const [k, v] of d.carriesRemote) t.carriesRemote.set(k, v);
+    for (const f of d.flows) t.flows.set(flowKey(f), f);
+    // A session from before routers were per interface: its MACs were keyed alone.
+    for (const [k, v] of d.carriesRemote) t.carriesRemote.set(k.includes('|') ? k : `${d.flows[0]?.iface ?? ''}|${k}`, v);
     for (const [k, v] of d.dnsNames) t.dnsNames.set(k, v);
     const fine = t.options.fine.count;
     const coarse = t.options.coarse.count;
     Object.assign(t, { fine: Series.from(d.fine, fine), coarse: Series.from(d.coarse, coarse) });
     for (const [id, s] of d.fineByDevice) t.fineByDevice.set(id, Series.from(s, fine));
-    for (const [id, s] of d.coarseByDevice) t.coarseByDevice.set(id, Series.from(s, coarse));
+    // A day kept at the network's step (before devices had their own) is read at its own step, and moves on to the new one.
+    for (const [id, s] of d.coarseByDevice) t.coarseByDevice.set(id, Series.from(s, s.step === t.options.deviceCoarse.step ? t.options.deviceCoarse.count : coarse));
     return t;
   }
 
@@ -506,7 +571,7 @@ export class Tally {
     let f = this.fineByDevice.get(id);
     if (!f) this.fineByDevice.set(id, (f = new Series(this.options.fine.step, this.options.fine.count)));
     let c = this.coarseByDevice.get(id);
-    if (!c) this.coarseByDevice.set(id, (c = new Series(this.options.coarse.step, this.options.coarse.count)));
+    if (!c) this.coarseByDevice.set(id, (c = new Series(this.options.deviceCoarse.step, this.options.deviceCoarse.count)));
     f.add(time, sent, received);
     c.add(time, sent, received);
   }
@@ -540,10 +605,20 @@ export interface TallyData {
   flows: Flow[];
   carriesRemote: [string, number][];
   dnsNames: [string, string[]][];
-  fine: SeriesData;
-  coarse: SeriesData;
-  fineByDevice: [string, SeriesData][];
-  coarseByDevice: [string, SeriesData][];
+  fine: SeriesData | SparseSeries;
+  coarse: SeriesData | SparseSeries;
+  fineByDevice: [string, SeriesData | SparseSeries][];
+  coarseByDevice: [string, SeriesData | SparseSeries][];
+}
+
+function flowKey(f: Pick<Flow, 'iface' | 'src' | 'dst' | 'ipSrc' | 'ipDst'>): string {
+  return `${f.iface ?? ''}|${f.src ?? ''}|${f.dst ?? ''}|${f.ipSrc ?? ''}|${f.ipDst ?? ''}`;
+}
+
+/** A name from the network, at most NAME_LENGTH characters, its control characters out. */
+function clip(name: string): string {
+  const clean = name.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '').trim();
+  return clean.length > NAME_LENGTH ? `${clean.slice(0, NAME_LENGTH - 1)}…` : clean;
 }
 
 /** Adds up a whole file's lines at once (a recording, a capture saved from the live one). */
@@ -575,7 +650,8 @@ function mdnsNames(d: Counted, r: Row) {
 /** The name he would give it: its own name first, else what it is. */
 function deviceName(d: Device): string {
   if (d.role === 'self') return d.names[0]?.name ? `${d.names[0].name} (este PC)` : 'Este PC';
-  if (d.names[0]) return d.names[0].name;
+  // A device may call itself anything, "Router" or "Este PC" too: then the end of its MAC says it is another one.
+  if (d.names[0]) return /^(router|este pc)\b/i.test(d.names[0].name) ? `${d.names[0].name} ·${(d.mac ?? d.ips[0] ?? '').slice(-5)}` : d.names[0].name;
   if (d.role === 'gateway') return d.vendor ? `Router ${shortVendor(d.vendor)}` : 'Router';
   const tail = d.mac ? d.mac.slice(-5) : (d.ips[0] ?? '');
   if (d.vendor) return `${shortVendor(d.vendor)} ·${tail}`;
@@ -606,12 +682,18 @@ function addTo(list: string[], v: string) {
   if (!list.includes(v)) list.push(v);
 }
 
+function addCapped(list: string[], v: string) {
+  if (list.length < ADDRESSES) addTo(list, v);
+}
+
+const RANK: Record<NameSource, number> = { DHCP: 0, mDNS: 1, NetBIOS: 2, DNS: 3, TLS: 4 };
+
+/** A name, in the order trusted (DHCP, mDNS, NetBIOS, then DNS and TLS), at most NAMES of them. */
 function addName(names: { name: string; source: NameSource }[], name: string, source: NameSource) {
-  const n = name.trim();
-  if (n && !names.some((x) => x.name.toLowerCase() === n.toLowerCase())) names.push({ name: n, source });
-  // Keep the order trusted: DHCP, mDNS, NetBIOS, then DNS and TLS.
-  const rank: Record<NameSource, number> = { DHCP: 0, mDNS: 1, NetBIOS: 2, DNS: 3, TLS: 4 };
-  names.sort((a, b) => rank[a.source] - rank[b.source]);
+  const n = clip(name);
+  if (!n || names.length >= NAMES || names.some((x) => x.name.toLowerCase() === n.toLowerCase())) return;
+  const at = names.findIndex((x) => RANK[x.source] > RANK[source]);
+  names.splice(at === -1 ? names.length : at, 0, { name: n, source });
 }
 
 /** Not a group address (broadcast, multicast: the first byte's lowest bit). */

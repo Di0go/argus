@@ -4,12 +4,13 @@
 
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { type Running, startServer } from '@organon/core/testing';
 import type { Capture, HostsView, Interface, LiveEvent, LiveView, Session } from '../shared/types.ts';
-import { FIXTURE, fakeCapture, fakeTshark, ROOT } from './helpers.ts';
+import { FIXTURE, fakeCapture, fakeTshark, ROOT, TSHARK } from './helpers.ts';
 
 const running: Running[] = [];
 after(async () => {
@@ -101,7 +102,9 @@ test('The live stream: a page gets what changed, once in a while, as aggregates 
   ac.abort();
   const last = events.at(-1)!;
   assert.equal(last.type, 'live');
-  assert.equal(last.devices.length, 7);
+  // Each event carries the devices that changed; across them, all seven arrived.
+  assert.equal(new Set(events.flatMap((e) => e.devices.map((d) => d.id))).size, 7);
+  assert.ok(events.every((e, i) => i === 0 || e.seq === events[i - 1]!.seq + 1), 'numbered in order');
   // Fewer events than frames: the page is told at most every EMIT_MS, not per packet.
   assert.ok(events.length < truth.packets, `${events.length} events for ${truth.packets} packets`);
   // Hosts are sent when they change, and only then; across the events, each one arrived.
@@ -243,4 +246,86 @@ test('Without dumpcap (before scripts/install-capture.sh), listening is refused 
   assert.match(((await res.json()) as { error: string }).error, /install-capture/);
   const { interfaces } = (await (await fetch(`${app.base}/api/interfaces`)).json()) as { interfaces: Interface[] };
   assert.ok(interfaces.length > 0 && interfaces.every((i) => !i.capturable));
+});
+
+/** The pretend tsharks still running, of those started. */
+function alive(pidsFile: string): number[] {
+  let pids: number[] = [];
+  try {
+    pids = readFileSync(pidsFile, 'utf8').split('\n').filter(Boolean).map(Number);
+  } catch {}
+  return pids.filter((pid) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+test('Clicked twice at once, or off and on again at once: one tshark per interface, every packet counted once', async () => {
+  const { app, ts } = await start();
+  // Two at once (two tabs, a double click, the agent): found by the red team to start two and count twice.
+  const both = await Promise.all([listen(app.base, 'wlan0'), listen(app.base, 'wlan0')]);
+  assert.deepEqual(
+    both.map((r) => r.status),
+    [200, 200],
+  );
+  await until(app.base, (x) => x.session.packets === truth.packets);
+  await new Promise((r) => setTimeout(r, 2500));
+  assert.equal((await liveView(app.base)).session.packets, truth.packets, 'counted once');
+  assert.equal(alive(ts.pidsFile).length, 1);
+  // Off and on again at once: the one before is gone before the next starts, and none is left behind.
+  await listen(app.base, 'wlan0', false);
+  await listen(app.base, 'wlan0');
+  const v = await until(app.base, (x) => x.session.packets === 2 * truth.packets);
+  assert.equal(v.session.listening[0]?.status, 'listening');
+  await new Promise((r) => setTimeout(r, 2500));
+  assert.equal((await liveView(app.base)).session.packets, 2 * truth.packets);
+  assert.equal(alive(ts.pidsFile).length, 1);
+  await app.stop();
+  await new Promise((r) => setTimeout(r, 300));
+  assert.deepEqual(alive(ts.pidsFile), [], 'none left running after the server stops');
+});
+
+test('Two interfaces turned on at the same moment: both answered, both saved, no write failing on the other', async () => {
+  const { app } = await start();
+  const res = await Promise.all(['wlan0', 'enp3s0', 'docker0', 'lo'].map((id) => listen(app.base, id)));
+  assert.deepEqual(
+    res.map((r) => r.status),
+    [200, 200, 200, 200],
+  );
+  const state = JSON.parse(readFileSync(path.join(app.dataDir, 'live/state.json'), 'utf8')) as { on: string[] };
+  assert.deepEqual([...state.on].sort(), ['docker0', 'enp3s0', 'lo', 'wlan0']);
+});
+
+test('The ring survives a restart, is cut to the ceiling, and a save after "Recomeçar" holds nothing from before it', async () => {
+  const first = await start({ RING_FILES: '2' });
+  await listen(first.app.base, 'wlan0');
+  await until(first.app.base, (x) => x.session.packets === truth.packets);
+  await first.app.stop();
+  // The pretend tshark writes one ring file per run: three runs, a ceiling of two.
+  const second = await start({ RING_FILES: '2' }, first.app.dataDir);
+  await until(second.app.base, (x) => x.session.packets === 2 * truth.packets);
+  await second.app.stop();
+  const third = await start({ RING_FILES: '2' }, first.app.dataDir);
+  await until(third.app.base, (x) => x.session.packets === 3 * truth.packets);
+  await new Promise((r) => setTimeout(r, 1500));
+  const ring = await readdir(path.join(first.app.dataDir, 'live/ring/wlan0'));
+  assert.equal(ring.filter((f) => f.endsWith('.pcapng')).length, 2, ring.join(' '));
+  // After "Recomeçar", a save holds only what the ring has from then on: each packet's time checked in the file itself,
+  // and their number against the ring's own, counted apart.
+  const reset = (await (await send(third.app.base, '/api/live/reset', {})).json()) as Session;
+  const res = await send(third.app.base, '/api/live/save', {});
+  assert.equal(res.status, 200);
+  const c = (await res.json()) as Capture;
+  const times = (file: string) =>
+    execFileSync(TSHARK, ['-r', file, '-T', 'fields', '-e', 'frame.time_epoch'], { encoding: 'utf8' }).split('\n').filter(Boolean).map(Number);
+  const saved = times(path.join(third.app.dataDir, 'captures', `${c.id}.pcapng`));
+  assert.ok(saved.every((t) => t >= reset.started! - 1e-6), 'nothing from before "Recomeçar"');
+  const ringDir = path.join(first.app.dataDir, 'live/ring/wlan0');
+  const inRing = (await readdir(ringDir)).flatMap((f) => times(path.join(ringDir, f))).filter((t) => t >= reset.started! - 1e-6);
+  assert.equal(saved.length, inRing.length);
+  assert.equal(c.packets, saved.length);
 });

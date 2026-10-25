@@ -3,7 +3,8 @@
 // (server/live.ts), one frame at a time.
 
 import { spawn } from 'node:child_process';
-import { type Dissected, fieldArgs, Tally } from './tally.ts';
+import { createInterface } from 'node:readline';
+import { type Dissected, fieldArgs, parseLine, Tally } from './tally.ts';
 
 export { type Dissected, isLocal, isRandomMac, isUnicastIp, isUnicastMac, shortVendor, tally } from './tally.ts';
 
@@ -15,24 +16,31 @@ export interface DissectOptions {
 
 export class DissectError extends Error {}
 
-/** Runs tshark over `file` and adds up what it saw. */
-export async function dissect(file: string, options: DissectOptions): Promise<Dissected> {
-  const out = await run(options.tshark, ['-r', file, ...fieldArgs()]);
-  return new Tally({ ownMacs: options.ownMacs ?? [] }).addText(out).view();
-}
-
-function run(cmd: string, args: string[]): Promise<string> {
+/**
+ * Runs tshark over `file` and adds up what it saw, a line at a time as tshark prints it: a ring of 200 MB is millions
+ * of lines, which as one string would not fit (the red team's finding), and as a stream cost no more than the tally.
+ */
+export function dissect(file: string, options: DissectOptions): Promise<Dissected> {
+  const tally = new Tally({ ownMacs: options.ownMacs ?? [] });
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    const out: Buffer[] = [];
+    const child = spawn(options.tshark, ['-r', file, ...fieldArgs()], { stdio: ['ignore', 'pipe', 'pipe'] });
     let err = '';
-    child.stdout.on('data', (d: Buffer) => out.push(d));
-    child.stderr.on('data', (d: Buffer) => (err += d.toString()));
-    child.on('error', (e) => reject(new DissectError(`tshark could not run (${cmd}): ${e.message}`)));
+    let lines = 0;
+    createInterface({ input: child.stdout }).on('line', (line) => {
+      if (!line.trim()) return;
+      lines++;
+      tally.add(parseLine(line));
+    });
+    child.stderr.on('data', (d: Buffer) => (err = (err + d.toString()).slice(-2000)));
+    child.on('error', (e) => reject(new DissectError(`tshark could not run (${options.tshark}): ${e.message}`)));
     child.on('close', (code) => {
       // tshark exits 2 on a capture cut short (the last packet half written): what it read is still good.
-      if (code !== 0 && !(code === 2 && out.length)) return reject(new DissectError(`tshark failed (${code}): ${err.trim().slice(0, 500)}`));
-      resolve(Buffer.concat(out).toString('utf8'));
+      if (code !== 0 && !(code === 2 && lines)) return reject(new DissectError(`tshark failed (${code}): ${err.trim().slice(0, 500)}`));
+      try {
+        resolve(tally.view());
+      } catch (e) {
+        reject(e);
+      }
     });
   });
 }
