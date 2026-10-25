@@ -1,0 +1,7 @@
+# Files of Argus that are the same as Aristotle's or Galen's after the names are normalised, and why that is not a
+# copy of infrastructure to move into the core (docs/inventario.py --against). Path<TAB>reason.
+.mcp.json	The shape MCP clients read: two entries naming the app and its bridge (server/bridge.ts, two lines on the core's runBridge). The core generating it from app.json is in the plan (step 0.5), not done yet.
+.nvmrc	The Node major version, one line.
+svelte.config.js	Svelte's own two-line config (vitePreprocess), the same in every Svelte app.
+tsconfig.json	The compiler options every app on the core uses (erasable syntax, bundler resolution); a shared base in the core is possible later, but TypeScript's extends from a package adds nothing at this size.
+ui/src/vite-env.d.ts	Two reference lines Vite and Svelte ask for.
