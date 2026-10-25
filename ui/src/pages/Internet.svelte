@@ -30,29 +30,29 @@
 
 <div class="page">
   <header class="page-head">
-    <h1 class="page-title">Na internet</h1>
+    <h1 class="page-title">On the internet</h1>
     <p class="page-lede">
-      {#if source}{source.remotes.length} anfitriões, de {source.sites.length} empresas e sites. O que vai cifrado não se lê: vê-se a quem
-        cada dispositivo fala, quando e quanto.{:else}<span class="sk w60"></span>{/if}
+      {#if source}{source.remotes.length} hosts, of {source.sites.length} companies and sites. What is encrypted is not read: you see whom
+        each device talks to, when and how much.{:else}<span class="sk w60"></span>{/if}
     </p>
     {#if source}<SourceHead {source} />{/if}
   </header>
   {#if source}
     <section class="band">
-        <div class="band-h"><h2>Por empresa</h2></div>
-        <div class="cols"><HostList items={all ? source.sites : source.sites.slice(0, 16)} {capture} {live} label="Empresas e sites" /></div>
+        <div class="band-h"><h2>By company</h2></div>
+        <div class="cols"><HostList items={all ? source.sites : source.sites.slice(0, 16)} {capture} {live} label="Companies and sites" /></div>
         {#if source.sites.length > 16}
-          <button class="link more" onclick={() => (all = !all)}>{all ? 'Menos' : `Todas as ${source.sites.length}`}</button>
+          <button class="link more" onclick={() => (all = !all)}>{all ? 'Fewer' : `All ${source.sites.length}`}</button>
         {/if}
     </section>
     <section class="band">
         <div class="band-h">
-          <h2>Todos os anfitriões</h2>
-          <input class="input" type="search" placeholder="Nome ou endereço" aria-label="Filtrar anfitriões" bind:value={q} />
+          <h2>Every host</h2>
+          <input class="input" type="search" placeholder="Name or address" aria-label="Filter hosts" bind:value={q} />
         </div>
         <div class="records-wrap">
-          <table class="records" aria-label="Anfitriões">
-            <thead><tr><th>Anfitrião</th><th class="hide-s">Endereço</th><th class="num">Total</th>{#if live}<th class="num hide-s">Visto</th>{/if}</tr></thead>
+          <table class="records" aria-label="Hosts">
+            <thead><tr><th>Host</th><th class="hide-s">Address</th><th class="num">Total</th>{#if live}<th class="num hide-s">Seen</th>{/if}</tr></thead>
             <tbody>
               {#each hosts.slice(0, 200) as { r, company } (r.id)}
                 <tr>
@@ -62,12 +62,12 @@
                   {#if live}<td class="num hide-s muted">{since(r.lastSeen)}</td>{/if}
                 </tr>
               {:else}
-                <tr><td colspan="4" class="muted">{q ? `Nenhum com «${q}».` : 'Nenhum ainda.'}</td></tr>
+                <tr><td colspan="4" class="muted">{q ? `None with “${q}”.` : 'None yet.'}</td></tr>
               {/each}
             </tbody>
           </table>
         </div>
-        {#if hosts.length > 200}<p class="muted small">E mais {hosts.length - 200}: escreve para filtrar.</p>{/if}
+        {#if hosts.length > 200}<p class="muted small">And {hosts.length - 200} more: type to filter.</p>{/if}
     </section>
   {/if}
 </div>

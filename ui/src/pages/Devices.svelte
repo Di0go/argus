@@ -14,10 +14,10 @@
 
 <div class="page">
   <header class="page-head">
-    <h1 class="page-title">Dispositivos</h1>
+    <h1 class="page-title">Devices</h1>
     <p class="page-lede">
-      {#if source}{source.devices.length === 1 ? 'Um dispositivo' : `${source.devices.length} dispositivos`} na rede local, os mais ocupados
-        primeiro. O nome é o que cada um disse de si (DHCP, mDNS, NetBIOS); o fabricante vem da primeira metade da MAC.{:else}<span class="sk w60"
+      {#if source}{source.devices.length === 1 ? 'One device' : `${source.devices.length} devices`} on the local network, the busiest
+        first. The name is what each one said of itself (DHCP, mDNS, NetBIOS); the maker comes from the first half of the MAC.{:else}<span class="sk w60"
         ></span>{/if}
     </p>
     {#if source}<SourceHead {source} />{/if}
@@ -28,8 +28,8 @@
       <DeviceTable devices={shown} live={source.kind === 'live'} {capture} byNetwork />
     {:else}
       <div class="empty-state">
-        <h2>Nenhum dispositivo ainda</h2>
-        <p>Liga uma interface em <a href="#/">Agora</a>: os dispositivos aparecem aqui assim que se ouvem.</p>
+        <h2>No devices yet</h2>
+        <p>Turn an interface on in <a href="#/">Now</a>: devices show here as soon as they are heard.</p>
       </div>
     {/if}
   {:else if argus.captureProblem[capture ?? '']}

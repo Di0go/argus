@@ -504,7 +504,7 @@ export class Tally {
     for (const h of remotes.values()) {
       h.name = h.names[0]?.name ?? h.ip;
       h.aka = [h.ip, ...h.names.map((n) => n.name)];
-      h.summary = h.names.length ? h.ip : 'Sem nome visto';
+      h.summary = h.names.length ? h.ip : 'No name seen';
     }
     const byTraffic = <T extends { bytesSent: number; bytesReceived: number }>(a: T, b: T) =>
       b.bytesSent + b.bytesReceived - (a.bytesSent + a.bytesReceived);
@@ -713,21 +713,21 @@ function mdnsNames(d: Counted, r: Row) {
 
 /** The name he would give it: its own name first, else what it is. */
 function deviceName(d: Device): string {
-  if (d.role === 'self') return d.names[0]?.name ? `${d.names[0].name} (este PC)` : 'Este PC';
-  // A device may call itself anything, "Router" or "Este PC" too: then the end of its MAC says it is another one.
-  if (d.names[0]) return /^(router|este pc)\b/i.test(d.names[0].name) ? `${d.names[0].name} ·${(d.mac ?? d.ips[0] ?? '').slice(-5)}` : d.names[0].name;
+  if (d.role === 'self') return d.names[0]?.name ? `${d.names[0].name} (this PC)` : 'This PC';
+  // A device may call itself anything, "Router" or "This PC" too: then the end of its MAC says it is another one.
+  if (d.names[0]) return /^(router|this pc)\b/i.test(d.names[0].name) ? `${d.names[0].name} ·${(d.mac ?? d.ips[0] ?? '').slice(-5)}` : d.names[0].name;
   if (d.role === 'gateway') return d.vendor ? `Router ${shortVendor(d.vendor)}` : 'Router';
   const tail = d.mac ? d.mac.slice(-5) : (d.ips[0] ?? '');
   if (d.vendor) return `${shortVendor(d.vendor)} ·${tail}`;
-  if (d.randomMac) return `Dispositivo privado ·${tail}`;
-  return `Dispositivo ·${tail}`;
+  if (d.randomMac) return `Private device ·${tail}`;
+  return `Device ·${tail}`;
 }
 
 function deviceSummary(d: Device): string {
-  const parts = [d.role === 'gateway' ? 'A saída para a internet' : d.role === 'self' ? 'Este computador' : ''];
+  const parts = [d.role === 'gateway' ? 'The way out to the internet' : d.role === 'self' ? 'This computer' : ''];
   if (d.model) parts.push(d.model);
-  if (d.vendor) parts.push(`fabricante ${d.vendor}`);
-  else if (d.randomMac) parts.push('MAC aleatória (o fabricante não se vê)');
+  if (d.vendor) parts.push(`made by ${d.vendor}`);
+  else if (d.randomMac) parts.push('Random MAC (the maker cannot be seen)');
   if (d.ips.length) parts.push(d.ips.join(', '));
   return parts.filter(Boolean).join('; ');
 }

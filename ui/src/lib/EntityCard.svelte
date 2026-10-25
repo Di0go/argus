@@ -24,7 +24,7 @@
   const what = $derived.by(() => {
     if (!e) return '';
     if (e.kind === 'device') return KIND_WORD[deviceKind(e)] + (e.vendor ? `, ${e.vendor}` : '');
-    if (e.kind === 'remote') return 'Na internet';
+    if (e.kind === 'remote') return 'On the internet';
     if (e.kind === 'site') return e.sites.join(', ');
     return `${e.label}: ${e.id}`;
   });
@@ -47,30 +47,30 @@
     {#if e.kind !== 'interface'}
       <dl class="figs">
         <div>
-          <dt>Enviou</dt>
+          <dt>Sent</dt>
           <dd>{bytes(e.bytesSent)}</dd>
         </div>
         <div>
-          <dt>Recebeu</dt>
+          <dt>Received</dt>
           <dd>{bytes(e.bytesReceived)}</dd>
         </div>
         {#if live && e.kind === 'device'}
           <div>
-            <dt>Agora</dt>
+            <dt>Now</dt>
             <dd>{rate(argus.meters[e.id])}</dd>
           </div>
         {:else}
           <div>
-            <dt>Visto</dt>
+            <dt>Seen</dt>
             <dd>{since(e.lastSeen)}</dd>
           </div>
         {/if}
       </dl>
     {:else}
-      <p class="what">{argus.session?.listening.find((l) => l.id === e.id)?.on ? 'A escutar' : 'Sem escutar'}</p>
+      <p class="what">{argus.session?.listening.find((l) => l.id === e.id)?.on ? 'Listening' : 'Not listening'}</p>
     {/if}
     {#if top.length}
-      <p class="top">Falou mais com {top.map((n) => n.entity.name).join(', ')}</p>
+      <p class="top">Talked most with {top.map((n) => n.entity.name).join(', ')}</p>
     {/if}
   </div>
 {/if}

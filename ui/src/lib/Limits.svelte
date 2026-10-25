@@ -5,13 +5,13 @@
 
 <aside class="limits" class:compact>
   <p>
-    O Argus só escuta: não manda nada para a rede e não mexe no tráfego de ninguém. O que vai cifrado não se lê; vê-se quem fala
-    com quem, quando e quanto.
+    Argus only listens: it sends nothing to the network and touches nobody's traffic. What is encrypted is not read; you see who
+    talks to whom, when and how much.
   </p>
   {#if !compact}
     <p>
-      Num PC ligado a um router ou a um switch normal vê-se sobretudo o tráfego deste PC, e o que os outros anunciam a todos (os seus
-      nomes, os serviços que oferecem). O que os outros dispositivos dizem entre si, ou à internet, não passa por aqui.
+      On a PC plugged into an ordinary router or switch you see mostly this PC's own traffic, and what the others announce to everyone
+      (their names, the services they offer). What the other devices say to each other, or to the internet, does not pass through here.
     </p>
   {/if}
 </aside>

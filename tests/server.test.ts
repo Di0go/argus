@@ -230,11 +230,11 @@ test('Interfaces from dumpcap, named as he would, sources that are not network i
     interfaces.map((i) => [i.id, i.label, i.capturable]),
     [
       ['wlan0', 'Wi-Fi', true],
-      ['enp3s0', 'Cabo', true],
+      ['enp3s0', 'Cable', true],
       ['tailscale0', 'VPN', true],
       ['docker0', 'Docker', true],
-      ['lo', 'Loopback (este PC)', true],
-      ['any', 'Todas', true],
+      ['lo', 'Loopback (this PC)', true],
+      ['any', 'All', true],
     ],
   );
 });
@@ -300,7 +300,7 @@ test('Two interfaces turned on at the same moment: both answered, both saved, no
   assert.deepEqual([...state.on].sort(), ['docker0', 'enp3s0', 'lo', 'wlan0']);
 });
 
-test('The ring survives a restart, is cut to the ceiling, and a save after "Recomeçar" holds nothing from before it', async () => {
+test('The ring survives a restart, is cut to the ceiling, and a save after a reset holds nothing from before it', async () => {
   const first = await start({ RING_FILES: '2' });
   await listen(first.app.base, 'wlan0');
   await until(first.app.base, (x) => x.session.packets === truth.packets);
@@ -314,7 +314,7 @@ test('The ring survives a restart, is cut to the ceiling, and a save after "Reco
   await new Promise((r) => setTimeout(r, 1500));
   const ring = await readdir(path.join(first.app.dataDir, 'live/ring/wlan0'));
   assert.equal(ring.filter((f) => f.endsWith('.pcapng')).length, 2, ring.join(' '));
-  // After "Recomeçar", a save holds only what the ring has from then on: each packet's time checked in the file itself,
+  // After a reset, a save holds only what the ring has from then on: each packet's time checked in the file itself,
   // and their number against the ring's own, counted apart.
   const reset = (await (await send(third.app.base, '/api/live/reset', {})).json()) as Session;
   const res = await send(third.app.base, '/api/live/save', {});
@@ -323,7 +323,7 @@ test('The ring survives a restart, is cut to the ceiling, and a save after "Reco
   const times = (file: string) =>
     execFileSync(TSHARK, ['-r', file, '-T', 'fields', '-e', 'frame.time_epoch'], { encoding: 'utf8' }).split('\n').filter(Boolean).map(Number);
   const saved = times(path.join(third.app.dataDir, 'captures', `${c.id}.pcapng`));
-  assert.ok(saved.every((t) => t >= reset.started! - 1e-6), 'nothing from before "Recomeçar"');
+  assert.ok(saved.every((t) => t >= reset.started! - 1e-6), 'nothing from before the reset');
   const ringDir = path.join(first.app.dataDir, 'live/ring/wlan0');
   const inRing = (await readdir(ringDir)).flatMap((f) => times(path.join(ringDir, f))).filter((t) => t >= reset.started! - 1e-6);
   assert.equal(saved.length, inRing.length);

@@ -9,8 +9,8 @@
 
 {#if source.kind === 'capture' && source.capture}
   <p class="source">
-    Da captura de <a href={link.capture(source.capture.id)}>{when(source.capture.started)}</a>, {source.capture.interfaces.join(', ')},
-    {span(source.capture.seconds)}. <a href={location.hash.split('?')[0]}>Ver agora</a>
+    From the capture of <a href={link.capture(source.capture.id)}>{when(source.capture.started)}</a>, {source.capture.interfaces.join(', ')},
+    {span(source.capture.seconds)}. <a href={location.hash.split('?')[0]}>See it now</a>
   </p>
 {/if}
 

@@ -34,7 +34,7 @@
   let period = $state<'minutes' | 'day'>('minutes');
   const PERIODS = [
     { id: 'minutes' as const, label: '10 min' },
-    { id: 'day' as const, label: 'Hoje' },
+    { id: 'day' as const, label: 'Today' },
   ];
   let coarse = $state<SeriesData | null>(null);
 
@@ -46,15 +46,15 @@
 
 <div class="page">
   <header class="page-head">
-    <p class="crumbs"><a href={link.devices(capture)}>Dispositivos</a><span class="sep">/</span>{d?.name ?? id}</p>
+    <p class="crumbs"><a href={link.devices(capture)}>Devices</a><span class="sep">/</span>{d?.name ?? id}</p>
     {#if d}
       <div class="title">
         <EntityIcon entity={d} size={46} />
         <div>
           <h1 class="page-title">{d.name}</h1>
           <p class="who">
-            {d.role === 'gateway' ? 'A saída para a internet' : subline(d) || KIND_WORD[deviceKind(d)]}{d.model && d.role ? `, ${d.model}` : ''}
-            {#if d.interfaces.length}<span class="on-net">na rede <NetTag ids={d.interfaces} /></span>{/if}
+            {d.role === 'gateway' ? 'The way out to the internet' : subline(d) || KIND_WORD[deviceKind(d)]}{d.model && d.role ? `, ${d.model}` : ''}
+            {#if d.interfaces.length}<span class="on-net">on <NetTag ids={d.interfaces} /></span>{/if}
           </p>
         </div>
       </div>
@@ -62,49 +62,49 @@
       <dl class="props">
         <dt>MAC</dt>
         <dd class="mono">
-          {d.mac ?? 'nenhuma: visto pelo endereço'}{#if d.randomMac}
-            <span class="tag" data-tip="Os telemóveis e os portáteis inventam uma MAC em cada rede, para não serem seguidos de rede em rede."
-              >privada</span
+          {d.mac ?? 'none: seen by its address'}{#if d.randomMac}
+            <span class="tag" data-tip="Phones and laptops make up a MAC on every network, so they are not followed from network to network."
+              >private</span
             >{/if}
         </dd>
-        <dt>Endereços</dt>
+        <dt>Addresses</dt>
         <dd class="mono">{d.ips.join(', ') || '—'}</dd>
-        <dt>Fabricante</dt>
-        <dd>{d.vendor ?? (d.randomMac ? 'Não se vê: a MAC é inventada pelo dispositivo' : 'Desconhecido')}</dd>
-        <dt>Nomes</dt>
+        <dt>Maker</dt>
+        <dd>{d.vendor ?? (d.randomMac ? 'Cannot be seen: the device made its MAC up' : 'Unknown')}</dd>
+        <dt>Names</dt>
         <dd>
           {#each d.names as n, i (n.name)}{i ? ', ' : ''}{n.name} <span class="src" data-tip={SOURCES[n.source]}>{n.source}</span>{:else}<span
-              class="muted">Não disse o nome</span
+              class="muted">Did not say its name</span
             >{/each}
         </dd>
-        <dt>Rede</dt>
-        <dd><NetTag ids={d.interfaces} />{#if d.interfaces.length > 1}<span class="muted small"> (ouvido em {d.interfaces.length})</span>{/if}</dd>
-        <dt>Visto</dt>
-        <dd>{when(d.firstSeen)} a {when(d.lastSeen)}{live ? ` (${since(d.lastSeen)})` : ''}</dd>
+        <dt>Network</dt>
+        <dd><NetTag ids={d.interfaces} />{#if d.interfaces.length > 1}<span class="muted small"> (heard on {d.interfaces.length})</span>{/if}</dd>
+        <dt>Seen</dt>
+        <dd>{when(d.firstSeen)} to {when(d.lastSeen)}{live ? ` (${since(d.lastSeen)})` : ''}</dd>
       </dl>
     {:else}
-      <h1 class="page-title">{source ? 'Não visto' : ''}</h1>
-      {#if source}<p class="page-lede">{live ? 'A sessão ao vivo ainda não o viu (ou já o esqueceu).' : 'Esta captura não o viu.'}</p>{/if}
+      <h1 class="page-title">{source ? 'Not seen' : ''}</h1>
+      {#if source}<p class="page-lede">{live ? 'The live session has not seen it yet (or has forgotten it).' : 'This capture did not see it.'}</p>{/if}
     {/if}
   </header>
 
   {#if d}
     <section class="band">
       <div class="stats">
-        <div class="stat"><span class="stat-v">{bytes(d.bytesSent)}</span><span class="stat-l">enviou</span></div>
-        <div class="stat"><span class="stat-v">{bytes(d.bytesReceived)}</span><span class="stat-l">recebeu</span></div>
-        <div class="stat"><span class="stat-v">{d.packets.toLocaleString('pt-PT')}</span><span class="stat-l">pacotes</span></div>
-        {#if live}<div class="stat"><span class="stat-v">{rate(argus.meters[d.id])}</span><span class="stat-l">agora</span></div>{/if}
+        <div class="stat"><span class="stat-v">{bytes(d.bytesSent)}</span><span class="stat-l">sent</span></div>
+        <div class="stat"><span class="stat-v">{bytes(d.bytesReceived)}</span><span class="stat-l">received</span></div>
+        <div class="stat"><span class="stat-v">{d.packets.toLocaleString('en-GB')}</span><span class="stat-l">packets</span></div>
+        {#if live}<div class="stat"><span class="stat-v">{rate(argus.meters[d.id])}</span><span class="stat-l">now</span></div>{/if}
       </div>
       {#if live && argus.byDevice[d.id]}
         <div class="band-h">
-          <h2>Débito</h2>
-<Seg bind:value={period} label="Período" options={PERIODS} />
+          <h2>Bandwidth</h2>
+<Seg bind:value={period} label="Period" options={PERIODS} />
         </div>
         {#if period === 'minutes'}
-          <RateChart series={argus.byDevice[d.id]!} label="Débito de {d.name}" seconds={600} height={180} since={d.firstSeen} />
+          <RateChart series={argus.byDevice[d.id]!} label="Bandwidth of {d.name}" seconds={600} height={180} since={d.firstSeen} />
         {:else if coarse}
-          <RateChart series={coarse} label="Débito de {d.name}, hoje" height={180} since={d.firstSeen} />
+          <RateChart series={coarse} label="Bandwidth of {d.name}, today" height={180} since={d.firstSeen} />
         {/if}
       {/if}
     </section>
@@ -118,35 +118,35 @@
     <div class="bands">
       <section class="band">
         <div class="band-h">
-          <h2>Na internet, fala com</h2>
-          <span class="aside">{hosts.length === 1 ? '1 anfitrião' : `${hosts.length} anfitriões`}</span>
+          <h2>On the internet, talks to</h2>
+          <span class="aside">{hosts.length === 1 ? '1 host' : `${hosts.length} hosts`}</span>
         </div>
         {#if sites.length || unnamed.length}
-          <HostList items={sites.map((n) => n.entity).filter((e) => e.kind === 'site')} {capture} {live} label="Empresas e sites" />
+          <HostList items={sites.map((n) => n.entity).filter((e) => e.kind === 'site')} {capture} {live} label="Companies and sites" />
           {#if unnamed.length}
-            <p class="sub-h">Sem nome visto</p>
-            <HostList items={unnamed.map((n) => n.entity).filter((e) => e.kind === 'remote').slice(0, 12)} {capture} {live} label="Anfitriões sem nome" aside={() => ''} />
+            <p class="sub-h">No name seen</p>
+            <HostList items={unnamed.map((n) => n.entity).filter((e) => e.kind === 'remote').slice(0, 12)} {capture} {live} label="Hosts with no name" aside={() => ''} />
           {/if}
         {:else}
           <p class="empty">
             {d.role === 'self' || d.role === 'gateway'
-              ? 'Nada ainda.'
-              : 'Não se viu a falar com a internet daqui. Num PC numa rede normal, o tráfego dos outros dispositivos para fora não passa por aqui.'}
+              ? 'Nothing yet.'
+              : 'Not seen talking to the internet from here. On a PC on an ordinary network, the other devices\' traffic out does not pass through here.'}
           </p>
         {/if}
       </section>
       <section class="band">
-        <div class="band-h"><h2>Na rede local, fala com</h2></div>
-        <ul class="recs" aria-label="Na rede local">
+        <div class="band-h"><h2>On the local network, talks to</h2></div>
+        <ul class="recs" aria-label="On the local network">
           {#each locals as n (keyOf(n.entity))}
             <li class="rec"><span class="rec-t"><EntityLink entity={n.entity} {capture} /></span><span class="rec-m">{bytes(n.weight)}</span></li>
           {:else}
-            <li class="rec empty">Só anúncios a todos (broadcast e multicast), nada directo.</li>
+            <li class="rec empty">Only announcements to everyone (broadcast and multicast), nothing direct.</li>
           {/each}
         </ul>
         {#if others.length}
-          <p class="sub-h">Usam as mesmas empresas</p>
-          <ul class="recs" aria-label="Usam as mesmas empresas">
+          <p class="sub-h">Use the same companies</p>
+          <ul class="recs" aria-label="Use the same companies">
             {#each others.slice(0, 8) as o (keyOf(o.entity))}
               <li class="rec plain">
                 <span class="rec-t"><EntityLink entity={o.entity} {capture} /></span><span class="rec-m"
@@ -167,11 +167,11 @@
 <script module lang="ts">
   /** Where each name came from, said plainly. */
   const SOURCES: Record<string, string> = {
-    DHCP: 'O nome que o próprio dispositivo deu ao pedir um endereço ao router (DHCP).',
-    mDNS: 'O nome que o próprio dispositivo anuncia na rede local (mDNS, o Bonjour).',
-    NetBIOS: 'O nome que um Windows anuncia na rede local (NetBIOS).',
-    DNS: 'O nome que a resposta de DNS deu a este endereço.',
-    TLS: 'O nome do servidor pedido ao abrir a ligação cifrada (TLS SNI).',
+    DHCP: 'The name the device itself gave when asking the router for an address (DHCP).',
+    mDNS: 'The name the device itself announces on the local network (mDNS, Bonjour).',
+    NetBIOS: 'The name a Windows PC announces on the local network (NetBIOS).',
+    DNS: 'The name a DNS answer gave this address.',
+    TLS: 'The server name asked for when opening the encrypted connection (TLS SNI).',
   };
 </script>
 

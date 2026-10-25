@@ -18,13 +18,13 @@
   const site = $derived(linked.find((n) => n.entity.kind === 'site')?.entity);
   const key = $derived(`remote:${id}`);
   const talks = $derived(source ? source.conversations.filter((c) => c.b === key || c.a === key) : []);
-  const WHO = { DNS: 'pela resposta de DNS', TLS: 'pelo início da ligação cifrada (SNI)' } as Record<string, string>;
+  const WHO = { DNS: 'by the DNS answer', TLS: 'by the start of the encrypted connection (SNI)' } as Record<string, string>;
 </script>
 
 <div class="page">
   <header class="page-head">
     <p class="crumbs">
-      <a href={link.internet(capture)}>Na internet</a><span class="sep">/</span>{#if site}<a href={link.site(site.id, capture)}>{site.name}</a
+      <a href={link.internet(capture)}>On the internet</a><span class="sep">/</span>{#if site}<a href={link.site(site.id, capture)}>{site.name}</a
         ><span class="sep">/</span>{/if}{r?.name ?? id}
     </p>
     {#if r}
@@ -37,30 +37,30 @@
       </div>
       {#if source}<SourceHead {source} />{/if}
       <dl class="props">
-        <dt>Nomes</dt>
+        <dt>Names</dt>
         <dd>
           {#each r.names as n (n.name)}<span class="nm">{n.name} <span class="src">{WHO[n.source] ?? n.source}</span></span>{:else}<span class="muted"
-              >Nenhum visto: o pedido de DNS e o início da ligação não passaram por aqui</span
+              >None seen: the DNS question and the start of the connection did not pass through here</span
             >{/each}
         </dd>
-        <dt>De quem</dt>
-        <dd>{#if site}<EntityLink entity={site} {capture} />{:else}<span class="muted">Não se sabe</span>{/if}</dd>
-        <dt>Visto</dt>
-        <dd>{when(r.firstSeen)} a {when(r.lastSeen)}{live ? ` (${since(r.lastSeen)})` : ''}</dd>
+        <dt>Whose</dt>
+        <dd>{#if site}<EntityLink entity={site} {capture} />{:else}<span class="muted">Not known</span>{/if}</dd>
+        <dt>Seen</dt>
+        <dd>{when(r.firstSeen)} to {when(r.lastSeen)}{live ? ` (${since(r.lastSeen)})` : ''}</dd>
       </dl>
     {:else if source}
-      <h1 class="page-title">Não visto</h1>
+      <h1 class="page-title">Not seen</h1>
     {/if}
   </header>
   {#if r}
     <div class="stats">
-      <div class="stat"><span class="stat-v">{bytes(r.bytesSent)}</span><span class="stat-l">mandou para cá</span></div>
-      <div class="stat"><span class="stat-v">{bytes(r.bytesReceived)}</span><span class="stat-l">recebeu daqui</span></div>
-      <div class="stat"><span class="stat-v">{r.packets.toLocaleString('pt-PT')}</span><span class="stat-l">pacotes</span></div>
+      <div class="stat"><span class="stat-v">{bytes(r.bytesSent)}</span><span class="stat-l">sent here</span></div>
+      <div class="stat"><span class="stat-v">{bytes(r.bytesReceived)}</span><span class="stat-l">received from here</span></div>
+      <div class="stat"><span class="stat-v">{r.packets.toLocaleString('en-GB')}</span><span class="stat-l">packets</span></div>
     </div>
     {#if source}
       <section class="band">
-        <Conversations conversations={talks} me={new Set([key])} {source} {capture} title="Quem lhe falou" label="Quem lhe falou" />
+        <Conversations conversations={talks} me={new Set([key])} {source} {capture} title="Who talked to it" label="Who talked to it" />
       </section>
     {/if}
   {/if}

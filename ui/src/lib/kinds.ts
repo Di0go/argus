@@ -27,24 +27,24 @@ export function deviceKind(d: Device): DeviceKind {
 
 export const KIND_WORD: Record<DeviceKind, string> = {
   router: 'Router',
-  this: 'Este PC',
-  phone: 'Telemóvel',
-  computer: 'Computador',
-  tv: 'Televisão ou box',
-  speaker: 'Coluna',
-  board: 'Placa ou sensor',
-  printer: 'Impressora',
-  console: 'Consola',
-  camera: 'Câmara',
-  watch: 'Relógio',
+  this: 'This PC',
+  phone: 'Phone',
+  computer: 'Computer',
+  tv: 'TV or box',
+  speaker: 'Speaker',
+  board: 'Board or sensor',
+  printer: 'Printer',
+  console: 'Console',
+  camera: 'Camera',
+  watch: 'Watch',
   tablet: 'Tablet',
-  other: 'Dispositivo',
+  other: 'Device',
 };
 
-/** The line under a device's name: what it probably is, unless the name already says so ("Este PC", "Router
+/** The line under a device's name: what it probably is, unless the name already says so ("This PC", "Router
  * Tp-Link"); for this PC, its maker. */
 export function subline(d: Device): string {
   const word = KIND_WORD[deviceKind(d)];
-  if (d.role === 'self') return d.names[0]?.name ? 'Este PC' : (d.model ?? d.vendor ?? '');
+  if (d.role === 'self') return d.names[0]?.name ? 'This PC' : (d.model ?? d.vendor ?? '');
   return d.name.toLowerCase().startsWith(word.toLowerCase()) ? (d.model ?? '') : word;
 }

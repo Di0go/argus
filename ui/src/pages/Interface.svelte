@@ -18,7 +18,7 @@
 
 <div class="page">
   <header class="page-head">
-    <p class="crumbs"><a href={link.now()}>Agora</a><span class="sep">/</span>{i?.name ?? id}</p>
+    <p class="crumbs"><a href={link.now()}>Now</a><span class="sep">/</span>{i?.name ?? id}</p>
     {#if i}
       <div class="title">
         <EntityIcon entity={i} size={46} />
@@ -28,18 +28,18 @@
         </div>
       </div>
       <dl class="props">
-        <dt>Estado</dt>
+        <dt>State</dt>
         <dd>
-          {#if l?.on}{l.status === 'failed' ? `Parou: ${l.error}` : l.status === 'starting' ? 'A abrir' : `A escutar há ${span(Date.now() / 1000 - (l.since ?? Date.now() / 1000))}`}{:else}Sem
-            escutar{/if}{i.up === false ? '; a interface está desligada' : ''}
+          {#if l?.on}{l.status === 'failed' ? `Stopped: ${l.error}` : l.status === 'starting' ? 'Opening' : `Listening for ${span(Date.now() / 1000 - (l.since ?? Date.now() / 1000))}`}{:else}Not
+            listening{/if}{i.up === false ? '; the interface is down' : ''}
         </dd>
         {#if l?.on}
-          <dt>Pacotes</dt>
-          <dd>{l.packets.toLocaleString('pt-PT')}</dd>
-          <dt>Em disco</dt>
+          <dt>Packets</dt>
+          <dd>{l.packets.toLocaleString('en-GB')}</dd>
+          <dt>On disk</dt>
           <dd>
-            {bytes(l.ringBytes)} de {argus.session ? `${argus.session.limits.ringFiles * argus.session.limits.ringFileMB} MB` : ''}: o ring buffer guarda os
-            últimos minutos e apaga os mais antigos
+            {bytes(l.ringBytes)} of {argus.session ? `${argus.session.limits.ringFiles * argus.session.limits.ringFileMB} MB` : ''}: the ring buffer keeps the
+            last minutes and deletes the oldest
           </dd>
         {/if}
       </dl>
@@ -47,25 +47,25 @@
         <button
           class={l?.on ? 'ghost' : 'primary'}
           disabled={!i.capturable}
-          onclick={async () => (problem = await argus.listen(id, !l?.on))}>{l?.on ? 'Parar de escutar' : 'Escutar'}</button
+          onclick={async () => (problem = await argus.listen(id, !l?.on))}>{l?.on ? 'Stop listening' : 'Listen'}</button
         >
         {#if problem}<span class="error">{problem}</span>{/if}
       </div>
     {:else}
       <h1 class="page-title">{id}</h1>
-      <p class="page-lede">Esta interface já não existe neste PC.</p>
+      <p class="page-lede">This interface no longer exists on this PC.</p>
     {/if}
   </header>
   {#if devices.length}
     <section class="band">
-      <div class="band-h"><h2>Ouvidos aqui</h2><span class="aside">{devices.length}</span></div>
+      <div class="band-h"><h2>Heard here</h2><span class="aside">{devices.length}</span></div>
       <DeviceTable {devices} live />
     </section>
     <section class="band">
-      <Conversations conversations={talks} source={argus.liveSource} title="Ligações nesta rede" />
+      <Conversations conversations={talks} source={argus.liveSource} title="Conversations on this network" />
     </section>
   {:else if l?.on}
-    <p class="muted">Ainda ninguém {l.since ? `desde ${since(l.since)}` : ''}.</p>
+    <p class="muted">Nobody yet{l.since ? ` since ${since(l.since)}` : ''}.</p>
   {/if}
 </div>
 

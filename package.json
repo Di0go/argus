@@ -24,7 +24,7 @@
   "packageManager": "pnpm@10.34.5",
   "dependencies": {
     "@lucide/svelte": "1.51.0",
-    "@organon/core": "https://github.com/Di0go/organon/releases/download/v0.5.0/organon-core-0.5.0.tgz"
+    "@organon/core": "file:../Organon/releases/organon-core-0.5.1.tgz"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

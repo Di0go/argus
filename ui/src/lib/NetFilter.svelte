@@ -14,7 +14,7 @@
   let root = $state<HTMLElement>();
   const nets = $derived(networksOf(devices));
   const current = $derived(networks.current(devices));
-  const label = $derived(current ? (nets.find((n) => n.id === current)?.name ?? current) : 'Todas as redes');
+  const label = $derived(current ? (nets.find((n) => n.id === current)?.name ?? current) : 'All networks');
 
   function outside(e: PointerEvent) {
     if (open && root && !root.contains(e.target as Node)) open = false;
@@ -44,13 +44,13 @@
 
 <div class="nf" bind:this={root}>
   <button class="nf-button" class:set={current} aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)}>
-    <span class="sr">Rede: </span>{label}{#if current && networks.hideOthers}<span class="only">só esta</span>{/if}
+    <span class="sr">Network: </span>{label}{#if current && networks.hideOthers}<span class="only">only this</span>{/if}
     <ChevronDown size={14} strokeWidth={2} />
   </button>
   {#if open}
-    <div class="nf-menu" role="menu" aria-label="Rede">
+    <div class="nf-menu" role="menu" aria-label="Network">
       <button role="menuitemradio" aria-checked={!current} onclick={() => pick(null)}>
-        <span class="ic"><Layers size={15} strokeWidth={1.7} /></span><span class="nm">Todas as redes</span><span class="n">{devices.length}</span>
+        <span class="ic"><Layers size={15} strokeWidth={1.7} /></span><span class="nm">All networks</span><span class="n">{devices.length}</span>
         <span class="tick">{#if !current}<Check size={14} strokeWidth={2.2} />{/if}</span>
       </button>
       {#each nets as n (n.id)}
@@ -69,7 +69,7 @@
         onclick={() => networks.setHideOthers(!networks.hideOthers)}
       >
         <span class="box" class:on={networks.hideOthers} aria-hidden="true">{#if networks.hideOthers}<Check size={12} strokeWidth={3} />{/if}</span>
-        <span class="nm">Esconder os das outras redes<span class="hint">com uma rede escolhida, os outros nem aparecem</span></span>
+        <span class="nm">Hide the other networks' devices<span class="hint">with a network chosen, the others are not listed at all</span></span>
       </button>
     </div>
   {/if}

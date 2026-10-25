@@ -3,4 +3,4 @@
 import { createTheme } from '@organon/core/ui/theme';
 import { faviconHref } from './lib/Logo.svelte';
 
-export const theme = createTheme({ key: 'argus.look', defaultAccent: 'blue', favicon: faviconHref });
+export const theme = createTheme({ key: 'argus.look', defaultAccent: 'red', favicon: faviconHref });

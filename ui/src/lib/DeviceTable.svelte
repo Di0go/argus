@@ -66,21 +66,21 @@
 </script>
 
 <div class="records-wrap">
-  <table class="records devices" aria-label="Dispositivos" onpointerenter={() => (hovering = true)} onpointerleave={() => (hovering = false)}>
+  <table class="records devices" aria-label="Devices" onpointerenter={() => (hovering = true)} onpointerleave={() => (hovering = false)}>
     <thead>
       <tr>
-        <th>Dispositivo</th>
-        <th class="hide-s">Endereço</th>
-        <th class="hide-s net-h">Rede</th>
-        <th class="hide-m">Fabricante</th>
-        {#if live}<th class="num">Agora</th><th class="hide-s"><span class="sr">Últimos dois minutos</span></th>{/if}
+        <th>Device</th>
+        <th class="hide-s">Address</th>
+        <th class="hide-s net-h">Network</th>
+        <th class="hide-m">Maker</th>
+        {#if live}<th class="num">Now</th><th class="hide-s"><span class="sr">Last two minutes</span></th>{/if}
         <th class="num">Total</th>
       </tr>
     </thead>
     <tbody>
       {#each rows as d (d.id)}
         {#if d.id === firstOther}
-          <tr class="others-h"><td colspan="8">De outras redes</td></tr>
+          <tr class="others-h"><td colspan="8">On other networks</td></tr>
         {/if}
         <tr class:quiet={quiet(d)} class:other={split.network && !d.interfaces.includes(split.network)} data-device={d.id}>
           <td class="name">
@@ -89,7 +89,7 @@
               <span class="nm">
                 <EntityLink entity={d} {capture} />
                 <span class="sub"
-                  ><span class="show-s"><NetTag ids={d.interfaces} compact /></span>{subline(d)}{#if live && argus.isNew(d)}<span class="tag solid">novo</span>{/if}{#if quiet(d)}<span class="q"
+                  ><span class="show-s" class:dotted={subline(d)}><NetTag ids={d.interfaces} compact /></span>{subline(d)}{#if live && argus.isNew(d)}<span class="tag solid">new</span>{/if}{#if quiet(d)}<span class="q"
                       >{since(d.lastSeen)}</span
                     >{/if}</span
                 >
@@ -101,8 +101,8 @@
           <td class="hide-m vendor" title={d.vendor}>
             {#if d.vendor}{d.vendor}{:else if d.randomMac}<span
                 class="muted"
-                data-tip="O dispositivo inventou esta MAC (os telemóveis e os portáteis fazem-no em cada rede), por isso não diz o fabricante."
-                >MAC privada</span
+                data-tip="The device made this MAC up (phones and laptops do it on every network), so it does not say the maker."
+                >Private MAC</span
               >{:else}<span class="muted">—</span>{/if}
           </td>
           {#if live}
@@ -229,7 +229,7 @@
     flex-wrap: nowrap;
   }
 
-  .show-s::after {
+  .show-s.dotted::after {
     content: '·';
     margin-left: 6px;
   }

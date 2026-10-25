@@ -37,7 +37,7 @@ export class Captures {
       // A capture that was running when the server stopped did not finish: say so, keep what was written.
       if (c.status === 'running') {
         c.status = 'failed';
-        c.error = 'O servidor parou a meio da captura';
+        c.error = 'The server stopped in the middle of the capture';
         await this.save(c);
       }
       found.push(c);
@@ -64,7 +64,7 @@ export class Captures {
   }
 
   /** Brings in a recording (the demo, a fixture, what the live session's ring buffer held) as a capture of its own. */
-  async import(file: string, interfaces: string[] = ['gravação'], source: Capture['source'] = 'file'): Promise<Capture> {
+  async import(file: string, interfaces: string[] = ['recording'], source: Capture['source'] = 'file'): Promise<Capture> {
     const s = await stat(file);
     const c: Capture = { id: newId(), started: s.mtimeMs / 1000, seconds: 0, interfaces, status: 'done', source, ext: file.endsWith('.pcapng') ? 'pcapng' : 'pcap' };
     await copyFile(file, this.file(c));

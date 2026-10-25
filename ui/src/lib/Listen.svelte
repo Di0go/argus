@@ -40,9 +40,9 @@
 
   /** Interfaces that carry the same frames: listening on both counts them twice. */
   const overlap = $derived.by(() => {
-    if (on.some((i) => i.type === 'any') && on.length > 1) return '«Todas» já inclui as outras: o que passa nelas conta duas vezes.';
+    if (on.some((i) => i.type === 'any') && on.length > 1) return '«All» already includes the others: what passes through them counts twice.';
     if (on.some((i) => i.id.startsWith('veth')) && on.some((i) => i.type === 'docker' && !i.id.startsWith('veth')))
-      return 'Uma ponte do Docker e os contentores dela levam os mesmos pacotes: contam duas vezes.';
+      return 'A Docker bridge and its containers carry the same packets: they count twice.';
     return '';
   });
 
@@ -55,21 +55,21 @@
   /** How it is going, in a few words, and its tone. */
   function status(i: Interface): { text: string; tone: '' | 'on' | 'warn' | 'off' } {
     const s = stateOf(i.id);
-    if (!i.capturable) return { text: 'Sem permissão para escutar', tone: 'off' };
-    if (!s?.on) return { text: i.up === false ? 'Desligada' : 'Sem escutar', tone: i.up === false ? 'off' : '' };
-    if (s.status === 'failed') return { text: `Parou ${s.since ? since(s.since) : ''}`.trim(), tone: 'warn' };
-    if (s.status === 'starting') return { text: 'A abrir…', tone: 'on' };
-    return { text: s.since ? `A escutar há ${span(Date.now() / 1000 - s.since)}` : 'A escutar', tone: 'on' };
+    if (!i.capturable) return { text: 'No permission to listen', tone: 'off' };
+    if (!s?.on) return { text: i.up === false ? 'Down' : 'Not listening', tone: i.up === false ? 'off' : '' };
+    if (s.status === 'failed') return { text: `Stopped ${s.since ? since(s.since) : ''}`.trim(), tone: 'warn' };
+    if (s.status === 'starting') return { text: 'Opening…', tone: 'on' };
+    return { text: s.since ? `Listening for ${span(Date.now() / 1000 - s.since)}` : 'Listening', tone: 'on' };
   }
 
   const KIND: Record<Interface['type'], string> = {
     wifi: 'Wi-Fi',
-    cable: 'Cabo',
+    cable: 'Cable',
     docker: 'Docker',
     vpn: 'VPN',
-    loopback: 'Este PC',
-    any: 'Todas as interfaces',
-    other: 'Outra',
+    loopback: 'This PC',
+    any: 'Every interface',
+    other: 'Other',
   };
 
   function outside(e: PointerEvent) {
@@ -90,14 +90,14 @@
       <span class="kind">{#if KIND[i.type] !== i.name}{KIND[i.type]}{/if}<span class="id">{i.id}</span></span>
     </span>
     <span class="st {st.tone}"><i aria-hidden="true"></i>{st.text}</span>
-    <span class="devs">{#if s?.on && n}{n === 1 ? '1 dispositivo' : `${n} dispositivos`}{/if}</span>
+    <span class="devs">{#if s?.on && n}{n === 1 ? '1 device' : `${n} devices`}{/if}</span>
     <span class="pulse">{#if s?.on}<Spark series={argus.byInterface[i.id]} max={peak} width={88} height={22} />{/if}</span>
     <span class="rate">{s?.on ? rate(s.rate) : ''}</span>
     <button
       class="toggle"
       role="switch"
       aria-checked={Boolean(s?.on)}
-      aria-label="Escutar em {i.name} ({i.id})"
+      aria-label="Listen on {i.name} ({i.id})"
       disabled={!i.capturable || busy === i.id}
       onclick={() => toggle(i)}><span class="knob"></span></button
     >
@@ -105,14 +105,14 @@
 {/snippet}
 
 {#snippet list()}
-  <ul class="nets" aria-label="Onde escutar">
+  <ul class="nets" aria-label="Where to listen">
     {#each main as i (i.id)}{@render row(i)}{/each}
     {#if more}{#each rest as i (i.id)}{@render row(i)}{/each}{/if}
   </ul>
   {#if rest.length}
     <button class="fold" aria-expanded={more} onclick={() => (more = !more)}>
       <ChevronDown size={14} strokeWidth={2} class={more ? 'up' : ''} />
-      {more ? 'Só as principais' : `Mais ${rest.length}: ${rest.map((i) => i.name).join(', ')}`}
+      {more ? 'Only the main ones' : `${rest.length} more: ${rest.map((i) => i.name).join(', ')}`}
     </button>
   {/if}
 {/snippet}
@@ -121,7 +121,7 @@
   <div class="menu-wrap" bind:this={root}>
     <button class="menu-button" aria-haspopup="true" aria-expanded={open} onclick={() => (open = !open)}>
       {#if on.length}<i class="live" aria-hidden="true"></i>{/if}
-      <span class="mb-l">{on.length ? `A escutar ${on.map((i) => i.name).join(' e ')}` : 'Escolher onde escutar'}</span>
+      <span class="mb-l">{on.length ? `Listening on ${on.map((i) => i.name).join(' and ')}` : 'Choose where to listen'}</span>
       {#if on.length}<span class="mb-r">{rate(argus.meter)}</span>{/if}
       <ChevronDown size={15} strokeWidth={2} />
     </button>
@@ -132,11 +132,11 @@
 {/if}
 
 {#each argus.session?.listening.filter((l) => l.on && l.status === 'failed') ?? [] as l (l.id)}
-  <p class="why" role="status">{l.id} parou {l.since ? since(l.since) : ''}: {l.error}. Volta a tentar sozinho.</p>
+  <p class="why" role="status">{l.id} stopped {l.since ? since(l.since) : ''}: {l.error}. It tries again by itself.</p>
 {/each}
 {#if argus.interfacesProblem && !argus.interfaces.some((i) => i.capturable)}
   <p class="why">
-    Ainda não dá para escutar: {argus.interfacesProblem}. Falta correr, uma vez, <code>pkexec bash scripts/install-capture.sh</code>.
+    Cannot listen yet: {argus.interfacesProblem}. Run this once: <code>pkexec bash scripts/install-capture.sh</code>.
   </p>
 {/if}
 {#if overlap}<p class="why">{overlap}</p>{/if}

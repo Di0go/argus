@@ -16,7 +16,7 @@
   let period = $state<'minutes' | 'day'>('minutes');
   const PERIODS = [
     { id: 'minutes' as const, label: '10 min' },
-    { id: 'day' as const, label: 'Hoje' },
+    { id: 'day' as const, label: 'Today' },
   ];
   let saving = $state(false);
   let saved = $state('');
@@ -29,16 +29,16 @@
 
   const lede = $derived.by(() => {
     if (!s) return '';
-    if (!on.length && !seen) return 'Liga uma interface e o Argus mostra quem está na rede, ao segundo.';
-    const where = names.length ? `A escutar ${list(names)}` : 'Sem escutar agora';
+    if (!on.length && !seen) return 'Turn an interface on and Argus shows who is on the network, second by second.';
+    const where = names.length ? `Listening on ${list(names)}` : 'Not listening now';
     const since = Math.min(...on.map((l) => l.since ?? Date.now() / 1000));
-    const how = on.length ? ` há ${span(Date.now() / 1000 - since)}` : '';
-    const what = seen ? `: ${plural(src.devices.length, 'dispositivo', 'dispositivos')} na rede, ${plural(src.remotes.length, 'anfitrião', 'anfitriões')} na internet.` : '.';
+    const how = on.length ? ` for ${span(Date.now() / 1000 - since)}` : '';
+    const what = seen ? `: ${plural(src.devices.length, 'device', 'devices')} on the network, ${plural(src.remotes.length, 'host', 'hosts')} on the internet.` : '.';
     return `${where}${names.length ? how : ''}${what}`;
   });
 
   function list(xs: string[]): string {
-    return xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} e ${xs.at(-1)}`;
+    return xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
   }
 
   function plural(n: number, one: string, many: string): string {
@@ -63,7 +63,7 @@
 
 <div class="page now">
   <header class="page-head">
-    <h1 class="page-title">Agora</h1>
+    <h1 class="page-title">Now</h1>
     {#if s}<p class="page-lede">{lede}</p>{:else}<p class="page-lede"><span class="sk w45"></span></p>{/if}
   </header>
 
@@ -79,29 +79,29 @@
   {:else if !seen}
     <section class="band first">
       <div class="empty-state">
-        <h2>{on.length ? 'À escuta' : 'Ainda não está a escutar'}</h2>
+        <h2>{on.length ? 'Listening' : 'Not listening yet'}</h2>
         <p>
           {on.length
-            ? 'Os primeiros pacotes aparecem aqui assim que chegam. Numa rede calma podem demorar uns segundos.'
-            : 'Escolhe acima onde escutar: o Wi-Fi, o cabo ou a VPN, um ou vários. Fica ligado até o desligares, mesmo que feches esta página.'}
+            ? 'The first packets show here as soon as they arrive. On a quiet network they may take a few seconds.'
+            : 'Choose above where to listen: the Wi-Fi, the cable or the VPN, one or several. It stays on until you turn it off, even if you close this page.'}
         </p>
       </div>
       <Limits />
     </section>
   {:else}
-    <section class="band pulse" aria-label="Débito">
+    <section class="band pulse" aria-label="Bandwidth">
       <div class="figure">
         <p class="big" aria-live="off"><span class="v">{rate(argus.meter)}</span></p>
         <p class="what">
-          toda a rede vista daqui, agora; {bytes(s?.bytes ?? 0)} desde o início
+          the whole network as seen from here, now; {bytes(s?.bytes ?? 0)} since the start
         </p>
       </div>
-<Seg bind:value={period} label="Período" options={PERIODS} />
+<Seg bind:value={period} label="Period" options={PERIODS} />
       <div class="chart-wrap">
         {#if period === 'minutes'}
-          <RateChart series={argus.fine} label="Débito, toda a rede" seconds={600} height={210} since={s?.started} />
+          <RateChart series={argus.fine} label="Bandwidth, whole network" seconds={600} height={210} since={s?.started} />
         {:else}
-          <RateChart series={argus.coarse} label="Débito, toda a rede, hoje" height={210} since={s?.started} />
+          <RateChart series={argus.coarse} label="Bandwidth, whole network, today" height={210} since={s?.started} />
         {/if}
       </div>
     </section>
@@ -109,24 +109,24 @@
     <div class="bands main">
       <section class="band">
         <div class="band-h">
-          <h2>Na rede local</h2>
+          <h2>On the local network</h2>
           <span class="band-tools">
             <NetFilter devices={src.devices} />
-            <a href={link.devices()}>{src.devices.length > 8 ? `Todos os ${src.devices.length}` : 'Dispositivos'}</a>
+            <a href={link.devices()}>{src.devices.length > 8 ? `All ${src.devices.length}` : 'Devices'}</a>
           </span>
         </div>
         <DeviceTable devices={src.devices} live limit={8} byNetwork />
       </section>
       <section class="band side">
         <div class="band-h">
-          <h2>Na internet</h2>
-          <a href={link.internet()}>{src.remotes.length} anfitriões</a>
+          <h2>On the internet</h2>
+          <a href={link.internet()}>{src.remotes.length} hosts</a>
         </div>
-        <HostList items={src.sites.slice(0, 8)} live label="Empresas e sites" />
+        <HostList items={src.sites.slice(0, 8)} live label="Companies and sites" />
         {#if src.remotes.some((r) => !r.names.length)}
           <p class="note">
-            {src.remotes.filter((r) => !r.names.length).length} sem nome visto: o nome só se sabe quando o pedido de DNS ou o início da
-            ligação cifrada passam por aqui.
+            {src.remotes.filter((r) => !r.names.length).length} with no name seen: the name is only known when the DNS question or the start of
+            the encrypted connection passes through here.
           </p>
         {/if}
       </section>
@@ -134,12 +134,12 @@
 
     <section class="band foot">
       <div class="keep">
-        <button class="ghost small" disabled={saving} onclick={save}>{saving ? 'A guardar…' : 'Guardar os últimos minutos'}</button>
+        <button class="ghost small" disabled={saving} onclick={save}>{saving ? 'Saving…' : 'Save the last minutes'}</button>
         <span class="muted"
-          >O que o ring buffer tem em disco, até {s ? `${s.limits.ringFiles * s.limits.ringFileMB} MB` : ''} por interface, fica guardado
-          como uma captura.</span
+          >What the ring buffer holds on disk, up to {s ? `${s.limits.ringFiles * s.limits.ringFileMB} MB` : ''} per interface, is kept
+          as a capture.</span
         >
-        {#if saved}<a href={link.capture(saved)}>Abrir a captura guardada</a>{/if}
+        {#if saved}<a href={link.capture(saved)}>Open the saved capture</a>{/if}
         {#if alertText}<span class="error" role="alert">{alertText}</span>{/if}
       </div>
       <Limits />

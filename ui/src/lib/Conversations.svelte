@@ -16,16 +16,16 @@
     me,
     source,
     capture,
-    title = 'Ligações',
-    label = 'Ligações',
+    title = 'Conversations',
+    label = 'Conversations',
     limit = 12,
   }: { conversations: Conversation[]; me?: Set<string>; source: Source; capture?: string; title?: string; label?: string; limit?: number } = $props();
 
   const live = $derived(source.kind === 'live');
   let by = $state<'bytes' | 'recent'>('bytes');
   const ORDERS = [
-    { id: 'bytes' as const, label: 'Mais dados' },
-    { id: 'recent' as const, label: 'Recentes' },
+    { id: 'bytes' as const, label: 'Most data' },
+    { id: 'recent' as const, label: 'Latest' },
   ];
   let all = $state(false);
   let hovering = $state(false);
@@ -65,8 +65,8 @@
 <div class="band-h">
   <h2>{title}</h2>
   <span class="tools">
-    <span class="aside">{conversations.length === 1 ? '1 ligação' : `${conversations.length} ligações`}</span>
-    {#if conversations.length > 1}<Seg bind:value={by} label="Ordem" options={ORDERS} />{/if}
+    <span class="aside">{conversations.length === 1 ? '1 conversation' : `${conversations.length} conversations`}</span>
+    {#if conversations.length > 1}<Seg bind:value={by} label="Order" options={ORDERS} />{/if}
   </span>
 </div>
 {#if conversations.length}
@@ -74,12 +74,12 @@
     <table class="records conv" aria-label={label} onpointerenter={() => (hovering = true)} onpointerleave={() => (hovering = false)}>
       <thead>
         <tr>
-          <th>{me ? 'Com quem' : 'Entre'}</th>
-          <th class="hide-s">Serviço</th>
-          <th class="num hide-s">Enviou</th>
-          <th class="num hide-s">Recebeu</th>
+          <th>{me ? 'With' : 'Between'}</th>
+          <th class="hide-s">Service</th>
+          <th class="num hide-s">Sent</th>
+          <th class="num hide-s">Received</th>
           <th class="num show-s">Total</th>
-          <th class="num">Quando</th>
+          <th class="num">When</th>
         </tr>
       </thead>
       <tbody>
@@ -104,17 +104,17 @@
             <td class="num hide-s">{bytes(s.sent)}</td>
             <td class="num hide-s">{bytes(s.received)}</td>
             <td class="num show-s">{bytes(c.sent + c.received)}</td>
-            <td class="num when" title="De {when(c.first)} a {when(c.last)}">{live ? since(c.last) : when(c.last)}</td>
+            <td class="num when" title="From {when(c.first)} to {when(c.last)}">{live ? since(c.last) : when(c.last)}</td>
           </tr>
         {/each}
       </tbody>
     </table>
   </div>
   {#if conversations.length > limit}
-    <button class="ghost small more" onclick={() => (all = !all)}>{all ? 'Mostrar menos' : `Mostrar todas as ${conversations.length}`}</button>
+    <button class="ghost small more" onclick={() => (all = !all)}>{all ? 'Show fewer' : `Show all ${conversations.length}`}</button>
   {/if}
 {:else}
-  <p class="empty">Nenhuma ligação vista ainda.</p>
+  <p class="empty">No conversation seen yet.</p>
 {/if}
 
 <style>

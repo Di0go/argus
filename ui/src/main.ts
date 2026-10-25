@@ -1,4 +1,4 @@
-// The interface's entry point: the core's fonts and styles, Argus's own after them, the frame's words in Portuguese,
+// The interface's entry point: the core's fonts and styles, Argus's own after them, the frame's words in English,
 // then the app.
 import '@organon/core/ui/fonts.css';
 import '@organon/core/ui/tokens.css';
@@ -11,7 +11,7 @@ import { setWords } from '@organon/core/ui/words';
 import { mount } from 'svelte';
 import App from './App.svelte';
 
-setWords('pt');
+setWords('en');
 
 // After a release, an open tab may ask for page code that is no longer there: reload once to get the new build.
 addEventListener('vite:preloadError', (e) => {

@@ -53,14 +53,14 @@
   const places = $derived<Place[]>([
     {
       id: 'now',
-      label: 'Agora',
+      label: 'Now',
       href: link.now(),
       icon: ICON.now,
       on: route.page === 'now' || route.page === 'interface',
       pip: failed.length ? 'turn' : undefined,
-      pipTitle: failed.length ? `Parou: ${failed.map((l) => l.id).join(', ')}` : undefined,
+      pipTitle: failed.length ? `Stopped: ${failed.map((l) => l.id).join(', ')}` : undefined,
     },
-    { id: 'devices', label: 'Rede', href: link.devices(), icon: ICON.devices, on: route.page === 'devices' || route.page === 'device' },
+    { id: 'devices', label: 'Network', href: link.devices(), icon: ICON.devices, on: route.page === 'devices' || route.page === 'device' },
     {
       id: 'internet',
       label: 'Internet',
@@ -68,7 +68,7 @@
       icon: ICON.internet,
       on: route.page === 'internet' || route.page === 'remote' || route.page === 'site',
     },
-    { id: 'captures', label: 'Capturas', href: link.captures(), icon: ICON.captures, on: route.page === 'captures' || route.page === 'capture' },
+    { id: 'captures', label: 'Captures', href: link.captures(), icon: ICON.captures, on: route.page === 'captures' || route.page === 'capture' },
   ]);
   const on = $derived(argus.session?.listening.filter((l) => l.on) ?? []);
   const onNames = $derived(on.map((l) => argus.interfaces.find((i) => i.id === l.id)?.name ?? l.id).join(', '));
@@ -80,13 +80,13 @@
     const named = (k: string, fallback: string) => src?.graph.get(k)?.name ?? fallback;
     switch (r.page) {
       case 'now':
-        return 'Agora';
+        return 'Now';
       case 'devices':
-        return 'Dispositivos';
+        return 'Devices';
       case 'device':
         return named(`device:${r.id}`, r.id);
       case 'internet':
-        return 'Na internet';
+        return 'On the internet';
       case 'remote':
         return named(`remote:${r.id}`, r.id);
       case 'site':
@@ -94,15 +94,15 @@
       case 'interface':
         return argus.interfaces.find((i) => i.id === r.id)?.name ?? r.id;
       case 'captures':
-        return 'Capturas';
+        return 'Captures';
       case 'capture': {
         const c = argus.captures.find((x) => x.id === r.id);
-        return c ? `Captura de ${when(c.started)}` : 'Captura';
+        return c ? `Capture of ${when(c.started)}` : 'Capture';
       }
     }
   }
 
-  const KINDS = { device: 'Dispositivo', remote: 'Internet', site: 'Empresa', interface: 'Interface', capture: 'Captura' };
+  const KINDS = { device: 'Device', remote: 'Internet', site: 'Company', interface: 'Interface', capture: 'Capture' };
 
   /** The order hits come in: what he most likely means first. */
   const RANK: Record<string, number> = { device: 0, site: 1, interface: 2, remote: 3, capture: 4 };
@@ -139,11 +139,11 @@
     }
     for (const h of hits) {
       const n = seen.get(`${h.kind}:${h.title}`) ?? 1;
-      if (n > 1) h.context = `${h.context ? `${h.context}, ` : ''}e mais ${n - 1} ${n - 1 === 1 ? 'endereço' : 'endereços'}`;
+      if (n > 1) h.context = `${h.context ? `${h.context}, ` : ''}and ${n - 1} more ${n - 1 === 1 ? 'address' : 'addresses'}`;
     }
     for (const c of argus.captures) {
-      const text = `${when(c.started)} ${c.interfaces.join(' ')} captura`.toLowerCase();
-      if (words.every((w) => text.includes(w))) hits.push({ kind: 'capture', title: `Captura de ${when(c.started)}`, href: link.capture(c.id), context: c.interfaces.join(', ') });
+      const text = `${when(c.started)} ${c.interfaces.join(' ')} capture`.toLowerCase();
+      if (words.every((w) => text.includes(w))) hits.push({ kind: 'capture', title: `Capture of ${when(c.started)}`, href: link.capture(c.id), context: c.interfaces.join(', ') });
     }
     return hits.slice(0, 40);
   }
@@ -164,21 +164,21 @@
     const capture = target.dataset.capture || router.route.capture;
     const e = argus.sourceFor(capture)?.graph.get(key);
     if (!e) return [];
-    const items: MenuItem[] = [{ label: `Abrir ${e.name}`, run: () => (location.hash = entityHref(e.kind, e.id, capture)) }];
+    const items: MenuItem[] = [{ label: `Open ${e.name}`, run: () => (location.hash = entityHref(e.kind, e.id, capture)) }];
     if (e.kind === 'device') {
-      if (e.ips[0]) items.push({ label: 'Copiar o endereço', hint: e.ips[0], run: () => void copy(e.ips[0]!) });
-      if (e.mac) items.push({ label: 'Copiar a MAC', hint: e.mac, run: () => void copy(e.mac!) });
+      if (e.ips[0]) items.push({ label: 'Copy the address', hint: e.ips[0], run: () => void copy(e.ips[0]!) });
+      if (e.mac) items.push({ label: 'Copy the MAC', hint: e.mac, run: () => void copy(e.mac!) });
     }
     if (e.kind === 'remote') {
-      items.push({ label: 'Copiar o endereço', hint: e.ip, run: () => void copy(e.ip) });
-      if (e.name !== e.ip) items.push({ label: 'Copiar o nome', run: () => void copy(e.name) });
+      items.push({ label: 'Copy the address', hint: e.ip, run: () => void copy(e.ip) });
+      if (e.name !== e.ip) items.push({ label: 'Copy the name', run: () => void copy(e.name) });
     }
     if (e.kind === 'interface') {
       const listening = argus.session?.listening.find((l) => l.id === e.id)?.on;
       items.push({
-        label: listening ? 'Parar de escutar' : 'Escutar aqui',
+        label: listening ? 'Stop listening' : 'Listen here',
         run: () => void argus.listen(e.id, !listening),
-        disabled: e.capturable ? undefined : 'Este utilizador não pode escutar nesta interface',
+        disabled: e.capturable ? undefined : 'This user cannot listen on this interface',
       });
     }
     return items;
@@ -193,7 +193,7 @@
   {/snippet}
   {#snippet brand()}<Logo size={20} class="mobile-mark" />argus{/snippet}
   {#snippet mobile()}
-    {#if on.length}<span class="listening-m" title="A escutar {onNames}"><i></i>{rate(argus.meter)}</span>{/if}
+    {#if on.length}<span class="listening-m" title="Listening on {onNames}"><i></i>{rate(argus.meter)}</span>{/if}
   {/snippet}
   {#snippet tabbar()}
     <TabBar {tabs} {title} icon={(key) => PAGE_ICON[router.parse(key).page]} />
@@ -201,14 +201,14 @@
   {#snippet status()}
     <StatusLine warnings={argus.warnings}>
       {#snippet left()}
-        {#if !argus.live.connected && argus.live.loaded}<span class="st"><i class="off"></i>Sem ligação ao Argus: a tentar outra vez</span>{/if}
+        {#if !argus.live.connected && argus.live.loaded}<span class="st"><i class="off"></i>No connection to Argus: trying again</span>{/if}
       {/snippet}
-      {#each failed as l (l.id)}<a class="st" href={link.interface(l.id)}><i class="off"></i>{l.id} parou</a>{/each}
+      {#each failed as l (l.id)}<a class="st" href={link.interface(l.id)}><i class="off"></i>{l.id} stopped</a>{/each}
       {#if on.length}
-        <a class="st" href={link.now()} title="O que passa por aqui agora"><i class="on"></i>A escutar {onNames}</a>
+        <a class="st" href={link.now()} title="What passes through here now"><i class="on"></i>Listening on {onNames}</a>
         <span class="rate">{rate(argus.meter)}</span>
       {:else if argus.live.loaded}
-        <a class="st" href={link.now()}><i></i>Sem escutar</a>
+        <a class="st" href={link.now()}><i></i>Not listening</a>
       {/if}
     </StatusLine>
   {/snippet}
@@ -239,5 +239,5 @@
 <HoverCard>
   {#snippet entity(key)}<EntityCard {key} />{/snippet}
 </HoverCard>
-<Search {search} kinds={KINDS} placeholder="Procurar um dispositivo, um endereço, uma MAC, uma empresa…" empty="Procura entre tudo o que o Argus viu: dispositivos, anfitriões, empresas, interfaces e capturas." />
+<Search {search} kinds={KINDS} placeholder="Search a device, an address, a MAC, a company…" empty="Searches everything Argus saw: devices, hosts, companies, interfaces and captures." />
 <ContextMenu app="Argus" {actions} />

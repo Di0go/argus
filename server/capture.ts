@@ -35,13 +35,13 @@ export function classify(name: string, sysNet = '/sys/class/net'): Pick<Interfac
   };
   const state = read('operstate');
   const up = state ? state === 'up' || state === 'unknown' : undefined;
-  if (name === 'any') return { type: 'any', label: 'Todas', up: true };
-  if (name === 'lo' || read('type') === '772') return { type: 'loopback', label: 'Loopback (este PC)', up };
+  if (name === 'any') return { type: 'any', label: 'All', up: true };
+  if (name === 'lo' || read('type') === '772') return { type: 'loopback', label: 'Loopback (this PC)', up };
   if (existsSync(path.join(dir, 'wireless')) || existsSync(path.join(dir, 'phy80211'))) return { type: 'wifi', label: 'Wi-Fi', up };
-  if (/^(docker|br-|veth)/.test(name)) return { type: 'docker', label: name.startsWith('veth') ? 'Docker (contentor)' : 'Docker', up };
+  if (/^(docker|br-|veth)/.test(name)) return { type: 'docker', label: name.startsWith('veth') ? 'Docker (container)' : 'Docker', up };
   // No Ethernet header (type 65534 "none", PPP 512) or a tunnel driver: a VPN.
   if (/^(tun|tap|wg|tailscale|ppp|vpn)/.test(name) || ['65534', '512'].includes(read('type'))) return { type: 'vpn', label: 'VPN', up };
-  if (read('type') === '1' && existsSync(path.join(dir, 'device'))) return { type: 'cable', label: 'Cabo', up };
+  if (read('type') === '1' && existsSync(path.join(dir, 'device'))) return { type: 'cable', label: 'Cable', up };
   return { type: 'other', label: name, up };
 }
 
@@ -100,12 +100,12 @@ function run(cmd: string, args: string[], timeout = 15_000): Promise<string> {
     child.stdout.on('data', (d: Buffer) => (out += d.toString()));
     child.stderr.on('data', (d: Buffer) => (err += d.toString()));
     child.on('error', (e) =>
-      reject(new Error((e as NodeJS.ErrnoException).code === 'ENOENT' ? `${cmd} não está instalado (scripts/install-capture.sh)` : e.message)),
+      reject(new Error((e as NodeJS.ErrnoException).code === 'ENOENT' ? `${cmd} is not installed (scripts/install-capture.sh)` : e.message)),
     );
     child.on('close', (code) => {
       if (code === 0) return resolve(out);
       const said = err.trim().split('\n').filter((l) => !/^Capturing on|^File:|^Packets/.test(l)).join(' ').slice(0, 400);
-      reject(new Error(/permission|not permitted|You don't have permission/i.test(said) ? `Sem permissão para capturar: ${said}` : said || `${cmd} saiu com ${code}`));
+      reject(new Error(/permission|not permitted|You don't have permission/i.test(said) ? `No permission to capture: ${said}` : said || `${cmd} exited with ${code}`));
     });
   });
 }

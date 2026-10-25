@@ -16,9 +16,9 @@
 
   /** A company's size, or who runs a host. */
   function whoRuns(x: Remote | Site): string {
-    if (x.kind === 'site') return x.hosts.length === 1 ? '1 anfitrião' : `${x.hosts.length} anfitriões`;
+    if (x.kind === 'site') return x.hosts.length === 1 ? '1 host' : `${x.hosts.length} hosts`;
     const site = x.names.map((n) => siteOf(n.name)).find(Boolean);
-    return site ? companyOf(site) : x.name === x.ip ? 'sem nome visto' : '';
+    return site ? companyOf(site) : x.name === x.ip ? 'no name seen' : '';
   }
 </script>
 
@@ -27,10 +27,10 @@
     <!-- The dot lights while it is busy (heard in the last ten seconds), as a track lit on a radar. -->
     <li class="rec" class:acc={live && Date.now() / 1000 - x.lastSeen < 10}>
       <span class="rec-t"><EntityLink entity={x} {capture} /> <span class="aside">{aside(x)}</span></span>
-      <span class="rec-m" title={live ? `Visto ${since(x.lastSeen)}` : undefined}>{bytes(x.bytesSent + x.bytesReceived)}</span>
+      <span class="rec-m" title={live ? `Seen ${since(x.lastSeen)}` : undefined}>{bytes(x.bytesSent + x.bytesReceived)}</span>
     </li>
   {:else}
-    <li class="rec empty">Nenhum ainda.</li>
+    <li class="rec empty">None yet.</li>
   {/each}
 </ul>
 

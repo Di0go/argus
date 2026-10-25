@@ -22,7 +22,7 @@
 
 <div class="page">
   <header class="page-head">
-    <p class="crumbs"><a href={link.internet(capture)}>Na internet</a><span class="sep">/</span>{s?.name ?? id}</p>
+    <p class="crumbs"><a href={link.internet(capture)}>On the internet</a><span class="sep">/</span>{s?.name ?? id}</p>
     {#if s}
       <div class="title">
         <EntityIcon entity={s} size={46} />
@@ -33,30 +33,30 @@
       </div>
       {#if source}<SourceHead {source} />{/if}
     {:else if source}
-      <h1 class="page-title">Não visto</h1>
+      <h1 class="page-title">Not seen</h1>
     {/if}
   </header>
   {#if s}
     <div class="stats">
-      <div class="stat"><span class="stat-v">{bytes(s.bytesReceived)}</span><span class="stat-l">recebeu daqui</span></div>
-      <div class="stat"><span class="stat-v">{bytes(s.bytesSent)}</span><span class="stat-l">mandou para cá</span></div>
-      <div class="stat"><span class="stat-v">{hosts.length}</span><span class="stat-l">anfitriões</span></div>
-      {#if live}<div class="stat"><span class="stat-v">{since(s.lastSeen)}</span><span class="stat-l">a última vez</span></div>{/if}
+      <div class="stat"><span class="stat-v">{bytes(s.bytesReceived)}</span><span class="stat-l">received from here</span></div>
+      <div class="stat"><span class="stat-v">{bytes(s.bytesSent)}</span><span class="stat-l">sent here</span></div>
+      <div class="stat"><span class="stat-v">{hosts.length}</span><span class="stat-l">hosts</span></div>
+      {#if live}<div class="stat"><span class="stat-v">{since(s.lastSeen)}</span><span class="stat-l">last time</span></div>{/if}
     </div>
     <div class="bands">
       <section class="band">
-        <div class="band-h"><h2>Quem o usa</h2></div>
-        <ul class="recs" aria-label="Quem o usa">
+        <div class="band-h"><h2>Who uses it</h2></div>
+        <ul class="recs" aria-label="Who uses it">
           {#each users as n (keyOf(n.entity))}
             <li class="rec acc"><span class="rec-t"><EntityLink entity={n.entity} {capture} /></span><span class="rec-m">{bytes(n.weight)}</span></li>
           {:else}
-            <li class="rec empty">Nenhum dispositivo daqui.</li>
+            <li class="rec empty">No device from here.</li>
           {/each}
         </ul>
       </section>
       <section class="band">
-        <div class="band-h"><h2>Anfitriões</h2></div>
-        <HostList items={hosts} {capture} {live} label="Anfitriões" aside={(x) => (x.kind === 'remote' ? x.ip : '')} />
+        <div class="band-h"><h2>Hosts</h2></div>
+        <HostList items={hosts} {capture} {live} label="Hosts" aside={(x) => (x.kind === 'remote' ? x.ip : '')} />
       </section>
     </div>
     {#if source}

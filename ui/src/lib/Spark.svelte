@@ -39,7 +39,7 @@
   }
 
   path {
-    fill: var(--series-2);
+    fill: var(--acc);
     opacity: 0.55;
   }
 </style>

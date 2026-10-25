@@ -41,7 +41,7 @@ if (!captures.all().length && SEED_PCAP) {
   try {
     await captures.import(SEED_PCAP, ['exemplo']);
   } catch (err) {
-    warnings.set('seed', `A gravação de exemplo não se leu: ${(err as Error).message}`);
+    warnings.set('seed', `The sample recording could not be read: ${(err as Error).message}`);
   }
 }
 const live = await new Live({ tshark: TSHARK, editcap: EDITCAP, dir: LIVE_DIR, store, events, ownMacs: () => ownMacs(SYS_NET), ...RING }).load();
@@ -83,10 +83,10 @@ async function routes(...[req, res, route, params]: Parameters<Route>): Promise<
   if (req.method === 'PUT' && route.startsWith('/api/live/')) {
     const id = tail('/api/live/');
     const body = (await readJson(req)) as { on?: unknown } | undefined;
-    if (typeof body?.on !== 'boolean') throw new ApiError(400, 'Diz { "on": true } ou { "on": false }');
+    if (typeof body?.on !== 'boolean') throw new ApiError(400, 'Say { "on": true } or { "on": false }');
     if (body.on) {
       const { interfaces, problem } = await listInterfaces(tools);
-      if (problem && !interfaces.some((i) => i.capturable)) throw new ApiError(409, `Ainda não dá para escutar: ${problem}`);
+      if (problem && !interfaces.some((i) => i.capturable)) throw new ApiError(409, `Cannot listen yet: ${problem}`);
       return json(res, 200, await live.set(id, true, interfaces.filter((i) => i.capturable).map((i) => i.id)));
     }
     return json(res, 200, await live.set(id, false, []));
@@ -95,7 +95,7 @@ async function routes(...[req, res, route, params]: Parameters<Route>): Promise<
   if (req.method === 'GET' && route === '/api/captures') return json(res, 200, captures.all());
   if (route.startsWith('/api/captures/')) {
     const c = captures.get(tail('/api/captures/'));
-    if (!c) throw new ApiError(404, 'Essa captura não existe');
+    if (!c) throw new ApiError(404, 'There is no such capture');
     if (req.method === 'DELETE') {
       await captures.remove(c.id);
       events.send({ type: 'captures', captures: captures.all() });
@@ -107,7 +107,7 @@ async function routes(...[req, res, route, params]: Parameters<Route>): Promise<
     const id = params.get('capture');
     if (!id) return json(res, 200, { session: live.session(), ...live.hosts() });
     const c = captures.get(id);
-    if (!c) throw new ApiError(404, 'Essa captura não existe');
+    if (!c) throw new ApiError(404, 'There is no such capture');
     return json(res, 200, c.status === 'done' ? await captures.hosts(c) : { capture: c });
   }
   return false;
@@ -119,16 +119,16 @@ async function routes(...[req, res, route, params]: Parameters<Route>): Promise<
  */
 async function saveRing(ids?: string[]) {
   const files = await live.ringFiles(ids);
-  if (!files.length) throw new ApiError(409, 'Ainda não há nada no ring buffer para guardar: liga uma interface primeiro');
+  if (!files.length) throw new ApiError(409, 'Nothing in the ring buffer to save yet: turn an interface on first');
   const used = await captures.diskBytes();
   if (used > CAPTURES_MB * 1024 * 1024)
-    throw new ApiError(409, `As capturas guardadas já ocupam ${Math.round(used / 1048576)} MB (o tecto é ${CAPTURES_MB} MB): apaga alguma primeiro`);
+    throw new ApiError(409, `The saved captures already take ${Math.round(used / 1048576)} MB (the ceiling is ${CAPTURES_MB} MB): delete one first`);
   const dir = await mkdtemp(path.join(tmpdir(), 'argus-save-'));
   try {
     const merged = path.join(dir, 'merged.pcapng');
     const out = path.join(dir, 'saved.pcapng');
     const fail = (what: string) => (err: Error & { stderr?: string }) => {
-      throw new ApiError(503, `O ${what} não gravou a captura: ${(err.stderr || err.message).slice(0, 300)}`);
+      throw new ApiError(503, `${what} did not write the capture: ${(err.stderr || err.message).slice(0, 300)}`);
     };
     await promisify(execFile)(MERGECAP, ['-w', merged, ...files], { timeout: 120_000 }).catch(fail('mergecap'));
     await live.cut(merged, out).catch(fail('editcap'));

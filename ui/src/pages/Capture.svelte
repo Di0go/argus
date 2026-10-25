@@ -14,23 +14,23 @@
 
 <div class="page">
   <header class="page-head">
-    <p class="crumbs"><a href={link.captures()}>Capturas</a><span class="sep">/</span>{c ? when(c.started) : id}</p>
-    <h1 class="page-title">{c ? `Captura de ${when(c.started)}` : 'Captura'}</h1>
+    <p class="crumbs"><a href={link.captures()}>Captures</a><span class="sep">/</span>{c ? when(c.started) : id}</p>
+    <h1 class="page-title">{c ? `Capture of ${when(c.started)}` : 'Capture'}</h1>
     {#if c}
       <p class="page-lede">
-        {c.interfaces.join(', ')}, {span(c.seconds)}: {(c.packets ?? 0).toLocaleString('pt-PT')} pacotes, {bytes(c.bytes ?? 0)}.
+        {c.interfaces.join(', ')}, {span(c.seconds)}: {(c.packets ?? 0).toLocaleString('en-GB')} packets, {bytes(c.bytes ?? 0)}.
       </p>
     {/if}
   </header>
   {#if source}
     <div class="bands main">
       <section class="band">
-        <div class="band-h"><h2>Na rede local</h2><a href={link.devices(id)}>{source.devices.length} dispositivos</a></div>
+        <div class="band-h"><h2>On the local network</h2><a href={link.devices(id)}>{source.devices.length} devices</a></div>
         <DeviceTable devices={source.devices} capture={id} />
       </section>
       <section class="band">
-        <div class="band-h"><h2>Na internet</h2><a href={link.internet(id)}>{source.remotes.length} anfitriões</a></div>
-        <HostList items={source.sites.slice(0, 12)} capture={id} label="Empresas e sites" />
+        <div class="band-h"><h2>On the internet</h2><a href={link.internet(id)}>{source.remotes.length} hosts</a></div>
+        <HostList items={source.sites.slice(0, 12)} capture={id} label="Companies and sites" />
       </section>
     </div>
   {:else if argus.captureProblem[id]}

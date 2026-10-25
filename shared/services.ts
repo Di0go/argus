@@ -23,17 +23,17 @@ const NAMES: Record<string, string> = {
   'udp/161': 'SNMP',
   'tcp/443': 'HTTPS',
   'udp/443': 'QUIC',
-  'tcp/445': 'Partilha Windows',
+  'tcp/445': 'Windows sharing',
   'udp/500': 'VPN (IKE)',
   'tcp/465': 'SMTP',
-  'tcp/548': 'Partilha Mac',
+  'tcp/548': 'Mac sharing',
   'udp/546': 'DHCPv6',
   'udp/547': 'DHCPv6',
   'tcp/554': 'RTSP',
   'tcp/587': 'SMTP',
-  'tcp/631': 'Impressão (IPP)',
-  'udp/853': 'DNS cifrado',
-  'tcp/853': 'DNS cifrado',
+  'tcp/631': 'Printing (IPP)',
+  'udp/853': 'Encrypted DNS',
+  'tcp/853': 'Encrypted DNS',
   'tcp/993': 'IMAP',
   'tcp/995': 'POP3',
   'udp/1194': 'OpenVPN',
@@ -41,11 +41,11 @@ const NAMES: Record<string, string> = {
   'tcp/1883': 'MQTT',
   'tcp/3000': 'Web (dev)',
   'tcp/3306': 'MySQL',
-  'tcp/3389': 'Ambiente remoto',
-  'udp/3478': 'Chamada (STUN)',
-  'udp/3479': 'Chamada (STUN)',
+  'tcp/3389': 'Remote desktop',
+  'udp/3478': 'Calls (STUN)',
+  'udp/3479': 'Calls (STUN)',
   'udp/4500': 'VPN (IPsec)',
-  'tcp/5222': 'Mensagens (XMPP)',
+  'tcp/5222': 'Messaging (XMPP)',
   'tcp/5228': 'Google Push',
   'udp/5353': 'mDNS',
   'udp/5355': 'LLMNR',
@@ -57,13 +57,13 @@ const NAMES: Record<string, string> = {
   'tcp/8009': 'Google Cast',
   'tcp/8080': 'HTTP',
   'tcp/8443': 'HTTPS',
-  'tcp/9100': 'Impressão',
+  'tcp/9100': 'Printing',
   'udp/41641': 'Tailscale',
   'udp/51820': 'WireGuard',
   'tcp/27017': 'MongoDB',
   icmp: 'Ping (ICMP)',
   icmpv6: 'ICMPv6',
-  igmp: 'Grupos (IGMP)',
+  igmp: 'Groups (IGMP)',
 };
 
 /**
@@ -86,7 +86,7 @@ export function serviceOfProtocol(n: number): string {
 
 /** "tcp/443" → "HTTPS"; one not in the list → "TCP 8123". */
 export function serviceName(service: string): string {
-  if (!service) return 'Outro';
+  if (!service) return 'Other';
   const known = NAMES[service];
   if (known) return known;
   const [proto = '', port = ''] = service.split('/');

@@ -117,7 +117,7 @@ export class Live {
 
   /** Turns listening on `id` on or off. `known` are the interfaces this user can capture on. */
   async set(id: string, on: boolean, known: string[]): Promise<Session> {
-    if (!IFACE.test(id) || (on && !known.includes(id))) throw new LiveError(`Interface desconhecida: ${id}`);
+    if (!IFACE.test(id) || (on && !known.includes(id))) throw new LiveError(`Unknown interface: ${id}`);
     if (on) this.listen(id);
     else this.unlisten(id);
     await this.saveState();
@@ -307,7 +307,7 @@ export class Live {
       }, 1500);
     });
     child.on('error', (e) => {
-      l.stderr += (e as NodeJS.ErrnoException).code === 'ENOENT' ? `${this.o.tshark} não está instalado (scripts/install-capture.sh)` : e.message;
+      l.stderr += (e as NodeJS.ErrnoException).code === 'ENOENT' ? `${this.o.tshark} is not installed (scripts/install-capture.sh)` : e.message;
     });
     child.on('close', (code) => {
       // One that was stopped on purpose (turned off, or replaced) is no failure.
@@ -316,7 +316,7 @@ export class Live {
       if (!l.state.on || this.stopping) return;
       // It stopped on its own: the interface went away, permission, tshark missing. Said, and tried again later.
       l.state.status = 'failed';
-      l.state.error = said(l.stderr) || `tshark saiu com ${code}`;
+      l.state.error = said(l.stderr) || `tshark exited with ${code}`;
       l.retry = setTimeout(() => {
         l.retry = undefined;
         if (l.state.on && !l.child && !l.starting) void this.spawn(l);
@@ -490,7 +490,7 @@ function said(stderr: string): string {
     .filter((l) => l.trim() && !/^Capturing on|^File:|packets? captured|^\d+ packets? dropped/i.test(l))
     .join(' ')
     .slice(0, 400);
-  return /permission|not permitted|You don't have permission/i.test(text) ? `Sem permissão para capturar: ${text}` : text;
+  return /permission|not permitted|You don't have permission/i.test(text) ? `No permission to capture: ${text}` : text;
 }
 
 async function safeReaddir(dir: string): Promise<string[]> {

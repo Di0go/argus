@@ -285,7 +285,7 @@ function groupSites(remotes: Remote[], links: Link[]): { sites: Site[]; siteLink
   siteLinks.push(...toSite.values());
   for (const s of by.values()) {
     s.aka = s.sites.filter((x) => x !== s.name);
-    s.summary = s.sites.length === 1 && s.sites[0] === s.name ? `${s.hosts.length} anfitriões` : s.sites.slice(0, 4).join(', ');
+    s.summary = s.sites.length === 1 && s.sites[0] === s.name ? `${s.hosts.length} hosts` : s.sites.slice(0, 4).join(', ');
     for (const h of s.hosts) siteLinks.push({ from: `site:${s.id}`, to: `remote:${h}`, rel: 'runs' });
   }
   return { sites: [...by.values()].sort((a, b) => b.bytesSent + b.bytesReceived - (a.bytesSent + a.bytesReceived)), siteLinks };

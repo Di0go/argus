@@ -57,7 +57,7 @@ test('The maker from the MAC; a made-up MAC said as private; the router and this
   const quiet = byMac(H.quiet.mac);
   assert.equal(quiet?.randomMac, true);
   assert.equal(quiet?.vendor, undefined);
-  assert.match(quiet?.name ?? '', /^Dispositivo privado/);
+  assert.match(quiet?.name ?? '', /^Private device/);
   assert.deepEqual(quiet?.ips, [H.quiet.ip]);
   assert.equal(byMac(H.router.mac)?.role, 'gateway');
   assert.equal(byMac(H.router.mac)?.name, 'Router Tp-Link');
@@ -103,14 +103,14 @@ test('Addresses: local, unicast, random MACs, and makers shortened', () => {
   assert.equal(shortVendor('Apple, Inc.'), 'Apple');
 });
 
-test('Interfaces named as he would: Wi-Fi, Cabo, Docker, VPN, Loopback, Todas; dumpcap’s list read as it prints it', async () => {
+test('Interfaces named as he would: Wi-Fi, Cable, Docker, VPN, Loopback, All; dumpcap’s list read as it prints it', async () => {
   const { sysNet } = await fakeCapture();
   assert.equal(classify('wlan0', sysNet).label, 'Wi-Fi');
-  assert.deepEqual(classify('enp3s0', sysNet), { type: 'cable', label: 'Cabo', up: false });
+  assert.deepEqual(classify('enp3s0', sysNet), { type: 'cable', label: 'Cable', up: false });
   assert.equal(classify('docker0', sysNet).label, 'Docker');
   assert.equal(classify('tailscale0', sysNet).label, 'VPN');
   assert.equal(classify('lo', sysNet).type, 'loopback');
-  assert.equal(classify('any', sysNet).label, 'Todas');
+  assert.equal(classify('any', sysNet).label, 'All');
   assert.deepEqual(parseDumpcapList('1. wlan0\n5. any (Pseudo-device that captures on all interfaces)\n'), [
     { name: 'wlan0', description: undefined },
     { name: 'any', description: 'Pseudo-device that captures on all interfaces' },
