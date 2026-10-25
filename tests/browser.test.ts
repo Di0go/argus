@@ -92,7 +92,7 @@ test('A capture from the page: the button runs it, says the seconds, and the pag
   const before = await p.getByRole('combobox', { name: 'Captura' }).locator('option').count();
   await p.getByRole('button', { name: 'Capturar' }).click();
   await p.getByRole('button', { name: /A capturar/ }).waitFor();
-  await p.getByRole('button', { name: 'Capturar' }).waitFor({ timeout: 15_000 });
+  await p.getByRole('button', { name: 'Capturar', exact: true }).waitFor({ timeout: 15_000 });
   await p.waitForFunction((n) => document.querySelectorAll('select[aria-label="Captura"] option').length === n + 1, before);
   assert.match(await p.getByRole('combobox', { name: 'Captura' }).locator('option').first().innerText(), /wlan0/);
   assert.deepEqual(errors, []);
