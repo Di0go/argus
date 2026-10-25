@@ -1,0 +1,8 @@
+{
+  "name": "argus",
+  "title": "Argus",
+  "hostname": "argus.test",
+  "loopback": "127.0.0.84",
+  "ports": { "live": 4930, "dev": 4940, "tls": 4931, "vite": 5203 },
+  "defaultAccent": "blue"
+}

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "argus": {
+      "command": "node",
+      "args": ["server/bridge.ts"]
+    },
+    "argus-dev": {
+      "command": "node",
+      "args": ["server/bridge.ts"],
+      "env": { "ARGUS_INSTANCE": "dev" }
+    }
+  }
+}

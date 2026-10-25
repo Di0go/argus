@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.dev/
+.argus/
+data/
+*.tsbuildinfo
+.svelte-check/

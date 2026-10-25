@@ -1,0 +1,36 @@
+{
+  "name": "argus",
+  "private": true,
+  "type": "module",
+  "description": "A readable network spy for one person: what devices a capture saw, in his words, on tshark. Built on @organon/core.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24.2"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.ts",
+    "app": "node server/control.ts",
+    "start": "node server/control.ts restart --build",
+    "serve": "node server/index.ts",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "test": "vite build --logLevel warn && node --test 'tests/*.test.ts'",
+    "gates": "pnpm check && pnpm test",
+    "release": "node scripts/release.ts",
+    "tls": "bash node_modules/@organon/core/scripts/tls.sh .",
+    "fixtures": "node scripts/make-fixture.ts"
+  },
+  "packageManager": "pnpm@10.34.5",
+  "dependencies": {
+    "@organon/core": "file:~/Projects/Organon/releases/organon-core-0.4.0.tgz"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@types/node": "^26.6.4",
+    "playwright-core": "1.58.2",
+    "svelte": "^5.57.1",
+    "svelte-check": "^4.7.6",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.2"
+  }
+}

@@ -1,0 +1,116 @@
+/* Argus's page on the core's tokens: a top bar, the page under it, tables that read like a list of who is there. */
+body {
+  margin: 0;
+  background: var(--b0);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 15px;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 0.86em;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.page {
+  max-width: var(--page-w);
+  margin: 0 auto;
+  padding: 24px clamp(16px, 4vw, 48px) 96px;
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin: 8px 0 4px;
+}
+
+h2 {
+  font-size: 1.05rem;
+  margin: 32px 0 10px;
+}
+
+.panel {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  background: var(--b1);
+  padding: 14px 16px;
+}
+
+table.list {
+  width: 100%;
+  border-collapse: collapse;
+}
+table.list th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule-strong);
+}
+table.list td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+table.list td.num,
+table.list th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  background: var(--b2);
+  color: var(--fg-2);
+  margin: 0 4px 2px 0;
+}
+.chip.acc {
+  background: var(--acc-soft);
+  color: var(--acc);
+}
+
+.primary {
+  background: var(--acc);
+  color: var(--on-acc);
+  border: 0;
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  font-weight: 600;
+}
+.primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.note {
+  font-size: 0.86rem;
+  color: var(--fg-2);
+  border-left: 3px solid var(--acc-line);
+  padding: 4px 12px;
+  margin: 12px 0;
+}
+
+.problem {
+  color: var(--wrong);
+}

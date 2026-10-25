@@ -1,0 +1,80 @@
+{
+  "packets": 18,
+  "bytes": 5313,
+  "hosts": {
+    "router": {
+      "mac": "50:c7:bf:12:34:56",
+      "ip": "192.168.50.1"
+    },
+    "phone": {
+      "mac": "3c:22:fb:ab:cd:ef",
+      "ip": "192.168.50.23",
+      "name": "Alexs-iPhone"
+    },
+    "pi": {
+      "mac": "b8:27:eb:44:55:66",
+      "ip": "192.168.50.40",
+      "name": "raspberrypi"
+    },
+    "windows": {
+      "mac": "00:1b:21:aa:bb:cc",
+      "ip": "192.168.50.50",
+      "name": "DESKTOP-STUDY"
+    },
+    "me": {
+      "mac": "3c:a9:f4:10:20:30",
+      "ip": "192.168.50.10"
+    },
+    "quiet": {
+      "mac": "9a:11:22:33:44:55",
+      "ip": "192.168.50.77"
+    },
+    "web": {
+      "ip": "203.0.113.14",
+      "name": "www.google.com"
+    },
+    "cast": {
+      "mac": "f4:f5:d8:c0:ff:ee",
+      "ip": "192.168.50.63",
+      "name": "Living Room TV",
+      "model": "Chromecast",
+      "host": "c0ffee00-0000-4000-8000-00000000ca57.local"
+    },
+    "me6": {
+      "ip": "2001:db8:50:1::10"
+    },
+    "web6": {
+      "ip": "2001:db8:ffff:1::200e"
+    }
+  },
+  "sentByMac": {
+    "3c:22:fb:ab:cd:ef": {
+      "packets": 1,
+      "bytes": 315
+    },
+    "50:c7:bf:12:34:56": {
+      "packets": 7,
+      "bytes": 3686
+    },
+    "b8:27:eb:44:55:66": {
+      "packets": 2,
+      "bytes": 129
+    },
+    "00:1b:21:aa:bb:cc": {
+      "packets": 1,
+      "bytes": 110
+    },
+    "3c:a9:f4:10:20:30": {
+      "packets": 5,
+      "bytes": 610
+    },
+    "f4:f5:d8:c0:ff:ee": {
+      "packets": 1,
+      "bytes": 416
+    },
+    "9a:11:22:33:44:55": {
+      "packets": 1,
+      "bytes": 47
+    }
+  }
+}
