@@ -98,9 +98,9 @@
 <Seg bind:value={period} label="Período" options={PERIODS} />
       <div class="chart-wrap">
         {#if period === 'minutes'}
-          <RateChart series={argus.fine} label="Débito, toda a rede" seconds={600} height={210} />
+          <RateChart series={argus.fine} label="Débito, toda a rede" seconds={600} height={210} since={s?.started} />
         {:else}
-          <RateChart series={argus.coarse} label="Débito, toda a rede, hoje" height={210} />
+          <RateChart series={argus.coarse} label="Débito, toda a rede, hoje" height={210} since={s?.started} />
         {/if}
       </div>
     </section>

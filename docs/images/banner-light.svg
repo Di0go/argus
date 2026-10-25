@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="420" viewBox="0 0 1280 420" role="img" aria-label="Argus: a readable network spy, live, on tshark">
+  <defs>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.75">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#fbfbfa"/>
+    </radialGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#e6e6e4"/>
+    </pattern>
+  </defs>
+  <rect width="1280" height="420" rx="18" fill="url(#glow)"/>
+  <rect width="1280" height="420" rx="18" fill="url(#dots)" opacity="0.45"/>
+  <rect x="0.5" y="0.5" width="1279" height="419" rx="17.5" fill="none" stroke="#e2e2e2"/>
+
+  <!-- The mark: an eye, and around it the hundred that never all sleep; the lid is drawn once, the pupil is the accent. -->
+  <g transform="translate(300 210)">
+    <circle cx="132.0" cy="0.0" r="2.6" fill="#2f6fde" opacity="0.57"/>
+    <circle cx="136.3" cy="16.8" r="2.6" fill="#2f6fde" opacity="0.80"/>
+    <circle cx="125.5" cy="31.8" r="2.6" fill="#2f6fde" opacity="0.52"/>
+    <circle cx="123.0" cy="48.9" r="2.6" fill="#2f6fde" opacity="0.37"/>
+    <circle cx="106.8" cy="60.5" r="2.6" fill="#2f6fde" opacity="0.69"/>
+    <circle cx="97.6" cy="76.1" r="2.6" fill="#2f6fde" opacity="0.75"/>
+    <circle cx="77.6" cy="83.3" r="2.6" fill="#2f6fde" opacity="0.42"/>
+    <circle cx="62.7" cy="95.9" r="2" fill="#8a8a8a" opacity="0.18"/>
+    <circle cx="40.8" cy="97.9" r="2" fill="#8a8a8a" opacity="0.18"/>
+    <circle cx="21.6" cy="106.3" r="2.6" fill="#2f6fde" opacity="0.66"/>
+    <circle cx="0.0" cy="103.0" r="2.6" fill="#2f6fde" opacity="0.36"/>
+    <circle cx="-21.6" cy="106.3" r="2.6" fill="#2f6fde" opacity="0.54"/>
+    <circle cx="-40.8" cy="97.9" r="2.6" fill="#2f6fde" opacity="0.80"/>
+    <circle cx="-62.7" cy="95.9" r="2.6" fill="#2f6fde" opacity="0.55"/>
+    <circle cx="-77.6" cy="83.3" r="2.6" fill="#2f6fde" opacity="0.36"/>
+    <circle cx="-97.6" cy="76.1" r="2.6" fill="#2f6fde" opacity="0.66"/>
+    <circle cx="-106.8" cy="60.5" r="2.6" fill="#2f6fde" opacity="0.77"/>
+    <circle cx="-123.0" cy="48.9" r="2.6" fill="#2f6fde" opacity="0.44"/>
+    <circle cx="-125.5" cy="31.8" r="2.6" fill="#2f6fde" opacity="0.41"/>
+    <circle cx="-136.3" cy="16.8" r="2.6" fill="#2f6fde" opacity="0.75"/>
+    <circle cx="-132.0" cy="0.0" r="2.6" fill="#2f6fde" opacity="0.69"/>
+    <circle cx="-136.3" cy="-16.8" r="2.6" fill="#2f6fde" opacity="0.37"/>
+    <circle cx="-125.5" cy="-31.8" r="2.6" fill="#2f6fde" opacity="0.51"/>
+    <circle cx="-123.0" cy="-48.9" r="2.6" fill="#2f6fde" opacity="0.80"/>
+    <circle cx="-106.8" cy="-60.5" r="2.6" fill="#2f6fde" opacity="0.58"/>
+    <circle cx="-97.6" cy="-76.1" r="2.6" fill="#2f6fde" opacity="0.35"/>
+    <circle cx="-77.6" cy="-83.3" r="2.6" fill="#2f6fde" opacity="0.62"/>
+    <circle cx="-62.7" cy="-95.9" r="2" fill="#8a8a8a" opacity="0.18"/>
+    <circle cx="-40.8" cy="-97.9" r="2" fill="#8a8a8a" opacity="0.18"/>
+    <circle cx="-21.6" cy="-106.3" r="2.6" fill="#2f6fde" opacity="0.39"/>
+    <circle cx="-0.0" cy="-103.0" r="2.6" fill="#2f6fde" opacity="0.73"/>
+    <circle cx="21.6" cy="-106.3" r="2.6" fill="#2f6fde" opacity="0.72"/>
+    <circle cx="40.8" cy="-97.9" r="2.6" fill="#2f6fde" opacity="0.39"/>
+    <circle cx="62.7" cy="-95.9" r="2.6" fill="#2f6fde" opacity="0.48"/>
+    <circle cx="77.6" cy="-83.3" r="2.6" fill="#2f6fde" opacity="0.79"/>
+    <circle cx="97.6" cy="-76.1" r="2.6" fill="#2f6fde" opacity="0.62"/>
+    <circle cx="106.8" cy="-60.5" r="2.6" fill="#2f6fde" opacity="0.35"/>
+    <circle cx="123.0" cy="-48.9" r="2.6" fill="#2f6fde" opacity="0.59"/>
+    <circle cx="125.5" cy="-31.8" r="2.6" fill="#2f6fde" opacity="0.80"/>
+    <circle cx="136.3" cy="-16.8" r="2.6" fill="#2f6fde" opacity="0.50"/>
+    <path d="M-96 0 C-72 -46 -36 -66 0 -66 C36 -66 72 -46 96 0 C72 46 36 66 0 66 C-36 66 -72 46 -96 0 Z" fill="none" stroke="#1f1f1f" stroke-width="7" stroke-linejoin="round" pathLength="100" stroke-dasharray="100" stroke-dashoffset="0"><animate attributeName="stroke-dashoffset" values="100;100;0" keyTimes="0;0.15;1" dur="1.4s" calcMode="spline" keySplines="0 0 1 1;0.35 0 0.25 1" fill="freeze"/></path>
+    <circle r="27" fill="#2f6fde"/>
+    <circle r="10" fill="#fbfbfa"/>
+  </g>
+
+  <g font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="495" y="178" font-size="88" font-weight="700" letter-spacing="-3" fill="#1f1f1f">Argus</text>
+    <text x="499" y="230" font-size="27" font-weight="500" fill="#5e5e5e">A readable network spy, live, on tshark.</text>
+    <line x1="499" y1="272" x2="559" y2="272" stroke="#2f6fde" stroke-width="2.5" stroke-linecap="round"/>
+    <text x="499" y="314" font-size="20" font-style="italic" fill="#5e5e5e">“Centum luminibus cinctum caput Argus habebat;</text>
+    <text x="499" y="342" font-size="20" font-style="italic" fill="#5e5e5e">inde suis vicibus capiebant bina quietem.”</text>
+    <text x="499" y="374" font-size="15" letter-spacing="0.4" fill="#8a8a8a">Ovid, Metamorphoses I.625: a hundred eyes, and two at a time asleep.</text>
+  </g>
+</svg>

@@ -18,7 +18,8 @@
     "gates": "pnpm check && pnpm test",
     "release": "node scripts/release.ts",
     "tls": "bash node_modules/@organon/core/scripts/tls.sh .",
-    "fixtures": "node scripts/make-fixture.ts"
+    "fixtures": "node scripts/make-fixture.ts",
+    "demo": "pnpm build && node scripts/demo.ts"
   },
   "packageManager": "pnpm@10.34.5",
   "dependencies": {

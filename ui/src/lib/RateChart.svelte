@@ -13,7 +13,16 @@
     seconds,
     color = 'var(--series-2)',
     height = 200,
-  }: { series: SeriesData; label: string; seconds?: number; color?: string; height?: number } = $props();
+    since,
+  }: {
+    series: SeriesData;
+    label: string;
+    seconds?: number;
+    color?: string;
+    height?: number;
+    /** Epoch seconds: nothing before this is drawn (the session began then), so the line starts where seeing did. */
+    since?: number;
+  } = $props();
 
   const points = $derived.by(() => {
     const n = series.sent.length;
@@ -21,6 +30,8 @@
     const out: { x: number; value: number }[] = [];
     for (let i = n - keep; i < n; i++) {
       const bucket = series.end - (n - 1 - i);
+      // A minute or so of the time before, at most, so a young session is not a flat line across the chart.
+      if (since && (bucket + 1) * series.step < since - 60) continue;
       out.push({ x: bucket * series.step * 1000, value: ((series.sent[i] ?? 0) + (series.received[i] ?? 0)) / series.step });
     }
     return out;
