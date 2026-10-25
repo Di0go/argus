@@ -76,6 +76,24 @@ test('The host on the internet, named by the DNS answer, linked to the device th
   assert.equal(web?.bytesSent, 54 + 1454 + 1454);
 });
 
+test('Every conversation, by its two ends and its service, with the bytes each way the truth worked out from the headers', () => {
+  // An address is a device's when a device has it, else a host out on the internet's.
+  const keyOfIp = (ip: string) => {
+    const d = r.devices.find((x) => x.ips.includes(ip));
+    return d ? `device:${d.id}` : `remote:${ip}`;
+  };
+  type Truth = { a: string; b: string; service: string; sent: number; received: number; packets: number };
+  const expected = (truth.conversations as Truth[]).map((c) => ({ ...c, a: keyOfIp(c.a), b: keyOfIp(c.b) }));
+  const got = r.conversations.map(({ a, b, service, sent, received, packets }) => ({ a, b, service, sent, received, packets }));
+  const order = (x: { a: string; b: string; service: string }, y: { a: string; b: string; service: string }) =>
+    `${x.a}${x.b}${x.service}`.localeCompare(`${y.a}${y.b}${y.service}`);
+  assert.deepEqual(got.sort(order), expected.sort(order));
+  // This PC and the web server: HTTPS, by the port, on the fixture's interface.
+  const web = r.conversations.find((c) => c.b === `remote:${H.web.ip}`);
+  assert.equal(web?.a, `device:${H.me.mac}`);
+  assert.equal(web?.service, 'tcp/443');
+});
+
 test('Addresses: local, unicast, random MACs, and makers shortened', () => {
   assert.ok(isLocal('192.168.50.5') && isLocal('10.0.0.1') && isLocal('100.101.1.1') && isLocal('fe80::1'));
   assert.ok(!isLocal('142.250.184.14') && !isLocal('2a00:1450::1') && !isLocal('172.32.0.1'));

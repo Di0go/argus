@@ -244,8 +244,43 @@ for (const p of packets) {
   s.bytes += p.length;
   sent.set(src, s);
 }
+// The conversations between two unicast addresses, read off the IP and TCP/UDP headers: the pair in the order first
+// met, the server's port (the lower of the two, as every port here is), and the bytes each way.
+const conversations = new Map<string, { a: string; b: string; service: string; sent: number; received: number; packets: number }>();
+for (const p of packets) {
+  const type = p.readUInt16BE(12);
+  if (type !== 0x0800 && type !== 0x86dd) continue;
+  const v4 = type === 0x0800;
+  const ip = p.subarray(14);
+  const proto = v4 ? ip[9]! : ip[6]!;
+  const head = v4 ? (ip[0]! & 0x0f) * 4 : 40;
+  // IPv6 written short, as tshark writes it (the URL parser shortens it).
+  const addr = (b: Buffer) => (v4 ? [...b].join('.') : new URL(`http://[${(b.toString('hex').match(/.{4}/g) ?? []).join(':')}]`).hostname.slice(1, -1));
+  const src = v4 ? addr(ip.subarray(12, 16)) : addr(ip.subarray(8, 24));
+  const dst = v4 ? addr(ip.subarray(16, 20)) : addr(ip.subarray(24, 40));
+  if (dst.endsWith('.255') || dst.startsWith('224.') || src === '0.0.0.0') continue;
+  const name = proto === 6 ? 'tcp' : proto === 17 ? 'udp' : '';
+  if (!name) continue;
+  const service = `${name}/${Math.min(ip.readUInt16BE(head), ip.readUInt16BE(head + 2))}`;
+  const back = conversations.get(`${dst} ${src} ${service}`);
+  const c = back ?? conversations.get(`${src} ${dst} ${service}`) ?? { a: src, b: dst, service, sent: 0, received: 0, packets: 0 };
+  conversations.set(`${c.a} ${c.b} ${service}`, c);
+  if (c.a === src) c.sent += p.length;
+  else c.received += p.length;
+  c.packets++;
+}
 writeFileSync(
   path.join(OUT, 'lan.truth.json'),
-  `${JSON.stringify({ packets: packets.length, bytes: packets.reduce((n, p) => n + p.length, 0), hosts: HOSTS, sentByMac: Object.fromEntries(sent) }, null, 2)}\n`,
+  `${JSON.stringify(
+    {
+      packets: packets.length,
+      bytes: packets.reduce((n, p) => n + p.length, 0),
+      hosts: HOSTS,
+      sentByMac: Object.fromEntries(sent),
+      conversations: [...conversations.values()],
+    },
+    null,
+    2,
+  )}\n`,
 );
 console.log(`${packets.length} packets in tests/fixtures/lan.pcap`);

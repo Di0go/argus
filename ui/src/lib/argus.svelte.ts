@@ -11,6 +11,7 @@ import type {
   ArgusEntity,
   ArgusEvent,
   Capture,
+  Conversation,
   Device,
   HostsView,
   Interface,
@@ -29,6 +30,8 @@ export interface Source {
   remotes: Remote[];
   sites: Site[];
   links: Link[];
+  /** Who talked to whom, by what service, how much and when. */
+  conversations: Conversation[];
   graph: EntityGraph<ArgusEntity>;
 }
 
@@ -39,9 +42,11 @@ class Argus {
   devices = $state<Device[]>([]);
   remotes = $state<Record<string, Remote>>({});
   links = $state<Record<string, Link>>({});
+  conversations = $state<Record<string, Conversation>>({});
   fine = $state<SeriesData>(EMPTY_SERIES);
   coarse = $state<SeriesData>(EMPTY_SERIES);
   byDevice = $state<Record<string, SeriesData>>({});
+  byInterface = $state<Record<string, SeriesData>>({});
   captures = $state<Capture[]>([]);
   interfaces = $state<Interface[]>([]);
   /** Why capturing can't be done yet (dumpcap missing or not allowed). */
@@ -72,9 +77,11 @@ class Argus {
       this.devices = view.devices;
       this.remotes = Object.fromEntries(view.remotes.map((r) => [r.id, r]));
       this.links = Object.fromEntries(view.links.map((l) => [`${l.from}>${l.to}`, l]));
+      this.conversations = Object.fromEntries(view.conversations.map((c) => [c.id, c]));
       this.fine = view.total.fine;
       this.coarse = view.total.coarse;
       this.byDevice = view.byDevice;
+      this.byInterface = view.byInterface ?? {};
       this.measure(true);
       return { build: state.build, seq: view.seq };
     },
@@ -83,7 +90,9 @@ class Argus {
   });
 
   /** The live session as entities. */
-  liveSource = $derived.by((): Source => this.source('live', this.devices, Object.values(this.remotes), Object.values(this.links)));
+  liveSource = $derived.by(
+    (): Source => this.source('live', this.devices, Object.values(this.remotes), Object.values(this.links), Object.values(this.conversations)),
+  );
 
   start() {
     this.live.start();
@@ -97,7 +106,7 @@ class Argus {
       void this.loadCapture(capture);
       return undefined;
     }
-    return this.source('capture', v.devices, v.remotes, v.links, v.capture);
+    return this.source('capture', v.devices, v.remotes, v.links, v.conversations ?? [], v.capture);
   }
 
   /** Why a capture can't be shown, once its loading failed. */
@@ -165,6 +174,9 @@ class Argus {
     // A host or device forgotten takes its links with it.
     const gone = new Set([...e.gone.map((id) => `remote:${id}`), ...e.goneDevices.map((id) => `device:${id}`)]);
     if (gone.size) for (const [k, l] of Object.entries(this.links)) if (gone.has(l.from) || gone.has(l.to)) delete this.links[k];
+    for (const c of e.conversations) this.conversations[c.id] = c;
+    for (const id of e.goneConversations) delete this.conversations[id];
+    if (gone.size) for (const [k, c] of Object.entries(this.conversations)) if (gone.has(c.a) || gone.has(c.b)) delete this.conversations[k];
     this.fine = overlay(this.fine, e.total.fine);
     this.coarse = overlay(this.coarse, e.total.coarse);
     // The series that had traffic move on with it; a quiet device's stays as it was until it is heard again.
@@ -172,6 +184,9 @@ class Argus {
     for (const id of e.goneDevices) delete next[id];
     for (const [id, tail] of Object.entries(e.byDevice)) next[id] = overlay(next[id] ?? { ...tail, sent: [], received: [] }, tail, this.fine.sent.length);
     this.byDevice = next;
+    const ifaces: Record<string, SeriesData> = { ...this.byInterface };
+    for (const [id, tail] of Object.entries(e.byInterface ?? {})) ifaces[id] = overlay(ifaces[id] ?? { ...tail, sent: [], received: [] }, tail, this.fine.sent.length);
+    this.byInterface = ifaces;
     this.measure();
   }
 
@@ -187,14 +202,14 @@ class Argus {
     this.meter = reset ? (this.session?.rate ?? 0) : ballistics(this.meter, this.session?.rate ?? 0);
   }
 
-  private source(kind: Source['kind'], devices: Device[], remotes: Remote[], links: Link[], capture?: Capture): Source {
+  private source(kind: Source['kind'], devices: Device[], remotes: Remote[], links: Link[], conversations: Conversation[], capture?: Capture): Source {
     const { sites, siteLinks } = groupSites(remotes, links);
     const graph = new EntityGraph<ArgusEntity>(
       [...devices, ...remotes, ...sites, ...this.interfaces],
       [...links, ...siteLinks, ...devices.flatMap((d) => d.interfaces.map((i) => ({ from: keyOf(d), to: `interface:${i}`, rel: 'seen-on' })))],
       (e) => ('vendor' in e && e.vendor ? `${e.vendor} ${e.model ?? ''}` : 'sites' in e ? e.sites.join(' ') : ''),
     );
-    return { kind, capture, devices, remotes, sites, links, graph };
+    return { kind, capture, devices, remotes, sites, links, conversations, graph };
   }
 }
 

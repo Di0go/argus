@@ -26,7 +26,7 @@ import type { EventHub } from '@organon/core/server/events';
 import type { Store } from '@organon/core/server/store';
 import { isObject } from '@organon/core/server/store';
 import type { Link } from '@organon/core/shared/entities';
-import type { Device, LiveEvent, LiveView, Listening, Remote, Session } from '../shared/types.ts';
+import type { Conversation, Device, LiveEvent, LiveView, Listening, Remote, Session } from '../shared/types.ts';
 import { fieldArgs, parseLine, Tally, type TallyData, type TallyOptions } from './tally.ts';
 
 export interface LiveOptions {
@@ -79,6 +79,7 @@ export class Live {
   private sentDevices = new Map<string, string>();
   private sentRemotes = new Map<string, string>();
   private sentLinks = new Map<string, number>();
+  private sentConversations = new Map<string, string>();
   /** The number of the last event sent: a page that loads the view learns which events it already includes. */
   private seq = 0;
   private lastPackets = -1;
@@ -131,6 +132,7 @@ export class Live {
     this.sentDevices.clear();
     this.sentRemotes.clear();
     this.sentLinks.clear();
+    this.sentConversations.clear();
     for (const [id, l] of this.listeners) {
       l.state.packets = 0;
       if (!l.state.on) {
@@ -170,15 +172,17 @@ export class Live {
       devices: this.withRates(v.devices),
       remotes: v.remotes,
       links: v.links,
+      conversations: v.conversations,
       total: { fine: this.tally.fine.tail(), coarse: this.tally.coarse.tail() },
       byDevice: this.tally.activeByDevice(600),
+      byInterface: this.tally.byInterface(),
     };
   }
 
   /** What a capture view is for the agent: the session's devices and hosts. */
-  hosts(): { devices: Device[]; remotes: Remote[]; links: Link[] } {
+  hosts(): { devices: Device[]; remotes: Remote[]; links: Link[]; conversations: Conversation[] } {
     const v = this.tally.view();
-    return { devices: this.withRates(v.devices), remotes: v.remotes, links: v.links };
+    return { devices: this.withRates(v.devices), remotes: v.remotes, links: v.links, conversations: v.conversations };
   }
 
   deviceSeries(id: string) {
@@ -190,7 +194,10 @@ export class Live {
       started: this.started,
       packets: this.tally.packets,
       bytes: this.tally.bytes,
-      listening: [...this.listeners.values()].map((l) => ({ ...l.state })),
+      listening: [...this.listeners.values()].map((l) => {
+        const s = this.tally.byInterface(4)[l.state.id];
+        return { ...l.state, rate: s ? rateOf(s, Date.now() / 1000) : 0 };
+      }),
       limits: {
         ringFiles: this.o.ringFiles,
         ringFileMB: this.o.ringFileMB,
@@ -369,6 +376,7 @@ export class Live {
       (d) => `${d.bytesSent}:${d.bytesReceived}:${d.lastSeen}:${d.names.length}:${d.ips.length}:${d.role ?? ''}:${d.rate?.sent ?? 0}:${d.rate?.received ?? 0}`,
     );
     const remotes = changed(v.remotes, this.sentRemotes, (r) => `${r.bytesSent + r.bytesReceived}:${r.lastSeen}:${r.names.length}`);
+    const conversations = changed(v.conversations, this.sentConversations, (c) => `${c.sent}:${c.received}:${c.last}`);
     const links: Link[] = [];
     const current = new Map<string, number>();
     for (const l of v.links) {
@@ -387,8 +395,11 @@ export class Live {
       remotes: remotes.out,
       gone: remotes.gone,
       links,
+      conversations: conversations.out,
+      goneConversations: conversations.gone,
       total: { fine: this.tally.fine.tail(5), coarse: this.tally.coarse.tail(2) },
       byDevice: this.tally.recentByDevice(5),
+      byInterface: this.tally.byInterface(5),
     };
     this.o.events.send(event);
   }

@@ -76,5 +76,39 @@
       "packets": 1,
       "bytes": 47
     }
-  }
+  },
+  "conversations": [
+    {
+      "a": "192.168.50.1",
+      "b": "192.168.50.23",
+      "service": "udp/67",
+      "sent": 304,
+      "received": 0,
+      "packets": 1
+    },
+    {
+      "a": "192.168.50.10",
+      "b": "192.168.50.1",
+      "service": "udp/53",
+      "sent": 74,
+      "received": 104,
+      "packets": 2
+    },
+    {
+      "a": "192.168.50.10",
+      "b": "203.0.113.14",
+      "service": "tcp/443",
+      "sent": 462,
+      "received": 2962,
+      "packets": 6
+    },
+    {
+      "a": "2001:db8:50:1::10",
+      "b": "2001:db8:ffff:1::200e",
+      "service": "tcp/443",
+      "sent": 74,
+      "received": 274,
+      "packets": 2
+    }
+  ]
 }

@@ -86,11 +86,35 @@ export interface Capture {
   ext?: 'pcapng' | 'pcap';
 }
 
+/**
+ * Who talked to whom, by what service: a device here and the other end (a host out on the internet, or another device
+ * here), both ways added up. One per pair and service (HTTPS and DNS with the same host are two).
+ */
+export interface Conversation {
+  /** `${a} ${b} ${service}`: entity keys hold no spaces. */
+  id: string;
+  /** Entity keys: a device here, and whom it talked to. Between two devices here, the one that spoke first. */
+  a: string;
+  b: string;
+  /** By the server's port, "tcp/443"; "icmp"; "" when not IP (shared/services.ts names it). */
+  service: string;
+  /** The interfaces it was heard on. */
+  interfaces: string[];
+  /** Bytes from a to b, and from b to a. */
+  sent: number;
+  received: number;
+  packets: number;
+  /** Epoch seconds. */
+  first: number;
+  last: number;
+}
+
 export interface HostsView {
   capture: Capture;
   devices: Device[];
   remotes: Remote[];
   links: Link[];
+  conversations: Conversation[];
 }
 
 export type ArgusEntity = Device | Remote | Site | Interface;
@@ -116,6 +140,8 @@ export interface Listening {
   packets: number;
   /** What its ring buffer holds on disk now. */
   ringBytes: number;
+  /** Bytes a second over the last few seconds, on this interface. */
+  rate?: number;
 }
 
 export interface Session {
@@ -138,10 +164,13 @@ export interface LiveView {
   devices: Device[];
   remotes: Remote[];
   links: Link[];
+  conversations: Conversation[];
   /** The whole network: fine (a second per bucket, the last minutes) and coarse (a minute per bucket, the day). */
   total: { fine: SeriesData; coarse: SeriesData };
   /** The fine series of each device heard in the last ten minutes. */
   byDevice: Record<string, SeriesData>;
+  /** Each interface's fine series. */
+  byInterface: Record<string, SeriesData>;
 }
 
 /**
@@ -160,8 +189,12 @@ export interface LiveEvent {
   links: Link[];
   /** Hosts forgotten (past the ceiling) since the last event. */
   gone: string[];
+  /** The conversations that changed, and those forgotten with their flows. */
+  conversations: Conversation[];
+  goneConversations: string[];
   total: { fine: SeriesData; coarse: SeriesData };
   byDevice: Record<string, SeriesData>;
+  byInterface: Record<string, SeriesData>;
 }
 
 /** The session began again: the page loads it whole. */

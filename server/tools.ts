@@ -5,7 +5,8 @@
 import { defineTools, error, json, READ_ONLY, z } from '@organon/core/server/mcp';
 import { EntityGraph, keyOf } from '@organon/core/shared/entities';
 import type { Link } from '@organon/core/shared/entities';
-import type { Capture, Device, Remote, Session } from '../shared/types.ts';
+import { serviceName } from '../shared/services.ts';
+import type { Capture, Conversation, Device, Remote, Session } from '../shared/types.ts';
 import type { Captures } from './captures.ts';
 import type { Live } from './live.ts';
 
@@ -71,7 +72,7 @@ function sessionLine(s: Session) {
   };
 }
 
-type View = { devices: Device[]; remotes: Remote[]; links: Link[]; capture?: Capture; session?: Session };
+type View = { devices: Device[]; remotes: Remote[]; links: Link[]; conversations: Conversation[]; capture?: Capture; session?: Session };
 
 export function argusTools(captures: Captures, live: Live) {
   /** The capture asked for, or the live session. */
@@ -130,7 +131,8 @@ export function argusTools(captures: Captures, live: Live) {
         title: 'One device and who it talked to',
         description:
           'One device from a capture, found by its name, IP or MAC address: what is known of it, the internet hosts and local ' +
-          'devices it talked to (busiest first, in bytes), and the other devices that talked to the same hosts. Without `capture`, ' +
+          'devices it talked to (busiest first, in bytes), its conversations (with whom, by what service as its port says, bytes ' +
+          'each way, first and last seen), and the other devices that talked to the same hosts. Without `capture`, ' +
           'the live session. ' +
           UNTRUSTED +
           LIMITS,
@@ -152,6 +154,24 @@ export function argusTools(captures: Captures, live: Live) {
             .linked(key)
             .slice(0, 50)
             .map((n) => ({ name: n.entity.name, kind: n.entity.kind, id: n.entity.id, bytes: n.weight })),
+          conversations: v.conversations
+            .filter((c) => c.a === key || c.b === key)
+            .sort((x, y) => y.sent + y.received - (x.sent + x.received))
+            .slice(0, 50)
+            .map((c) => {
+              const mine = c.a === key;
+              const other = graph.get(mine ? c.b : c.a);
+              return {
+                with: other?.name ?? (mine ? c.b : c.a),
+                kind: other?.kind,
+                service: serviceName(c.service),
+                ...(c.service.includes('/') ? { port: c.service } : {}),
+                sent: mine ? c.sent : c.received,
+                received: mine ? c.received : c.sent,
+                first: new Date(c.first * 1000).toISOString(),
+                last: new Date(c.last * 1000).toISOString(),
+              };
+            }),
           sameHostsAs: graph
             .twoSteps(key)
             .filter((o) => o.entity.kind === 'device')

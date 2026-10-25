@@ -113,7 +113,7 @@ export class Captures {
 
   async hosts(c: Capture): Promise<HostsView> {
     const r = await this.read(c);
-    return { capture: c, devices: r.devices, remotes: r.remotes, links: r.links };
+    return { capture: c, devices: r.devices, remotes: r.remotes, links: r.links, conversations: r.conversations };
   }
 
   private save(c: Capture) {

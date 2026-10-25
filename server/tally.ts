@@ -22,7 +22,8 @@
 // The router is decided per interface: two uplinks (the Wi-Fi and a phone on USB) each have their own.
 
 import type { Link } from '@organon/core/shared/entities';
-import type { Device, NameSource, Remote } from '../shared/types.ts';
+import { serviceOf, serviceOfProtocol } from '../shared/services.ts';
+import type { Conversation, Device, NameSource, Remote } from '../shared/types.ts';
 
 export const FIELDS = [
   'frame.time_epoch',
@@ -52,6 +53,12 @@ export const FIELDS = [
   'nbns.name',
   'nbns.addr',
   'tls.handshake.extensions_server_name',
+  'tcp.srcport',
+  'tcp.dstport',
+  'udp.srcport',
+  'udp.dstport',
+  'ip.proto',
+  'ipv6.nxt',
 ] as const;
 type Field = (typeof FIELDS)[number];
 /** Between a field's repeats, in tshark's output (-E aggregator). */
@@ -91,6 +98,7 @@ export interface Dissected {
   devices: Device[];
   remotes: Remote[];
   links: Link[];
+  conversations: Conversation[];
 }
 
 /** One way of a conversation: from a MAC and address to a MAC and address. */
@@ -101,6 +109,8 @@ interface Flow {
   dst?: string;
   ipSrc?: string;
   ipDst?: string;
+  /** What it is for, by the server's port ("tcp/443"), or the protocol ("icmp"): shared/services.ts. */
+  service?: string;
   /** The device ids at each end, decided as it came (a unicast MAC, or a local address with no MAC). */
   sender?: string;
   receiver?: string;
@@ -230,6 +240,8 @@ export class Tally {
   readonly coarse: Series;
   private readonly fineByDevice = new Map<string, Series>();
   private readonly coarseByDevice = new Map<string, Series>();
+  /** Each interface's last minutes, for how fast each network moves now (not kept across restarts: it is only now). */
+  private readonly fineByInterface = new Map<string, Series>();
   private readonly options: Required<Omit<TallyOptions, 'ownMacs'>>;
 
   constructor(options: TallyOptions = {}) {
@@ -261,6 +273,11 @@ export class Tally {
     this.fine.add(time, len, 0);
     this.coarse.add(time, len, 0);
     const iface = r['frame.interface_name'][0] ?? '';
+    if (iface) {
+      let s = this.fineByInterface.get(iface);
+      if (!s) this.fineByInterface.set(iface, (s = new Series(this.options.fine.step, this.options.fine.count)));
+      s.add(time, len, 0);
+    }
     const src = r['eth.src'][0];
     const dst = r['eth.dst'][0];
     const ipSrc = r['ip.src'][0] ?? r['ipv6.src'][0];
@@ -292,10 +309,11 @@ export class Tally {
 
     // The conversation, for what depends on the router: hosts out on the internet, addresses, links.
     if (ipSrc || ipDst) {
-      const key = flowKey({ iface, src, dst, ipSrc, ipDst });
+      const service = frameService(r);
+      const key = flowKey({ iface, src, dst, ipSrc, ipDst, service });
       let f = this.flows.get(key);
       if (!f) {
-        f = { iface, src, dst, ipSrc, ipDst, sender: sender?.id, receiver: receiver?.id, packets: 0, bytes: 0, first: time, last: time };
+        f = { iface, src, dst, ipSrc, ipDst, service, sender: sender?.id, receiver: receiver?.id, packets: 0, bytes: 0, first: time, last: time };
         this.flows.set(key, f);
         if (this.flows.size > this.options.maxFlows) this.forgetFlows();
       } else {
@@ -393,6 +411,26 @@ export class Tally {
     const ips = new Map<string, string[]>();
     const remotes = new Map<string, Remote>();
     const links = new Map<string, Link>();
+    const conversations = new Map<string, Conversation>();
+    /** A flow's share of the conversation between a device here and `b`: `out` when the device is the one sending. */
+    const talk = (a: string, b: string, f: Flow, out: boolean) => {
+      const service = f.service ?? '';
+      // Between two devices here, one conversation whichever way: under the pair as it was first met.
+      const back = conversations.get(`${b} ${a} ${service}`);
+      if (back && b.startsWith('device:')) [a, b, out] = [b, a, !out];
+      const id = `${a} ${b} ${service}`;
+      let c = conversations.get(id);
+      if (!c) {
+        c = { id, a, b, service, interfaces: [], sent: 0, received: 0, packets: 0, first: f.first, last: f.last };
+        conversations.set(id, c);
+      }
+      if (out) c.sent += f.bytes;
+      else c.received += f.bytes;
+      c.packets += f.packets;
+      c.first = Math.min(c.first, f.first);
+      c.last = Math.max(c.last, f.last);
+      if (f.iface && !c.interfaces.includes(f.iface)) c.interfaces.push(f.iface);
+    };
     const remote = (ip: string, f: Flow): Remote => {
       let h = remotes.get(ip);
       if (!h) {
@@ -424,17 +462,26 @@ export class Tally {
         const h = remote(f.ipSrc, f);
         h.packets += f.packets;
         h.bytesSent += f.bytes;
-        if (f.receiver) link(`device:${f.receiver}`, `remote:${h.id}`, f.bytes);
+        if (f.receiver) {
+          link(`device:${f.receiver}`, `remote:${h.id}`, f.bytes);
+          talk(`device:${f.receiver}`, `remote:${h.id}`, f, false);
+        }
       }
       if (f.ipDst && dstOut) {
         const h = remote(f.ipDst, f);
         h.packets += f.packets;
         h.bytesReceived += f.bytes;
-        if (f.sender) link(`device:${f.sender}`, `remote:${h.id}`, f.bytes);
+        if (f.sender) {
+          link(`device:${f.sender}`, `remote:${h.id}`, f.bytes);
+          talk(`device:${f.sender}`, `remote:${h.id}`, f, true);
+        }
         for (const sni of f.sni ?? []) addName(h.names, sni, 'TLS');
       }
       // Two local devices talking to each other (not through the way out to the internet).
-      if (f.sender && f.receiver && f.ipSrc && f.ipDst && !srcOut && !dstOut) link(`device:${f.sender}`, `device:${f.receiver}`, f.bytes);
+      if (f.sender && f.receiver && f.ipSrc && f.ipDst && !srcOut && !dstOut) {
+        link(`device:${f.sender}`, `device:${f.receiver}`, f.bytes);
+        talk(`device:${f.sender}`, `device:${f.receiver}`, f, true);
+      }
     }
 
     for (const [ip, names] of this.dnsNames) {
@@ -467,12 +514,18 @@ export class Tally {
       devices: devices.sort(byTraffic),
       remotes: [...remotes.values()].sort(byTraffic),
       links: [...links.values()],
+      conversations: [...conversations.values()],
     };
   }
 
   /** A device's bandwidth over time, fine (the last minutes) and coarse (the day); only the newest `fine` buckets if asked. */
   deviceSeries(id: string, fine?: number): { fine?: SeriesData; coarse?: SeriesData } {
     return { fine: this.fineByDevice.get(id)?.tail(fine), coarse: fine ? undefined : this.coarseByDevice.get(id)?.tail() };
+  }
+
+  /** Each interface's fine series, whole, or only its newest `n` buckets. */
+  byInterface(n?: number): Record<string, SeriesData> {
+    return Object.fromEntries([...this.fineByInterface].map(([id, s]) => [id, s.tail(n)]));
   }
 
   /** The newest `n` fine buckets of the devices that had traffic in them: what the page is sent each second. */
@@ -491,7 +544,7 @@ export class Tally {
 
   /** Moves every series to `now` (epoch seconds), so a quiet second reads as zero rather than as the last busy one. */
   tick(now: number) {
-    for (const s of [this.fine, ...this.fineByDevice.values()]) s.advance(Math.floor(now / s.step));
+    for (const s of [this.fine, ...this.fineByDevice.values(), ...this.fineByInterface.values()]) s.advance(Math.floor(now / s.step));
     for (const s of [this.coarse, ...this.coarseByDevice.values()]) s.advance(Math.floor(now / s.step));
   }
 
@@ -611,8 +664,19 @@ export interface TallyData {
   coarseByDevice: [string, SeriesData | SparseSeries][];
 }
 
-function flowKey(f: Pick<Flow, 'iface' | 'src' | 'dst' | 'ipSrc' | 'ipDst'>): string {
-  return `${f.iface ?? ''}|${f.src ?? ''}|${f.dst ?? ''}|${f.ipSrc ?? ''}|${f.ipDst ?? ''}`;
+function flowKey(f: Pick<Flow, 'iface' | 'src' | 'dst' | 'ipSrc' | 'ipDst' | 'service'>): string {
+  return `${f.iface ?? ''}|${f.src ?? ''}|${f.dst ?? ''}|${f.ipSrc ?? ''}|${f.ipDst ?? ''}|${f.service ?? ''}`;
+}
+
+/** A frame's service: by its TCP or UDP ports, else by IP's protocol number (ICMP), else none. */
+function frameService(r: Row): string | undefined {
+  const port = (f: Field) => Number(r[f][0] ?? Number.NaN);
+  const [ts, td, us, ud] = [port('tcp.srcport'), port('tcp.dstport'), port('udp.srcport'), port('udp.dstport')];
+  if (ts >= 0 && td >= 0) return serviceOf('tcp', ts, td);
+  if (us >= 0 && ud >= 0) return serviceOf('udp', us, ud);
+  // IPv6's next header may be an extension header before the protocol: the last one listed is the protocol's.
+  const proto = Number(r['ip.proto'][0] ?? r['ipv6.nxt'].at(-1) ?? Number.NaN);
+  return Number.isFinite(proto) ? serviceOfProtocol(proto) : undefined;
 }
 
 /** A name from the network, at most NAME_LENGTH characters, its control characters out. */
