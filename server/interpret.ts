@@ -9,8 +9,10 @@
 import { identify } from '../shared/identify.ts';
 import { byNetwork } from '../shared/networks.ts';
 import { type DnsUse, harmless, RESOLVERS } from '../shared/security.ts';
+import { type Classification, describe } from '../shared/classify.ts';
+import { CATEGORIES, PORTS, TAILSCALE_RELAY } from '../shared/dictionary/apps.ts';
 import type { Conversation, Device, Remote } from '../shared/types.ts';
-import { classify, siteOf } from './dictionary.ts';
+import { asnOf, classify, siteOf } from './dictionary.ts';
 import type { Geo } from './geo.ts';
 import type { Dissected } from './tally.ts';
 
@@ -46,6 +48,13 @@ export function interpret<V extends Dissected | Pick<Dissected, 'devices' | 'rem
     const asked = h?.names.filter((n) => n.source === 'HTTP' || n.source === 'TLS').map((n) => n.name) ?? [];
     if (c.clear && !c.clear.credentials && harmless(c.clear.proto, asked, (n) => classify({ names: [n] }))) c.clear.harmless = true;
   }
+  // Hosts that never said a name: by how they are talked to, and by whom (likely), or by their neighbours (possibly).
+  const talks = new Map<string, Conversation[]>();
+  for (const c of v.conversations) if (c.b.startsWith('remote:')) (talks.get(c.b.slice(7)) ?? talks.set(c.b.slice(7), []).get(c.b.slice(7))!).push(c);
+  const network = (h: Remote) => h.where?.asn ?? asnOf(h.ip);
+  relays(v, talks, network);
+  agreed(v.remotes, talks);
+  neighbours(v.remotes, network);
   // A CDN or cloud this side mostly sent to is uploaded to (logs, backups, photos), not downloaded from.
   const up = new Map<string, [number, number]>();
   for (const c of v.conversations) {
@@ -68,6 +77,111 @@ export function interpret<V extends Dissected | Pick<Dissected, 'devices' | 'rem
 const UPLOADING = 'uploading to a CDN or cloud';
 /** Mostly sent: twice what came back, and a megabyte or more. */
 const uploads = (sent: number, received: number) => sent >= 1_000_000 && sent > 2 * received;
+
+/** A host no name said what it is: none seen, and nothing known of it but its carrier. */
+const unnamed = (h: Remote) => !h.names.length && (!h.app || h.app.carrier);
+
+/**
+ * Tailscale's relays (DERP) that never said their name. Its client asks every relay on the map its server gives it the
+ * way through the router (STUN, port 3478) and how far it is (HTTP on 80, TLS on 443, ping), by address, all in the same
+ * seconds (its netcheck); only the relay it settles on is named, in TLS (derp4c.tailscale.com). A host with no name
+ * talked to only that way, with STUN among it, is likely one of them: from a device running Tailscale, when it is in a
+ * network (AS) where one of its named relays is, or when its STUN began within seconds of STUN to many other such
+ * hosts; from any device, when they are a great many (the whole map, a hundred, is asked at once). A call's relay given
+ * by address (Teams, Meet) is one or two hosts, when the call begins.
+ */
+function relays(v: Pick<Dissected, 'remotes' | 'conversations'>, talks: Map<string, Conversation[]>, network: (h: Remote) => number | undefined) {
+  // Running Tailscale: talking to it by name, or to a peer on its port.
+  const running = new Set<string>();
+  for (const c of v.conversations) if (c.app?.company === 'Tailscale' && !c.app.confidence) running.add(c.a);
+  const named = v.remotes.filter((h) => h.app?.by === 'name' && h.app.activity === TAILSCALE_RELAY.activity);
+  const nets = new Set(named.map(network).filter((n) => n !== undefined));
+  const stun = (c: Conversation) => c.protocol === 'stun' || c.service === 'udp/3478';
+  const probe = (c: Conversation) => stun(c) || !c.service || /^(tcp\/(80|443)|icmp|icmpv6)$/.test(c.service);
+  const candidates = v.remotes.filter((h) => {
+    const cs = talks.get(h.id) ?? [];
+    return unnamed(h) && cs.some(stun) && cs.every(probe);
+  });
+  // When each candidate was first asked the way: a netcheck asks them all within a few seconds.
+  const began = candidates.map((h) => Math.min(...talks.get(h.id)!.filter(stun).map((c) => c.first)));
+  const like = named[0]?.app ?? { ...describe(TAILSCALE_RELAY), by: 'name' as const, rule: '' };
+  candidates.forEach((h, i) => {
+    const cs = talks.get(h.id)!;
+    const ours = cs.every((c) => running.has(c.a));
+    const net = network(h);
+    const beside = ours && net !== undefined && nets.has(net) ? named.find((n) => network(n) === net) : undefined;
+    const together = began.filter((t) => Math.abs(t - began[i]!) <= BURST_SECONDS).length;
+    if (!beside && together < (ours ? BURST : BURST_ALONE)) return;
+    const rule = beside
+      ? `STUN from a device running Tailscale, in AS${net} beside its relay ${telling(beside)[0]}`
+      : `STUN${ours ? ' from a device running Tailscale' : ''} to ${together} hosts with no name in the same seconds (its netcheck)`;
+    h.app = { ...like, by: 'pattern', rule, confidence: 'likely', site: undefined };
+    for (const c of cs) c.app = { ...like, ...(stun(c) ? { activity: 'finding the way to its relays (STUN)' } : {}), by: 'pattern', rule, confidence: 'likely', site: undefined };
+  });
+}
+
+/**
+ * How many hosts with no name asked by STUN within how many seconds make a netcheck rather than a call: from a device
+ * known to run Tailscale, and from one that is not.
+ */
+const BURST = 8;
+const BURST_ALONE = 20;
+const BURST_SECONDS = 10;
+
+/**
+ * A host with no name whose every conversation says one company's app by how it goes (a Tailscale peer on 41641):
+ * that app (and Spotify on 4070, likely). A service alone (STUN, DNS) is not whose it is, and does not count.
+ */
+function agreed(remotes: Remote[], talks: Map<string, Conversation[]>) {
+  for (const h of remotes) {
+    // Packets with no service (a ping, an ICMP error) say nothing of whose a host is.
+    const cs = (talks.get(h.id) ?? []).filter((c) => c.service && c.service !== 'icmp' && c.service !== 'icmpv6');
+    if (!unnamed(h) || !cs.length) continue;
+    const first = cs[0]!.app;
+    if (!first?.company || !first.app || first.carrier || !owned(first, cs[0]!.service)) continue;
+    if (cs.every((c) => c.app && !c.app.carrier && c.app.company === first.company && c.app.app === first.app)) h.app = { ...first, site: undefined };
+  }
+}
+
+/** A port's word that is a company's own (Tailscale's 41641), not a service with the carrier's name on it (STUN on AWS). */
+const owned = (c: Classification, service?: string) => c.by !== 'port' || (service !== undefined && PORTS[service]?.company === c.company);
+
+/**
+ * A host with no name beside hosts with names: in the same /24 (IPv6: /64) and the same network, where every named
+ * neighbour says one company in one category. Possibly that company's: a cloud gives neighbouring addresses to other
+ * customers (measured on a real day: 9 in 10 such neighbours were the same company, 6 in 10 the same app).
+ */
+function neighbours(remotes: Remote[], network: (h: Remote) => number | undefined) {
+  const named = new Map<string, Remote[]>();
+  for (const h of remotes) {
+    const net = network(h);
+    if (net === undefined || !h.names.length || h.app?.by !== 'name' || h.app.carrier || !h.app.company) continue;
+    const key = `${net} ${prefix(h.ip)}`;
+    (named.get(key) ?? named.set(key, []).get(key)!).push(h);
+  }
+  for (const h of remotes) {
+    const net = network(h);
+    const near = net === undefined || !unnamed(h) ? undefined : named.get(`${net} ${prefix(h.ip)}`);
+    const first = near?.[0]?.app;
+    if (!near || !first || !near.every((n) => n.app!.company === first.company && n.app!.category === first.category)) continue;
+    const app: Classification = { ...first, by: 'neighbour', rule: `its neighbour ${near[0]!.ip} (${telling(near[0]!)[0]})`, confidence: 'possibly', site: undefined };
+    if (!near.every((n) => n.app!.app === first.app && n.app!.activity === first.activity)) {
+      delete app.app;
+      app.activity = CATEGORIES[first.category].activity;
+    }
+    h.app = app;
+  }
+}
+
+/** The /24 of an IPv4 address, the /64 of an IPv6 one. */
+function prefix(ip: string): string {
+  if (!ip.includes(':')) return ip.split('.').slice(0, 3).join('.');
+  const [head = '', tail] = ip.toLowerCase().split('::');
+  const a = head ? head.split(':') : [];
+  const b = tail ? tail.split(':') : [];
+  const groups = tail === undefined ? a : [...a, ...Array(8 - a.length - b.length).fill('0'), ...b];
+  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, '')).join(':');
+}
 
 /**
  * The names that say what a host is: those TLS and HTTP asked it for, which are what its connections were for; only

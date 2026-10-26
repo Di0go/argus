@@ -106,7 +106,8 @@ function what(c: Classification | undefined) {
     activity: c.activity,
     ...(c.tracking ? { tracking: true } : {}),
     ...(c.carrier ? { carrier: 'a CDN or cloud: it carries the bytes, the app is not known' } : {}),
-    knownBy: `${{ name: 'name', network: 'network', port: 'port', pattern: 'traffic pattern' }[c.by]} ${c.rule}`,
+    knownBy: `${{ name: 'name', network: 'network', port: 'port', pattern: 'traffic pattern', neighbour: 'the name of' }[c.by]} ${c.rule}`,
+    ...(c.confidence ? { confidence: c.confidence } : {}),
   };
 }
 

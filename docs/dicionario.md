@@ -13,6 +13,9 @@ port and what tshark recognised the traffic as, to **who runs it, the app, the c
 | `a1234.dscb.akamai.net` | Akamai · Infrastructure and CDN, a carrier: the app is not known |
 | `142.250.184.14`, no name seen | Google (by its network, AS15169); the app is not known |
 | UDP 53 with the router | DNS · "looking up names (DNS)" (by the port) |
+| `94.140.14.14`, no name seen | AdGuard · AdGuard DNS · "looking up names" (a public resolver, by its address) |
+| `derp4c.tailscale.com` | Tailscale · VPN · "through a relay of the VPN (DERP)" |
+| a host with no name, only STUN and probes from a PC running Tailscale | Tailscale's relay, *likely* (below) |
 
 It says only what is known. A shared CDN or a cloud (Akamai, Cloudflare, Fastly, AWS, Azure, Google Cloud) says who
 carries the bytes and is marked a carrier: it never names an app. A network (AS) names an app only when it is that
@@ -24,15 +27,17 @@ app's own (Netflix, Telegram, Valve); Google's or Meta's says the company.
   then the network, then the port; what tshark recognised and how the traffic goes on top), the Public Suffix List,
   the address ranges.
 - `shared/dictionary/apps.ts`: the words, by hand: the categories with their activity; who each v2fly list is
-  (`LISTS`); names more particular than the lists (`DOMAINS`); networks (`ASNS`); ports (`PORTS`); protocols
-  (`PROTOCOLS`).
+  (`LISTS`); names more particular than the lists (`DOMAINS`); names by their shape (`SHAPES`); addresses that are one
+  service (`ADDRESSES`); networks (`ASNS`); ports (`PORTS`); protocols (`PROTOCOLS`).
 - `shared/dictionary/{v2fly,psl,asn}.json`: the open sources, as `pnpm dictionary` (`scripts/dictionary.ts`) brings
   them, each at a pinned version.
 - `server/dictionary.ts`: the dictionary loaded, with the house's own words on top (below), and `classify` for the
   server. The tally (`server/tally.ts`) gives what it says to every host (`Remote.app`) and conversation
   (`Conversation.app`); the pages and the agent (`get_hosts`' `apps` and `what`, `get_device`'s) read it there.
   The pages read it from what the server sends rather than calling it: the sources are 1–2 MB the browser need not load.
-- `scripts/cobertura.ts`: how much of a capture it says (below).
+- `server/interpret.ts`: what is said of hosts that never said a name (below), from what the view holds together.
+- `scripts/cobertura.ts`: how much of a capture it says (below); `scripts/nomes.ts`: how many hosts are left with no
+  name a person reads.
 
 ### The house's own words
 
@@ -99,6 +104,51 @@ Read, not only counted: `scripts/cobertura.ts` also lists what it said, by bytes
 are fixed in the code: one CDN address serving several of a browser's services was said by the first name DNS gave it;
 now the names TLS asked for count first, and names that disagree say "several services". And a WireGuard tunnel on
 UDP 443 was QUIC by its port; tshark's `wg` says it is a VPN.
+
+## Hosts with no name
+
+Some hosts never say their name: they are asked by address, from a list their app was given, so neither DNS nor TLS
+carries one. What is said of them is read from the rest of the view, never asked of the network (no reverse lookups,
+no whois: Argus only listens), and says how sure it is (`confidence`, as a device's identity does):
+
+- **A public resolver**, by its address (`ADDRESSES`, from `shared/security.ts` `RESOLVERS`): AdGuard DNS, Quad9, Google
+  DNS. Over 443 or 853, encrypted DNS. Sure.
+- **Tailscale's relays (DERP).** Its client asks every relay on the map its server gives it the way through the router
+  (STUN, 3478) and how far it is (HTTP on 80, ping), by address and all in the same seconds (its netcheck); only the
+  relay it settles on is named, in TLS (`derp4c.tailscale.com`, `SHAPES`). A host with no name talked to only that
+  way, with STUN among it, is **likely** a relay: from a device running Tailscale (talking to it by name, or to a peer on
+  41641), when it is in a network (AS) where one of its named relays is, or when 8 or more such hosts were first asked
+  within 10 seconds; from any device, when 20 or more were (the whole map, a hundred hosts, is asked at once; a call's
+  relay given by address is one or two). Measured against the map Tailscale publishes
+  (`login.tailscale.com/derpmap/default`): every host it said was a relay, on every set below, is on the map. The map
+  itself is not embedded: it states no licence.
+- **A peer, by its port**: a host whose every conversation says one company's app by how it goes (Tailscale on 41641).
+- **Spotify's port, 4070**, to its access points: **likely** (a habit, not a registration).
+- **A neighbour**: a host in the same /24 (IPv6: /64) and network as hosts that were named, all of one company in one
+  category: **possibly** theirs (`by: 'neighbour'`). Measured on a real day, among named hosts with named neighbours:
+  9 in 10 were the same company, 6 in 10 the same app (a cloud gives the next address to someone else). Said of the
+  host only, not of its conversations: the history keeps what is surer.
+
+What is left, a host with no name, no pattern and no named neighbour, says only its carrier, or nothing.
+
+`node scripts/nomes.ts <data/live/session.json | capture> [--since <epoch>]` counts the hosts out on the internet and
+their bytes with no readable name (no app or company that is not only a carrier, and no site's name), and lists them.
+Measured on 26 October 2026: on this house's live session of the day (A, used to write the rules); on the dev
+instance's session of the same day on the Wi-Fi (B, not used); on four short captures of 25 October (C, not used); on
+ten minutes of the live ring after the rules were first written (D, used to add the netcheck burst); and on ten
+minutes of the ring after that (E, not used: every packet in it came after the rules).
+
+| | A (used) | B (not used) | C (not used) | D (used for the burst) | **E (not used)** |
+| --- | --- | --- | --- | --- | --- |
+| Hosts with no readable name, before | 148 of 691 (21.4 %) | 43 of 403 (10.7 %) | 20 of 49 (40.8 %) | 112 of 159 (70.4 %) | 120 of 168 (71.4 %) |
+| … after | **4 (0.6 %)** | **0 (0.0 %)** | **17 (34.7 %)** | **13 (8.2 %)** | **11 (6.5 %)** |
+| Bytes to them, before | 0.16 % | 0.07 % | 1.84 % | 0.14 % | 0.30 % |
+| … after | **0.00 %** | **0.00 %** | **1.66 %** | **0.05 %** | **0.14 %** |
+
+What is left: hosts on a cloud asked over TLS before the capture began (no name seen, no named neighbour); a few of
+Tailscale's relays asked by STUN outside a netcheck, in a window where none of them was named; and, in C, 10-second
+captures where nothing says the PC runs Tailscale and no netcheck fell inside. The clue that would name those, STUN's
+SOFTWARE attribute (Tailscale's says `tailnode`), is not among the facts the sensor keeps.
 
 ## What it cannot know
 

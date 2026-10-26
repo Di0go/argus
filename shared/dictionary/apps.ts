@@ -6,6 +6,8 @@
 // What it says is only what is known: a shared CDN (Akamai, Cloudflare, Fastly) or a cloud (AWS, Google Cloud, Azure)
 // says who carries the bytes, never whose app they are.
 
+import { RESOLVERS } from '../security.ts';
+
 export type Category =
   | 'video'
   | 'music'
@@ -70,6 +72,8 @@ export interface Entry {
   tracking?: boolean;
   /** A CDN or cloud that carries others' bytes: it never names the app, whatever is under it. */
   carrier?: boolean;
+  /** A rule that is a habit rather than a fact (a port an app uses, not one registered to it): how sure. */
+  confidence?: 'likely' | 'possibly';
 }
 
 const google = (app: string, category: Category, activity?: string): Entry => ({ company: 'Google', app, category, activity });
@@ -603,6 +607,7 @@ export const DOMAINS: Record<string, Entry> = {
   'tailscale.io': { company: 'Tailscale', app: 'Tailscale', category: 'vpn' },
   'ts.net': { company: 'Tailscale', app: 'Tailscale', category: 'vpn' },
   'log.tailscale.io': { company: 'Tailscale', app: 'Tailscale', category: 'telemetry' },
+  'log.tailscale.com': { company: 'Tailscale', app: 'Tailscale', category: 'telemetry' },
 
   // The network's own: certificates, clocks, addresses, DNS.
   'lencr.org': { company: "Let's Encrypt", app: 'Certificates', category: 'network', activity: 'checking certificates' },
@@ -773,11 +778,33 @@ export const ASNS: Record<number, Entry> = {
   396986: { company: 'ByteDance', app: 'TikTok', category: 'social' },
   138699: { company: 'ByteDance', app: 'TikTok', category: 'social' },
   41231: { company: 'Canonical', app: 'Ubuntu', category: 'updates' },
+  // Networks that are one service: the public resolvers, and a host most of whose servers are others' (a carrier).
+  212772: { company: 'AdGuard', category: 'network' },
+  19281: { company: 'Quad9', app: 'Quad9', category: 'network', activity: 'looking up names (DNS)' },
+  36692: { company: 'Cisco', app: 'OpenDNS', category: 'network', activity: 'looking up names (DNS)' },
+  36236: carrier('NetActuate'),
   // The house's way out: the operators' own (their DNS, their TV boxes).
   3243: { company: 'MEO', category: 'network' },
   2860: { company: 'NOS', category: 'network' },
   12353: { company: 'Vodafone', category: 'network' },
 };
+
+/** Tailscale's relays (DERP): what its clients go through when they cannot reach each other directly. */
+export const TAILSCALE_RELAY: Entry = { company: 'Tailscale', app: 'Tailscale', category: 'vpn', activity: 'through a relay of the VPN (DERP)' };
+
+/**
+ * Names by their shape, where a suffix cannot say it: Tailscale names its relays derp<region><node>.tailscale.com
+ * (derp4c.tailscale.com), and nothing else under tailscale.com is called that.
+ */
+export const SHAPES: [RegExp, Entry][] = [[/^derp\d+[a-z]?\.tailscale\.com$/, TAILSCALE_RELAY]];
+
+/**
+ * Addresses that are one service wherever they are: the public resolvers (shared/security.ts RESOLVERS), asked by
+ * address, so no name is ever seen for them. Over 443 or 853 they are DNS encrypted (shared/classify.ts).
+ */
+export const ADDRESSES: Record<string, Entry> = Object.fromEntries(
+  Object.entries(RESOLVERS).map(([ip, name]) => [ip, { company: name.replace(/ DNS$/, '').replace(/^OpenDNS$/, 'Cisco'), app: name, category: 'network', activity: 'looking up names (DNS)' }]),
+);
 
 /** What a port says, when nothing else does (a host with no name, two devices here): the service, not a company. */
 export const PORTS: Record<string, Entry> = {
@@ -815,6 +842,8 @@ export const PORTS: Record<string, Entry> = {
   'udp/3478': { app: 'STUN', category: 'network', activity: 'getting through the router (a call, a VPN or a game)' },
   'udp/3479': { app: 'STUN', category: 'network', activity: 'getting through the router (a call, a VPN or a game)' },
   'udp/19302': { company: 'Google', app: 'STUN', category: 'network', activity: 'getting through the router (a call, a VPN or a game)' },
+  // Spotify's own port to its access points (443 and 80 when it is closed); IANA has it for a protocol no one uses.
+  'tcp/4070': { company: 'Spotify', app: 'Spotify', category: 'music', confidence: 'likely' },
   'udp/5351': { app: 'NAT-PMP', category: 'network', activity: 'asking the router to open a port' },
   'udp/41641': { company: 'Tailscale', app: 'Tailscale', category: 'vpn', activity: 'the VPN, peer to peer' },
   'udp/51820': { app: 'WireGuard', category: 'vpn' },

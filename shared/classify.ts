@@ -28,9 +28,15 @@ export interface Classification {
   site?: string;
   /**
    * How it was known: by a name, by the address's network, by the port, or by how the traffic goes; `site`: not known,
-   * only the site's name is (shared/words.ts siteOnly: the dictionary has no word for it).
+   * only the site's name is (shared/words.ts siteOnly: the dictionary has no word for it); `neighbour`: by the hosts
+   * with names beside its address (server/interpret.ts).
    */
-  by: 'name' | 'network' | 'port' | 'pattern' | 'site';
+  by: 'name' | 'network' | 'port' | 'pattern' | 'site' | 'neighbour';
+  /**
+   * How sure, when it is a reading rather than a rule (server/interpret.ts): `likely`, by how the traffic goes and
+   * whom with; `possibly`, by one indirect clue. Absent: what the rule says.
+   */
+  confidence?: 'likely' | 'possibly';
   /** The rule that said it: the name's suffix, "AS15169", "udp/3478". */
   rule: string;
 }
@@ -65,6 +71,10 @@ export interface Words {
   asns: Record<number, Entry>;
   ports: Record<string, Entry>;
   protocols: Record<string, Entry>;
+  /** Names by their shape (derp4c.tailscale.com), where a suffix cannot say it. */
+  shapes?: [RegExp, Entry][];
+  /** Addresses that are one service wherever they are (the public resolvers). */
+  addresses?: Record<string, Entry>;
 }
 
 const ADS = 1;
@@ -95,6 +105,9 @@ export class Dictionary {
   /** What a conversation, or a host, is: the best of what its names say, else its network, else its port. */
   classify(clue: Clue): Classification | undefined {
     let best = this.byNames(clue.names ?? []);
+    // An address that is one service (a public resolver) says more than a carrier's name or its network.
+    const address = clue.ip ? this.byAddress(clue.ip, clue.service) : undefined;
+    if (address && (!best || best.carrier || !best.app)) best = { ...address, ...(best?.site ? { site: best.site } : {}) };
     const net = clue.ip ? this.byNetwork(clue.ip) : undefined;
     // One address of a CDN that served several sites (a shared front door): which bytes went to which is not seen, so
     // one site's app is not said of all of them; the CDN that carried them is.
@@ -103,7 +116,7 @@ export class Dictionary {
     if (net && rank(net) > rank(best) && (!best || best.carrier)) best = { ...net, site: best?.site };
     const port = clue.service ? this.byPort(clue.service) : undefined;
     if (port && (!best || (!best.app && !best.company))) best = port;
-    else if (port && best?.carrier && !best.app) best = { ...port, company: best.company, site: best.site };
+    else if (port && best?.carrier && !best.app) best = { ...port, company: port.company ?? best.company, site: best.site };
     if (!best && net) best = net;
     // What the traffic is tells more than whom it is with: WireGuard to a company's server is its VPN, whatever port.
     const proto = clue.protocol ? this.words.protocols[clue.protocol] : undefined;
@@ -190,6 +203,8 @@ export class Dictionary {
     if (/^(ocsp|crl)\d*\.|\.o\.lencr\.org$|\.c\.lencr\.org$/.test(n)) {
       return { ...describe({ app: 'Certificates', category: 'network', activity: 'checking certificates' }), site, by: 'name', rule: n };
     }
+    const shape = this.words.shapes?.find(([re]) => re.test(n));
+    if (shape) return { ...describe(shape[1]), site, by: 'name', rule: n };
     // From the most particular suffix to the least: the first that knows the name says what it says, and what it
     // leaves out (the company, the app) is said by the less particular ("ping.archlinux.org" is a connectivity check,
     // "archlinux.org" says whose).
@@ -215,9 +230,22 @@ export class Dictionary {
     return said ? this.inside({ ...describe(said), site, by: 'name', rule }, before) : undefined;
   }
 
+  /** What an address that is one service says; asked over 443 or 853, it is DNS encrypted (over HTTPS or TLS). */
+  byAddress(ip: string, service?: string): Classification | undefined {
+    const entry = this.words.addresses?.[ip];
+    if (!entry) return undefined;
+    const encrypted = service && /^(tcp|udp)\/(443|853)$/.test(service);
+    return { ...describe(encrypted ? { ...entry, activity: 'looking up names (encrypted DNS)' } : entry), by: 'network', rule: ip };
+  }
+
+  /** The network (AS number) an address belongs to, when it is one the dictionary has ranges for. */
+  asnOf(ip: string): number | undefined {
+    return ip.includes(':') ? find(this.v6, ipv6Safe(ip)) : find(this.v4, ipv4Safe(ip));
+  }
+
   /** What the address's network says (iptoasn.com): who runs it; the app only when the network is one app's own. */
   byNetwork(ip: string): Classification | undefined {
-    const asn = ip.includes(':') ? find(this.v6, ipv6Safe(ip)) : find(this.v4, ipv4Safe(ip));
+    const asn = this.asnOf(ip);
     const entry = asn === undefined ? undefined : this.words.asns[asn];
     return entry ? { ...describe(entry), by: 'network', rule: `AS${asn}` } : undefined;
   }
@@ -296,7 +324,8 @@ function strip(e: Entry): Entry {
   return Object.fromEntries(Object.entries(e).filter(([, v]) => v !== undefined)) as Entry;
 }
 
-function describe(e: Entry): Omit<Classification, 'by' | 'rule'> {
+/** An entry in the words a classification says it with (the category's label and activity when it leaves them out). */
+export function describe(e: Entry): Omit<Classification, 'by' | 'rule'> {
   const category = e.category ?? 'web';
   const c = CATEGORIES[category];
   return {
@@ -307,6 +336,7 @@ function describe(e: Entry): Omit<Classification, 'by' | 'rule'> {
     activity: e.activity ?? c.activity,
     tracking: e.tracking ?? c.tracking ?? false,
     ...(e.carrier ? { carrier: true } : {}),
+    ...(e.confidence ? { confidence: e.confidence } : {}),
   };
 }
 

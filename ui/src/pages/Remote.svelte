@@ -49,7 +49,7 @@
         <dt>Whose</dt>
         <dd>{#if site}<EntityLink entity={site} {capture} />{:else}<span class="muted">Not known</span>{/if}</dd>
         <dt>What it is</dt>
-        <dd>{#if r.app}{r.app.app ?? r.app.company ?? r.app.label} <span class="src">{r.app.label}{r.app.carrier ? ': it carries the bytes, whose they are is not known' : ''}</span>{:else}<span class="muted">Not known to the dictionary</span>{/if}</dd>
+        <dd>{#if r.app}{r.app.app ?? r.app.company ?? r.app.label} <span class="src">{r.app.label}{r.app.carrier ? ': it carries the bytes, whose they are is not known' : ''}{r.app.confidence ? ` · ${r.app.confidence}, by ${r.app.rule}` : ''}</span>{:else}<span class="muted">Not known to the dictionary</span>{/if}</dd>
         <dt>Where</dt>
         <dd>{#if r.where}{r.where.country ?? 'Unknown country'}<span class="src"> · network AS{r.where.asn} {r.where.org ?? ''}, registered there</span>{:else}<span class="muted">{argus.geo ? 'Not in the table of networks' : 'Unknown (pnpm geo)'}</span>{/if}</dd>
         <dt>Encryption</dt>
