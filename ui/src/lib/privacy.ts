@@ -46,7 +46,9 @@ export function privacy(src: Source, o: { device?: string; since?: number } = {}
   const mine = src.conversations.filter((c) => (!o.device || c.a === o.device || c.b === o.device) && (!o.since || c.last >= o.since));
   const line = (c: Conversation): ClearLine => {
     const other = remotes.get(c.b) ?? devices.get(c.b);
-    const name = other?.name ?? c.b.replace(/^\w+:/, '');
+    // In the clear, the host the request asked for (HTTP's Host): DNS's name for the address may be another site's.
+    const asked = c.clear && other?.kind === 'remote' ? other.names.find((n) => n.source === 'HTTP')?.name : undefined;
+    const name = asked ?? other?.name ?? c.b.replace(/^\w+:/, '');
     return { c, device: devices.get(c.a), other: name, otherKey: c.b, local: c.b.startsWith('device:'), key: `${c.a}\t${c.b.startsWith('remote:') ? name : c.b}\t${c.clear?.proto ?? c.tls ?? ''}` };
   };
   const out: Privacy = { clear: [], local: [], harmless: [], oldTls: [], dns: [], dnsHouse: 0, tracking: [], trackingBytes: 0, bytes: 0, where: [], whereBytes: 0 };

@@ -51,13 +51,17 @@ interface Known {
 /** A minute counts as "doing" something from this many bytes (calls are light: a third). */
 const ACTIVE = 30_000;
 /**
- * Watching is a stream, not a visit: this many minutes on end, each with at least VIDEO_MINUTE bytes from the app's
- * stream (its hosts the dictionary says are for "watching video", googlevideo.com and not youtube.com: a home page
- * is a megabyte at a time, as often as it is asked for; the lowest video is more than this every minute it plays).
+ * Watching is a stream, not a visit: within any five minutes, STREAM_BYTES or more from the app's stream (its hosts
+ * the dictionary says are for "watching video", googlevideo.com and not youtube.com: a home page is a megabyte at a
+ * time, as often as it is asked for), spread over STREAM_MINUTES of them at least. A player fetches in bursts (12 MB
+ * every 75 s, with quiet minutes between), so no single minute decides. 5 MB in five minutes is 130 kbit/s: 240p
+ * (about 2.3 MB a minute) is well over it, 144p about at it; artwork and pages for a few minutes are under it.
  */
-const VIDEO_RUN = 3;
-/** 3 MB a minute, 400 kbit/s: under the lowest picture a video app plays (artwork and pages are less, or not for long). */
-const VIDEO_MINUTE = 3_000_000;
+const STREAM_WINDOW = 300;
+const STREAM_BYTES = 5_000_000;
+const STREAM_MINUTES = 3;
+/** A minute counts towards those when its stream moved this much. */
+const STREAM_MINUTE = 100_000;
 /** Listening is a while of it (seconds): a music app's page or one fetch is not a song. */
 const MUSIC_FOR = 180;
 const STREAM = 'watching video';
@@ -91,8 +95,10 @@ export class History {
   private recent = new Map<string, [number, string, number][]>();
   /** Per device and group: since when it has been going (no pause longer than GAP). */
   private streaks = new Map<string, { start: number; last: number }>();
-  /** Per device and video group: how many minutes on end, up to the last one written, had a stream's bytes. */
-  private runs = new Map<string, { t: number; n: number }>();
+  /** Per device and video group: its stream's bytes by minute, for the last minutes written (STREAM_WINDOW). */
+  private streamed = new Map<string, Map<number, number>>();
+  /** What each of those streams is, to say it in a quiet minute between bursts. */
+  private streamWhat = new Map<string, Classification>();
   /** What each key was last said to be, whole (the history keeps only its words). */
   private words = new Map<string, Classification>();
   private known: Record<string, Known> = {};
@@ -144,7 +150,8 @@ export class History {
     if (began !== undefined && this.began !== undefined && began !== this.began) this.prev = new Map();
     if (began !== undefined) this.began = began;
     const names = new Map(view.devices.map((d) => [`device:${d.id}`, d]));
-    this.others = new Map((view.remotes ?? []).map((r) => [`remote:${r.id}`, r.name]));
+    // A host by the name the request asked for (HTTP's Host), else its name: DNS's may be another site's.
+    this.others = new Map((view.remotes ?? []).map((r) => [`remote:${r.id}`, r.names?.find((n) => n.source === 'HTTP')?.name ?? r.name]));
     for (const [k, d] of names) this.others.set(k, d.name);
     const next = new Map<string, number>();
     const events: Record<string, unknown>[] = [];
@@ -204,8 +211,8 @@ export class History {
 
   /** What each device is doing now: the last minute's traffic by what it is, busiest first, background last. */
   doing(device: string): Doing[] | undefined {
-    const r = this.recent.get(device);
-    if (!r) return undefined;
+    // Nothing in the last minute may still be a stream between two bursts (below).
+    const r = this.recent.get(device) ?? [];
     const by = new Map<string, { what?: Classification; bytes: number }>();
     for (const [, key, bytes] of r) {
       const what = this.words.get(key);
@@ -217,16 +224,28 @@ export class History {
       by.set(g, e);
     }
     const t = Math.floor(this.o.now() / 60) * 60;
-    // Video is watched only after minutes on end of it: the ones written, and this last minute's.
-    const watching = (g: string, bytes: number) => {
-      const run = this.runs.get(`${device}\t${g}`);
-      return bytes >= VIDEO_MINUTE && run !== undefined && run.t >= t - 60 && run.n >= VIDEO_RUN - 1;
+    // Video is watched when the last five minutes (those written, and this one going on) hold a stream.
+    const window = (g: string) => {
+      const m = new Map([...(this.streamed.get(`${device}\t${g}`) ?? [])].filter(([x]) => x > t - STREAM_WINDOW));
+      for (const [k, [sent, received]] of this.minute) {
+        const [d, key = ''] = k.split('\t');
+        const what = this.words.get(key);
+        if (d === device && streaming(what) && groupOf(what) === g) m.set(t, (m.get(t) ?? 0) + sent + received);
+      }
+      return m;
     };
+    // A stream in a quiet minute between two bursts is still being watched.
+    for (const [k, m] of this.streamed) {
+      const [d, g = ''] = k.split('\t');
+      if (d !== device || by.has(g) || !m.size) continue;
+      const what = this.streamWhat.get(k);
+      if (what && stream(window(g), t - STREAM_WINDOW + 60, t + 60)) by.set(g, { what, bytes: 0 });
+    }
     const out = [...by]
-      .filter(([, e]) => e.bytes >= 2_000)
+      .filter(([g, e]) => e.bytes >= 2_000 || (e.what?.category === 'video' && stream(window(g), t - STREAM_WINDOW + 60, t + 60)))
       .map(([g, e]) => {
         const since = this.streaks.get(`${device}\t${g}`)?.start ?? this.o.now();
-        const short = (e.what?.category === 'video' && !watching(g, e.bytes)) || (e.what?.category === 'music' && this.o.now() - since < MUSIC_FOR);
+        const short = (e.what?.category === 'video' && !stream(window(g), t - STREAM_WINDOW + 60, t + 60)) || (e.what?.category === 'music' && this.o.now() - since < MUSIC_FOR);
         return { what: short ? visit(e.what!, label('web')) : (e.what as Classification), bytes: e.bytes, since };
       })
       .sort((a, b) => weight(b) - weight(a));
@@ -241,17 +260,19 @@ export class History {
       return [device, key, s, r];
     });
     this.minute = new Map();
-    // The minutes on end of each device's video.
-    const video = new Map<string, number>();
+    // Each device's video stream, by minute, for the last few.
     for (const [device, key, sent, received] of a as [string, string, number, number][]) {
       const what = this.words.get(key);
-      if (streaming(what)) video.set(`${device}\t${groupOf(what)}`, (video.get(`${device}\t${groupOf(what)}`) ?? 0) + sent + received);
+      if (!streaming(what)) continue;
+      const k = `${device}\t${groupOf(what)}`;
+      const m = this.streamed.get(k) ?? new Map<number, number>();
+      m.set(this.minuteT, (m.get(this.minuteT) ?? 0) + sent + received);
+      this.streamed.set(k, m);
+      this.streamWhat.set(k, what!);
     }
-    for (const [k, run] of this.runs) if (run.t < this.minuteT - 60) this.runs.delete(k);
-    for (const [k, bytes] of video) {
-      const run = this.runs.get(k);
-      if (bytes < VIDEO_MINUTE) this.runs.delete(k);
-      else this.runs.set(k, { t: this.minuteT, n: run && run.t === this.minuteT - 60 ? run.n + 1 : 1 });
+    for (const [k, m] of this.streamed) {
+      for (const t of m.keys()) if (t <= this.minuteT - STREAM_WINDOW) m.delete(t);
+      if (!m.size) this.streamed.delete(k), this.streamWhat.delete(k);
     }
     await this.append([{ t: this.minuteT, a }], this.minuteT);
     // The devices remembered, at most KNOWN: the ones heard longest ago go first.
@@ -337,7 +358,7 @@ export class History {
         const { start, end } = ep;
         ep.bytes = [...m].filter(([t]) => t >= start && t < end).reduce((n, [, b]) => n + b, 0);
         if (ep.what?.category === 'video' || ep.what?.category === 'music') {
-          const real = ep.what.category === 'video' ? streamed(streams.get(g) ?? new Map(), start, end) : end - start >= MUSIC_FOR + 60;
+          const real = ep.what.category === 'video' ? stream(streams.get(g) ?? new Map(), start, end) : end - start >= MUSIC_FOR + 60;
           if (real) watched.add(g);
           else ep.what = visit(ep.what, label('web'));
         }
@@ -428,7 +449,9 @@ export class History {
   }
 
   private async append(lines: Record<string, unknown>[], t = this.o.now()) {
-    const date = dateOf(t);
+    // Days only go forward: a line late for a day already over goes in today's file (yesterday's is gzipped, and
+    // going back to it would gzip today's).
+    const date = dateOf(t) > this.day ? dateOf(t) : this.day;
     if (date !== this.day) await this.rollover(date);
     const text = lines.map((l) => `${JSON.stringify(l)}\n`).join('');
     // One day may not take the whole ceiling: past it, the day stops being written (and says so).
@@ -595,12 +618,18 @@ function weight(d: { what?: Classification; bytes: number }): number {
   return tier * 1e15 + d.bytes;
 }
 
-/** Minutes on end of a stream (VIDEO_RUN, each VIDEO_MINUTE or more) between start and end. */
-function streamed(m: Map<number, number>, start: number, end: number): boolean {
-  let run = 0;
-  for (let t = start; t < end; t += 60) {
-    run = (m.get(t) ?? 0) >= VIDEO_MINUTE ? run + 1 : 0;
-    if (run >= VIDEO_RUN) return true;
+/** A stream within start and end: some five minutes of it holding STREAM_BYTES over STREAM_MINUTES or more. */
+function stream(m: Map<number, number>, start: number, end: number): boolean {
+  for (let from = start; from < end; from += 60) {
+    let bytes = 0;
+    let minutes = 0;
+    for (let t = from; t < Math.min(end, from + STREAM_WINDOW); t += 60) {
+      const b = m.get(t) ?? 0;
+      bytes += b;
+      if (b >= STREAM_MINUTE) minutes++;
+    }
+    if (bytes >= STREAM_BYTES && minutes >= STREAM_MINUTES) return true;
+    if (from + STREAM_WINDOW >= end) break;
   }
   return false;
 }

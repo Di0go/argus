@@ -44,6 +44,11 @@ export interface Clue {
   service?: string;
   /** What tshark recognised it as, above TCP or UDP ("wg", "stun"). */
   protocol?: string;
+  /**
+   * Every other name the address went by (DNS answers too): not what it is, but whether it is shared, a CDN's front
+   * door for several sites.
+   */
+  also?: string[];
 }
 
 /** The open sources, as scripts/dictionary.ts writes them. */
@@ -93,7 +98,7 @@ export class Dictionary {
     const net = clue.ip ? this.byNetwork(clue.ip) : undefined;
     // One address of a CDN that served several sites (a shared front door): which bytes went to which is not seen, so
     // one site's app is not said of all of them; the CDN that carried them is.
-    if (best && !best.carrier && net?.carrier && this.shared(clue.names ?? [])) best = net;
+    if (best && !best.carrier && net?.carrier && this.shared([...(clue.names ?? []), ...(clue.also ?? [])])) best = net;
     // A network that names the app tells more than a name that only says the carrier (a host behind its own CDN).
     if (net && rank(net) > rank(best) && (!best || best.carrier)) best = { ...net, site: best?.site };
     const port = clue.service ? this.byPort(clue.service) : undefined;

@@ -42,7 +42,7 @@ export function instructions(): string {
 }
 
 /** A device as the agent reads it: what he would ask about, without the counters' noise. */
-function deviceLine(d: Device) {
+export function deviceLine(d: Device) {
   return {
     id: d.id,
     name: d.name,
@@ -56,7 +56,15 @@ function deviceLine(d: Device) {
     ...(d.rate ? { bytesPerSecondNow: d.rate.sent + d.rate.received } : {}),
     ...(d.identity ? { is: { what: d.identity.label, confidence: d.identity.confidence, clues: d.identity.clues.map((c) => `${c.says}: ${c.from}`) } } : {}),
     ...(d.doing?.length ? { doingNow: d.doing.slice(0, 3).map((x) => `${doing(x.what)} (${Math.round(x.bytes / 1024)} kB in the last minute)`) } : {}),
-    ...(d.dns?.length ? { dns: d.dns.map((u) => `${u.kind === 'house' ? 'asks the house’s resolver' : u.kind === 'encrypted' ? 'encrypted DNS' : 'asks another resolver in the clear'}: ${u.name ?? u.server}`) } : {}),
+    // Each kind once, its resolvers by name once each (one resolver has several servers), as the page groups them.
+    ...(d.dns?.length
+      ? {
+          dns: (['house', 'other', 'encrypted'] as const)
+            .map((kind) => [kind, [...new Set(d.dns!.filter((u) => u.kind === kind).map((u) => u.name ?? u.server))]] as const)
+            .filter(([, names]) => names.length)
+            .map(([kind, names]) => `${kind === 'house' ? 'asks the house’s resolver' : kind === 'encrypted' ? 'encrypted DNS' : 'asks another resolver in the clear'}: ${names.join(', ')}`),
+        }
+      : {}),
     lastSeen: new Date(d.lastSeen * 1000).toISOString(),
     interfaces: d.interfaces,
   };
@@ -92,12 +100,15 @@ function remoteLine(r: Remote) {
  * The traffic by what it was for: the conversations added up by app (or by company, or category, when that is all that
  * is known), busiest first. What nothing is known of is one line of its own, so the shares add up.
  */
-function appsLine(conversations: Conversation[], n: number) {
+export function appsLine(conversations: Conversation[], n: number) {
   const by = new Map<string, { bytes: number; conversations: number; what?: ReturnType<typeof what> }>();
+  /** What the dictionary does not know, by the site it went to (when the other end had a name). */
+  const sites = new Map<string, number>();
   let total = 0;
   for (const c of conversations) {
     const bytes = c.sent + c.received;
     total += bytes;
+    if (!c.app && c.site) sites.set(c.site, (sites.get(c.site) ?? 0) + bytes);
     const a = c.app;
     const key = a ? `${a.company ?? ''}|${a.carrier ? '' : (a.app ?? '')}|${a.label}|${a.activity}` : '';
     const e = by.get(key) ?? { bytes: 0, conversations: 0, what: a ? what(a.carrier ? { ...a, app: undefined } : a) : undefined };
@@ -110,7 +121,9 @@ function appsLine(conversations: Conversation[], n: number) {
     .slice(0, n)
     .map((e) => {
       const { knownBy: _, ...w } = e.what ?? {};
-      return { ...(e.what ? w : { unknown: 'what the dictionary does not know' }), bytes: e.bytes, share: total ? Math.round((1000 * e.bytes) / total) / 10 : 0, conversations: e.conversations };
+      const named = [...sites].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([site, bytes]) => ({ site, bytes }));
+      const unknown = { unknown: 'what the dictionary does not know', ...(named.length ? { sites: named } : {}) };
+      return { ...(e.what ? w : unknown), bytes: e.bytes, share: total ? Math.round((1000 * e.bytes) / total) / 10 : 0, conversations: e.conversations };
     });
 }
 

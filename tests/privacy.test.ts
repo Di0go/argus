@@ -55,3 +55,10 @@ test("Two devices with one name are two lines: a login to each is said (the red 
   const p = privacy({ kind: 'live', devices: [pc, a, b], remotes: [], sites: [], links: [], conversations: [local(a.id, 10), local(b.id, 20)] } as never);
   assert.deepEqual(p.clear.map((l) => l.otherKey).sort(), [`device:${a.id}`, `device:${b.id}`]);
 });
+
+test('A line in the clear names the host the request asked for, not the name DNS gave the address', () => {
+  const pc = device('aa:aa:aa:aa:aa:01', 'laptop');
+  const r = { kind: 'remote', id: '192.0.2.40', ip: '192.0.2.40', name: 'cdn.example.net', names: [{ name: 'cdn.example.net', source: 'DNS' }, { name: 'shop.example.org', source: 'HTTP' }] } as unknown as Remote;
+  const p = privacy({ kind: 'live', devices: [pc], remotes: [r], sites: [], links: [], conversations: [talk(pc.id, '192.0.2.40', 10)] } as never);
+  assert.equal(p.clear[0]?.other, 'shop.example.org');
+});

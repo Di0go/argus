@@ -214,3 +214,44 @@ test("One address of a CDN that served several sites is the CDN's: one site's ap
   // A site and the CDN's own name for it (its CNAME): the site's.
   assert.equal(what(['www.reddit.com', 'reddit.map.fastly.net'], 'tcp/443', undefined, FASTLY)?.app, 'Reddit');
 });
+
+test("A Fastly address TLS asked only for one company's names, that DNS also gave to another site, is Fastly's (the real case)", async () => {
+  const { interpret } = await import('../server/interpret.ts');
+  const ip = '2a04:4e40::347';
+  const r = {
+    kind: 'remote',
+    id: ip,
+    ip,
+    names: [
+      { name: 'services.addons.mozilla.org', source: 'TLS' },
+      { name: 'addons.mozilla.org', source: 'TLS' },
+      { name: 'tile.openstreetmap.org', source: 'DNS' },
+    ],
+  };
+  const c = { id: 'c', a: 'device:d', b: `remote:${ip}`, service: 'tcp/443', interfaces: [], sent: 1, received: 1, packets: 1, first: 0, last: 0 };
+  const v = interpret({ devices: [], remotes: [r], conversations: [c] } as never) as unknown as { remotes: { app?: { app?: string; company?: string; carrier?: boolean } }[]; conversations: { app?: { app?: string; company?: string } }[] };
+  assert.equal(v.remotes[0]?.app?.app, undefined);
+  assert.equal(v.remotes[0]?.app?.company, 'Fastly');
+  assert.equal(v.conversations[0]?.app?.company, 'Fastly');
+  // Its TLS names alone, with nothing else on the address: still Mozilla's.
+  const alone = interpret({ devices: [], remotes: [{ ...r, names: r.names.slice(0, 2) }], conversations: [{ ...c }] } as never) as unknown as { remotes: { app?: { company?: string } }[] };
+  assert.equal(alone.remotes[0]?.app?.company, 'Mozilla');
+});
+
+test("In the clear is harmless by the name the connection asked for, never by the address's other names", async () => {
+  const { interpret } = await import('../server/interpret.ts');
+  const remote = (ip: string, names: [string, string][]) => ({ kind: 'remote', id: ip, ip, names: names.map(([name, source]) => ({ name, source })) });
+  const http = (ip: string) => ({ id: ip, a: 'device:d', b: `remote:${ip}`, service: 'tcp/80', interfaces: [], sent: 1, received: 1, packets: 1, first: 0, last: 0, clear: { proto: 'HTTP' } });
+  const v = interpret({
+    devices: [],
+    remotes: [
+      // Firefox's portal check, on an address DNS also named for its add-ons.
+      remote('203.0.113.90', [['services.addons.mozilla.org', 'DNS'], ['addons.mozilla.org', 'DNS'], ['firefox-portal-detection.com', 'HTTP']]),
+      // An updater's address by DNS, but the request asked for another host.
+      remote('203.0.113.91', [['dl.google.com', 'DNS'], ['login.unheard-of.example.org', 'HTTP']]),
+      remote('203.0.113.92', [['dl.google.com', 'HTTP']]),
+    ],
+    conversations: [http('203.0.113.90'), http('203.0.113.91'), http('203.0.113.92')],
+  } as never) as unknown as { conversations: { clear: { harmless?: boolean } }[] };
+  assert.deepEqual(v.conversations.map((c) => Boolean(c.clear.harmless)), [true, false, true]);
+});

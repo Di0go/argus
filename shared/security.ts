@@ -115,10 +115,15 @@ export interface DnsUse {
  * (one address serves many names), and only by the dictionary's name rules or the authorities' own hosts: a host that
  * merely starts with "ocsp." or "status." is not exempt (both found by the red team).
  */
-export function harmless(clear: string, asked: string[], app?: { category: string; activity: string; by: string }): boolean {
+export function harmless(clear: string, asked: string[], says?: (name: string) => { category: string; activity: string; by: string } | undefined): boolean {
   if (clear !== 'HTTP' || !asked.length) return false;
-  if (app?.by === 'name' && (app.category === 'updates' || app.activity === 'checking for internet')) return true;
-  return asked.every((n) => AUTHORITIES.test(n) || CHECKS.has(n.toLowerCase()));
+  // Each name asked for, on its own: an authority's host, a connectivity check, or what the dictionary's name rules
+  // say is an update or a check (never what the address's other names say).
+  return asked.every((n) => {
+    if (AUTHORITIES.test(n) || CHECKS.has(n.toLowerCase())) return true;
+    const w = says?.(n);
+    return w?.by === 'name' && (w.category === 'updates' || w.activity === 'checking for internet');
+  });
 }
 
 /** The certificate authorities' CRL and OCSP hosts, and those of their intermediate certificates (signed: crt., cacerts.). */
@@ -132,6 +137,7 @@ const CHECKS = new Set([
   'connectivitycheck.android.com',
   'clients3.google.com',
   'detectportal.firefox.com',
+  'firefox-portal-detection.com',
   'www.msftconnecttest.com',
   'nmcheck.gnome.org',
   'network-test.debian.org',

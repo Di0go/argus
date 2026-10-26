@@ -583,6 +583,7 @@ export const DOMAINS: Record<string, Entry> = {
   'incoming.telemetry.mozilla.org': { company: 'Mozilla', app: 'Firefox', category: 'telemetry' },
   'telemetry.mozilla.org': { company: 'Mozilla', app: 'Firefox', category: 'telemetry' },
   'detectportal.firefox.com': { company: 'Mozilla', app: 'Firefox', category: 'network', activity: 'checking for internet' },
+  'firefox-portal-detection.com': { company: 'Mozilla', app: 'Firefox', category: 'network', activity: 'checking for internet' },
   'contile.services.mozilla.com': { company: 'Mozilla', app: 'Firefox', category: 'ads' },
   'merino.services.mozilla.com': { company: 'Mozilla', app: 'Firefox', category: 'search', activity: 'search suggestions' },
   'sync.services.mozilla.com': { company: 'Mozilla', app: 'Firefox', category: 'cloud', activity: 'syncing the browser' },

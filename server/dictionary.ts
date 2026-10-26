@@ -62,7 +62,7 @@ export function loadHouse(file: string): { entries: number; problems: string[] }
 
 /** What a conversation or a host is, in plain words (shared/classify.ts). */
 export function classify(clue: Clue): Classification | undefined {
-  const key = `${clue.ip ?? ''}|${clue.service ?? ''}|${clue.protocol ?? ''}|${(clue.names ?? []).join(' ')}`;
+  const key = `${clue.ip ?? ''}|${clue.service ?? ''}|${clue.protocol ?? ''}|${(clue.names ?? []).join(' ')}|${(clue.also ?? []).join(' ')}`;
   if (said.has(key)) return said.get(key);
   const c = dictionary.classify(clue);
   if (said.size >= SAID) said.clear();

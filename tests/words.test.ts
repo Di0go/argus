@@ -63,8 +63,8 @@ test('Harmless in the clear only by the name asked for and the authorities\' own
   assert.equal(harmless('HTTP', ['crt.amazontrust.com.attacker.example']), false);
   assert.equal(harmless('HTTP', ['captive.apple.com']), true);
   // An update by the dictionary's name rule; but not a category said only by the address's network.
-  assert.equal(harmless('HTTP', ['dl.google.com'], { category: 'updates', activity: 'updating', by: 'name' }), true);
-  assert.equal(harmless('HTTP', ['login.example.com'], { category: 'updates', activity: 'updating', by: 'network' }), false);
+  assert.equal(harmless('HTTP', ['dl.google.com'], () => ({ category: 'updates', activity: 'updating', by: 'name' })), true);
+  assert.equal(harmless('HTTP', ['login.example.com'], () => ({ category: 'updates', activity: 'updating', by: 'network' })), false);
   assert.equal(harmless('FTP', ['ocsp.digicert.com']), false);
 });
 

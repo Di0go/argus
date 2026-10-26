@@ -209,6 +209,34 @@ test('A VPN does not head a story over what is named: it carries the rest', asyn
   assert.equal((await h.dayView()).diary[0]?.what?.app, 'GitHub');
 });
 
+test('Watching holds through a player that fetches in bursts (12 MB every 75 s), and at 240p (2.3 MB a minute)', async () => {
+  const { clock, make } = await setup();
+  const h = await make();
+  const tv = device('aa:aa:aa:aa:aa:0f', 'TV');
+  const phone = device('aa:aa:aa:aa:aa:10', 'phone');
+  await h.observe({ devices: [tv, phone], conversations: [] });
+  let burst = 0;
+  let low = 0;
+  const said: string[] = [];
+  const lows: string[] = [];
+  for (let i = 1; i <= 240; i++) {
+    clock.add(5);
+    if (i % 15 === 1) burst += 12_000_000;
+    low += 2_300_000 / 12;
+    await h.observe({ devices: [tv, phone], conversations: [talk(tv.id, '203.0.113.100', 0, burst, YOUTUBE), talk(phone.id, '203.0.113.101', 0, Math.round(low), YOUTUBE)] });
+    // From the sixth minute on, every look: watching (the burst's own minute or a quiet one between).
+    if (i > 72) {
+      said.push(say(h.doing(`device:${tv.id}`)?.[0]?.what));
+      lows.push(say(h.doing(`device:${phone.id}`)?.[0]?.what));
+    }
+  }
+  assert.deepEqual([...new Set(said)], ['Watching YouTube']);
+  assert.deepEqual([...new Set(lows)], ['Watching YouTube']);
+  await h.flush();
+  const day = await h.dayView();
+  assert.deepEqual(day.diary.map((e) => say(e.what, 'past')).sort(), ['watched YouTube', 'watched YouTube']);
+});
+
 test('A restart: the day reads back, the first look after it is a baseline, and counters that went down count from zero', async () => {
   const { clock, make } = await setup();
   const tv = device('aa:aa:aa:aa:aa:01', 'Living Room TV');
@@ -274,6 +302,11 @@ test('In the clear to one host on several addresses is one event a day, not one 
   }
   const day = await h.dayView();
   assert.deepEqual(day.events.filter((e) => e.type === 'clear').map((e) => e.withName), ['example.com']);
+  // Named by what the request asked for, not what DNS called the address.
+  clock.add(5);
+  const cdn = { kind: 'remote', id: '192.0.2.50', ip: '192.0.2.50', name: 'cdn.example.net', names: [{ name: 'cdn.example.net', source: 'DNS' }, { name: 'shop.example.org', source: 'HTTP' }] } as never;
+  await h.observe({ devices: [pc], conversations: [http('192.0.2.50', 100)], remotes: [cdn] });
+  assert.ok((await h.dayView()).events.some((e) => e.withName === 'shop.example.org'));
 });
 
 test("In the clear: two devices of one name are two events; a host that gets its name later is still one (the red team's cases)", async () => {
@@ -317,6 +350,36 @@ test('Other video and music apps are not watched or listened to from a visit: ar
   const day = await h.dayView();
   const said = [...day.diary.flatMap((e) => [e.what, ...(e.also ?? [])]), ...day.devices.flatMap((d) => d.top.map((t) => t.what))].map((w) => say(w, 'past'));
   assert.ok(!said.includes('watched Netflix') && !said.includes('listened to Spotify'), said.join(', '));
+});
+
+test('Midnight with the service running: yesterday is gzipped and read back, today goes on, nothing counted twice or lost', async () => {
+  const { dir, clock, make } = await setup();
+  clock.set(new Date(2026, 9, 25, 23, 57, 0).getTime() / 1000);
+  let h = await make();
+  const tv = device('aa:aa:aa:aa:aa:0e', 'TV');
+  await h.observe({ devices: [tv], conversations: [] });
+  let n = 0;
+  // Eight minutes across midnight, 100 kB every 5 s.
+  for (let i = 1; i <= 96; i++) {
+    clock.add(5);
+    n += 100_000;
+    await h.observe({ devices: [tv], conversations: [talk(tv.id, '203.0.113.80', 0, n, YOUTUBE, { first: clock.now() - i * 5 })] });
+  }
+  await h.flush();
+  const files = (await readdir(path.join(dir, 'history'))).sort();
+  assert.deepEqual(files.filter((f) => f.startsWith('2026')), ['2026-10-25.jsonl.gz', '2026-10-26.jsonl']);
+  const yesterday = await h.dayView('2026-10-25');
+  const today = await h.dayView('2026-10-26');
+  assert.equal(yesterday.bytes + today.bytes, n);
+  assert.ok(yesterday.bytes > 0 && today.bytes > 0);
+  // A late line for yesterday (a minute flushed after midnight) never gzips today.
+  await (h as unknown as { append(l: unknown[], t: number): Promise<void> }).append([{ t: clock.now() - 3600, a: [] }], clock.now() - 3600);
+  assert.ok((await readdir(path.join(dir, 'history'))).includes('2026-10-26.jsonl'));
+  // And a restart reads both days back.
+  h = await make();
+  assert.deepEqual((await h.days()).slice(0, 2), ['2026-10-26', '2026-10-25']);
+  assert.equal((await h.dayView('2026-10-25')).bytes, yesterday.bytes);
+  assert.equal((await h.dayView('2026-10-26')).bytes, today.bytes);
 });
 
 test('The oldest days go past the days kept; today never', async () => {

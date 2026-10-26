@@ -23,7 +23,7 @@ export function interpret<V extends Dissected | Pick<Dissected, 'devices' | 'rem
   const remotes = new Map(v.remotes.map((h) => [h.id, h]));
   for (const h of v.remotes) {
     // What it is, in plain words: by the names it was given, TLS's and HTTP's first, else its network.
-    const app = classify({ names: telling(h), ip: h.ip });
+    const app = classify({ names: telling(h), ip: h.ip, also: h.names.map((n) => n.name) });
     if (app) h.app = app;
     else delete h.app;
     const where = o.geo?.where(h.ip);
@@ -32,14 +32,14 @@ export function interpret<V extends Dissected | Pick<Dissected, 'devices' | 'rem
   // And each conversation, by its other end's names and its service: WhatsApp over UDP is a call, DNS is DNS.
   for (const c of v.conversations) {
     const h = c.b.startsWith('remote:') ? remotes.get(c.b.slice('remote:'.length)) : undefined;
-    const app = classify({ names: h && telling(h), ip: h?.ip, service: c.service, protocol: c.protocol });
+    const app = classify({ names: h && telling(h), ip: h?.ip, service: c.service, protocol: c.protocol, also: h?.names.map((n) => n.name) });
     if (app) c.app = app;
     // Not known, but named: the site, said by its name rather than as nothing.
     const site = !app && h ? telling(h).map((n) => siteOf(n)).find(Boolean) : undefined;
     if (site) c.site = site;
     else delete c.site;
     const asked = h?.names.filter((n) => n.source === 'HTTP' || n.source === 'TLS').map((n) => n.name) ?? [];
-    if (c.clear && !c.clear.credentials && harmless(c.clear.proto, asked, app)) c.clear.harmless = true;
+    if (c.clear && !c.clear.credentials && harmless(c.clear.proto, asked, (n) => classify({ names: [n] }))) c.clear.harmless = true;
   }
   // A CDN or cloud this side mostly sent to is uploaded to (logs, backups, photos), not downloaded from.
   const up = new Map<string, [number, number]>();
