@@ -51,11 +51,14 @@ interface Known {
 /** A minute counts as "doing" something from this many bytes (calls are light: a third). */
 const ACTIVE = 30_000;
 /**
- * Watching is a stream, not a visit: this many minutes on end, each with at least VIDEO_MINUTE bytes of the video app
- * (a home page is one megabyte once; the lowest video is more than this every minute, for as long as it plays).
+ * Watching is a stream, not a visit: this many minutes on end, each with at least VIDEO_MINUTE bytes from the app's
+ * stream (its hosts the dictionary says are for "watching video", googlevideo.com and not youtube.com: a home page
+ * is a megabyte at a time, as often as it is asked for; the lowest video is more than this every minute it plays).
  */
 const VIDEO_RUN = 3;
 const VIDEO_MINUTE = 500_000;
+const STREAM = 'watching video';
+const streaming = (w: Classification | undefined) => w?.category === 'video' && w.activity === STREAM;
 /** Pauses shorter than this keep one episode going (seconds). */
 const GAP = 300;
 /** What "now" looks back on (seconds). */
@@ -239,7 +242,7 @@ export class History {
     const video = new Map<string, number>();
     for (const [device, key, sent, received] of a as [string, string, number, number][]) {
       const what = this.words.get(key);
-      if (what?.category === 'video') video.set(`${device}\t${groupOf(what)}`, (video.get(`${device}\t${groupOf(what)}`) ?? 0) + sent + received);
+      if (streaming(what)) video.set(`${device}\t${groupOf(what)}`, (video.get(`${device}\t${groupOf(what)}`) ?? 0) + sent + received);
     }
     for (const [k, run] of this.runs) if (run.t < this.minuteT - 60) this.runs.delete(k);
     for (const [k, bytes] of video) {
@@ -266,6 +269,7 @@ export class History {
     const devs = new Map<string, { bytes: number; keys: Map<string, number> }>();
     const minutes = new Map<string, Map<number, number>>(); // device\tgroup → minute → bytes
     const groupKey = new Map<string, Map<string, number>>(); // device\tgroup → key → bytes
+    const streams = new Map<string, Map<number, number>>(); // device\tgroup → minute → bytes of its stream
     const events: DayEvent[] = [];
     let total = 0;
     let first: number | undefined;
@@ -303,6 +307,11 @@ export class History {
         const m = minutes.get(g) ?? new Map<number, number>();
         m.set(l.t, (m.get(l.t) ?? 0) + bytes);
         minutes.set(g, m);
+        if (streaming(fromKey(key, label))) {
+          const sm = streams.get(g) ?? new Map<number, number>();
+          sm.set(l.t, (sm.get(l.t) ?? 0) + bytes);
+          streams.set(g, sm);
+        }
         const gk = groupKey.get(g) ?? new Map<string, number>();
         gk.set(key, (gk.get(key) ?? 0) + bytes);
         groupKey.set(g, gk);
@@ -325,7 +334,7 @@ export class History {
         const { start, end } = ep;
         ep.bytes = [...m].filter(([t]) => t >= start && t < end).reduce((n, [, b]) => n + b, 0);
         if (ep.what?.category === 'video') {
-          if (streamed(m, start, end)) watched.add(g);
+          if (streamed(streams.get(g) ?? new Map(), start, end)) watched.add(g);
           else ep.what = visit(ep.what, label('web'));
         }
         if (worth(ep)) diary.push(ep);
@@ -546,7 +555,12 @@ function merge(episodes: Episode[]): Episode[] {
     const close = () => {
       if (!group.length) return;
       const head = [...group].sort((a, b) => weight({ what: b.what, bytes: b.bytes }) - weight({ what: a.what, bytes: a.bytes }))[0]!;
-      const also = group.filter((e) => e !== head).sort((a, b) => b.bytes - a.bytes);
+      // Each thing once: another stretch of the head's, or of one already said, is not said again.
+      const said = new Set([groupOf(head.what)]);
+      const also = group
+        .filter((e) => e !== head)
+        .sort((a, b) => b.bytes - a.bytes)
+        .filter((e) => !said.has(groupOf(e.what)) && Boolean(said.add(groupOf(e.what))));
       out.push({
         ...head,
         start: Math.min(...group.map((e) => e.start)),

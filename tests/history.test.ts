@@ -121,6 +121,27 @@ test("One visit to YouTube's home page is browsing it, not watching: watching ta
   assert.deepEqual(day.devices[0]?.top.map((t) => say(t.what, 'past')), ['browsed YouTube']);
 });
 
+test("The home page fetched again and again (three a minute, six minutes on end) is still browsing: watching is the stream's host", async () => {
+  const { clock, make } = await setup();
+  const h = await make();
+  const laptop = device('aa:aa:aa:aa:aa:07', 'laptop');
+  // www.youtube.com is "on YouTube"; the video comes from googlevideo.com ("watching video").
+  const SITE: Classification = { ...YOUTUBE, activity: 'on YouTube', rule: 'youtube.com' };
+  const seen: Conversation[] = [];
+  await h.observe({ devices: [laptop], conversations: [] });
+  for (let i = 0; i < 18; i++) {
+    clock.add(20);
+    seen.push({ ...talk(laptop.id, '203.0.113.6', 20_000, 933_687, SITE), id: `home ${i}`, first: clock.now() });
+    await h.observe({ devices: [laptop], conversations: seen });
+  }
+  assert.equal(say(h.doing(`device:${laptop.id}`)?.[0]?.what), 'Browsing YouTube');
+  clock.add(60);
+  await h.observe({ devices: [laptop], conversations: seen });
+  await h.flush();
+  const day = await h.dayView();
+  assert.deepEqual(day.diary.map((e) => say(e.what, 'past')), ['browsed YouTube']);
+});
+
 test('A host the dictionary does not know is said by its site; it never heads what a device is doing over a named app', async () => {
   const { clock, make } = await setup();
   const h = await make();
@@ -147,6 +168,29 @@ test('A host the dictionary does not know is said by its site; it never heads wh
   assert.equal(say(story?.what, 'past'), 'listened to Spotify');
   assert.ok(story?.also?.some((w) => say(w, 'past') === 'used example.net'), JSON.stringify(story?.also));
   assert.equal(say(siteOnly('example.net')), 'Using example.net');
+});
+
+test('One story names each thing once: two stretches of the same app inside it are one "also"', async () => {
+  const { clock, make } = await setup();
+  const h = await make();
+  const pc = device('aa:aa:aa:aa:aa:08', 'laptop');
+  const SEARCH: Classification = { company: 'Google', app: 'Google Search', category: 'search', label: 'Search', activity: 'searching', tracking: false, by: 'name', rule: 'google.com' };
+  await h.observe({ devices: [pc], conversations: [] });
+  let yt = 0;
+  let search = 0;
+  for (let i = 1; i <= 240; i++) {
+    clock.add(5);
+    yt += 200_000;
+    // Searching for three minutes, then seven quiet (longer than a pause), then three again.
+    const minute = Math.floor((i - 1) / 12);
+    if (minute < 3 || (minute >= 10 && minute < 13)) search += 100_000;
+    await h.observe({ devices: [pc], conversations: [talk(pc.id, '203.0.113.1', 0, yt, YOUTUBE), talk(pc.id, '203.0.113.2', 0, search, SEARCH)] });
+  }
+  await h.flush();
+  const day = await h.dayView();
+  const story = day.diary.find((e) => e.device === `device:${pc.id}`);
+  assert.equal(story?.what?.app, 'YouTube');
+  assert.deepEqual(story?.also?.map((w) => w.app), ['Google Search']);
 });
 
 test('A restart: the day reads back, the first look after it is a baseline, and counters that went down count from zero', async () => {
