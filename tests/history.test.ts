@@ -12,6 +12,7 @@ import { Warnings } from '@organon/core/server/warnings';
 import type { Classification } from '../shared/classify.ts';
 import type { Conversation, Device } from '../shared/types.ts';
 import { History } from '../server/history.ts';
+import { doing as say } from '../shared/words.ts';
 
 const YOUTUBE: Classification = { company: 'Google', app: 'YouTube', category: 'video', label: 'Video', activity: 'watching video', tracking: false, by: 'name', rule: 'googlevideo.com' };
 const CALL: Classification = { company: 'Meta', app: 'WhatsApp', category: 'calls', label: 'Calls', activity: 'on a call', tracking: false, by: 'pattern', rule: 'udp/3478' };
@@ -64,6 +65,8 @@ test('Minutes kept, doing now, the diary: ten minutes of YouTube are one episode
   }
   const doing = h.doing(`device:${tv.id}`);
   assert.equal(doing?.[0]?.what.app, 'YouTube');
+  // Ten minutes on end of streaming: watching.
+  assert.equal(say(doing?.[0]?.what), 'Watching YouTube');
   // The last minute: twelve looks of 50 kB.
   assert.equal(doing?.[0]?.bytes, 600_000);
   assert.equal(doing?.[0]?.since, new Date(2026, 9, 25, 20, 0, 5).getTime() / 1000);
@@ -73,6 +76,7 @@ test('Minutes kept, doing now, the diary: ten minutes of YouTube are one episode
   const ep = day.diary.find((e) => e.device === `device:${tv.id}`);
   assert.ok(ep, 'the TV watched YouTube');
   assert.equal(ep.what?.app, 'YouTube');
+  assert.equal(say(ep.what, 'past'), 'watched YouTube');
   assert.equal(ep.bytes, 120 * 50_000);
   assert.equal(ep.deviceName, 'Living Room TV');
   // The baseline was never counted: only what grew.
@@ -88,6 +92,33 @@ test('Minutes kept, doing now, the diary: ten minutes of YouTube are one episode
     day.events.filter((e) => e.type === 'new').map((e) => e.deviceName),
     ['Alexs-iPhone'],
   );
+});
+
+test("One visit to YouTube's home page is browsing it, not watching: watching takes three minutes on end of streaming", async () => {
+  const { clock, make } = await setup();
+  const h = await make();
+  const laptop = device('aa:aa:aa:aa:aa:04', 'laptop');
+  const home = (i: number) => ({ ...talk(laptop.id, '203.0.113.5', 20_000, 933_687, YOUTUBE), id: `home ${i}`, first: clock.now() });
+  await h.observe({ devices: [laptop], conversations: [] });
+  // The reviewer's case: one fetch of the home page (953 687 bytes, no video), then quiet.
+  const seen: Conversation[] = [];
+  clock.add(5);
+  seen.push(home(0));
+  await h.observe({ devices: [laptop], conversations: seen });
+  assert.equal(say(h.doing(`device:${laptop.id}`)?.[0]?.what), 'Browsing YouTube');
+  // Thirteen more over the next hour, one every four minutes: 13 MB, one episode, never a video.
+  for (let i = 1; i <= 13; i++) {
+    clock.add(240);
+    seen.push(home(i));
+    await h.observe({ devices: [laptop], conversations: seen });
+    assert.equal(say(h.doing(`device:${laptop.id}`)?.[0]?.what), 'Browsing YouTube');
+  }
+  clock.add(60);
+  await h.observe({ devices: [laptop], conversations: seen });
+  await h.flush();
+  const day = await h.dayView();
+  assert.deepEqual(day.diary.map((e) => say(e.what, 'past')), ['browsed YouTube']);
+  assert.deepEqual(day.devices[0]?.top.map((t) => say(t.what, 'past')), ['browsed YouTube']);
 });
 
 test('A restart: the day reads back, the first look after it is a baseline, and counters that went down count from zero', async () => {

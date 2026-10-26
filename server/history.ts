@@ -27,7 +27,7 @@ import { CATEGORIES } from '../shared/dictionary/apps.ts';
 import type { Classification } from '../shared/classify.ts';
 import { isOldTls } from '../shared/security.ts';
 import type { Conversation, DayEvent, DayView, Device, Doing, Episode, Remote } from '../shared/types.ts';
-import { BACKGROUND, fromKey, groupOf, keyOf } from '../shared/words.ts';
+import { BACKGROUND, fromKey, groupOf, keyOf, visit } from '../shared/words.ts';
 
 export interface HistoryOptions {
   dir: string;
@@ -50,6 +50,12 @@ interface Known {
 
 /** A minute counts as "doing" something from this many bytes (calls are light: a third). */
 const ACTIVE = 30_000;
+/**
+ * Watching is a stream, not a visit: this many minutes on end, each with at least VIDEO_MINUTE bytes of the video app
+ * (a home page is one megabyte once; the lowest video is more than this every minute, for as long as it plays).
+ */
+const VIDEO_RUN = 3;
+const VIDEO_MINUTE = 500_000;
 /** Pauses shorter than this keep one episode going (seconds). */
 const GAP = 300;
 /** What "now" looks back on (seconds). */
@@ -79,6 +85,8 @@ export class History {
   private recent = new Map<string, [number, string, number][]>();
   /** Per device and group: since when it has been going (no pause longer than GAP). */
   private streaks = new Map<string, { start: number; last: number }>();
+  /** Per device and video group: how many minutes on end, up to the last one written, had a stream's bytes. */
+  private runs = new Map<string, { t: number; n: number }>();
   /** What each key was last said to be, whole (the history keeps only its words). */
   private words = new Map<string, Classification>();
   private known: Record<string, Known> = {};
@@ -201,9 +209,19 @@ export class History {
       e.bytes += bytes;
       by.set(g, e);
     }
+    const t = Math.floor(this.o.now() / 60) * 60;
+    // Video is watched only after minutes on end of it: the ones written, and this last minute's.
+    const watching = (g: string, bytes: number) => {
+      const run = this.runs.get(`${device}\t${g}`);
+      return bytes >= VIDEO_MINUTE && run !== undefined && run.t >= t - 60 && run.n >= VIDEO_RUN - 1;
+    };
     const out = [...by]
       .filter(([, e]) => e.bytes >= 2_000)
-      .map(([g, e]) => ({ what: e.what as Classification, bytes: e.bytes, since: this.streaks.get(`${device}\t${g}`)?.start ?? this.o.now() }))
+      .map(([g, e]) => ({
+        what: e.what?.category === 'video' && !watching(g, e.bytes) ? visit(e.what, label('web')) : (e.what as Classification),
+        bytes: e.bytes,
+        since: this.streaks.get(`${device}\t${g}`)?.start ?? this.o.now(),
+      }))
       .sort((a, b) => weight(b) - weight(a));
     return out.length ? out : undefined;
   }
@@ -216,6 +234,18 @@ export class History {
       return [device, key, s, r];
     });
     this.minute = new Map();
+    // The minutes on end of each device's video.
+    const video = new Map<string, number>();
+    for (const [device, key, sent, received] of a as [string, string, number, number][]) {
+      const what = this.words.get(key);
+      if (what?.category === 'video') video.set(`${device}\t${groupOf(what)}`, (video.get(`${device}\t${groupOf(what)}`) ?? 0) + sent + received);
+    }
+    for (const [k, run] of this.runs) if (run.t < this.minuteT - 60) this.runs.delete(k);
+    for (const [k, bytes] of video) {
+      const run = this.runs.get(k);
+      if (bytes < VIDEO_MINUTE) this.runs.delete(k);
+      else this.runs.set(k, { t: this.minuteT, n: run && run.t === this.minuteT - 60 ? run.n + 1 : 1 });
+    }
     await this.append([{ t: this.minuteT, a }], this.minuteT);
     // The devices remembered, at most KNOWN: the ones heard longest ago go first.
     const ids = Object.keys(this.known);
@@ -279,6 +309,8 @@ export class History {
     }
     const now = this.o.now();
     const diary: Episode[] = [];
+    /** The device and video group that streamed at some time today: the others only visited. */
+    const watched = new Set<string>();
     for (const [g, m] of minutes) {
       const [d = ''] = g.split('\t');
       const keys = [...(groupKey.get(g) ?? [])].sort((a, b) => b[1] - a[1]);
@@ -291,6 +323,10 @@ export class History {
         // Its bytes: every minute of the group within it, the quiet ones too.
         const { start, end } = ep;
         ep.bytes = [...m].filter(([t]) => t >= start && t < end).reduce((n, [, b]) => n + b, 0);
+        if (ep.what?.category === 'video') {
+          if (streamed(m, start, end)) watched.add(g);
+          else ep.what = visit(ep.what, label('web'));
+        }
         if (worth(ep)) diary.push(ep);
         ep = undefined;
       };
@@ -317,7 +353,14 @@ export class History {
           ...(this.known[id]?.label ? { label: this.known[id]!.label } : {}),
           ...(this.known[id]?.kind ? { kind: this.known[id]!.kind } : {}),
           bytes: v.bytes,
-          top: [...v.keys].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, bytes]) => ({ ...(fromKey(k, label) ? { what: fromKey(k, label) } : {}), bytes })),
+          top: [...v.keys]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([k, bytes]) => {
+              const what = fromKey(k, label);
+              const seen = what?.category === 'video' && !watched.has(`${id}\t${groupOf(what)}`) ? visit(what, label('web')) : what;
+              return { ...(seen ? { what: seen } : {}), bytes };
+            }),
         })),
       diary: stories,
       events: once(events).sort((a, b) => b.t - a.t),
@@ -527,6 +570,16 @@ function weight(d: { what?: Classification; bytes: number }): number {
   if (BACKGROUND.has(d.what.category)) return d.bytes / 100;
   // A call is light but it is what someone is doing: ahead of any download.
   return d.what.category === 'calls' && d.bytes >= 10_000 ? 1e12 + d.bytes : d.bytes;
+}
+
+/** Minutes on end of a stream (VIDEO_RUN, each VIDEO_MINUTE or more) between start and end. */
+function streamed(m: Map<number, number>, start: number, end: number): boolean {
+  let run = 0;
+  for (let t = start; t < end; t += 60) {
+    run = (m.get(t) ?? 0) >= VIDEO_MINUTE ? run + 1 : 0;
+    if (run >= VIDEO_RUN) return true;
+  }
+  return false;
 }
 
 /** Worth a line in the diary: someone doing something for a while, or a lot of it; never the network's own chatter. */

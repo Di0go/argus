@@ -53,6 +53,14 @@ export function doing(w: Classification | undefined, tense: 'now' | 'past' = 'no
   return verb(x)[tense === 'now' ? 0 : 1];
 }
 
+/**
+ * Video that is not yet a stream: a visit to the site ("Browsing YouTube"). Watching is said only of minutes on end of
+ * streaming (server/history.ts): one fetch of a home page is a megabyte, and no one watched anything.
+ */
+export function visit(w: Classification, label = 'Web'): Classification {
+  return { ...w, category: 'web', label, activity: 'browsing' };
+}
+
 /** Several things at once: "On a Google Meet call, using npm"; at most three. */
 export function doingList(ws: (Classification | undefined)[]): string {
   const said = [...new Set(ws.slice(0, 3).map((w) => doing(w)))];
