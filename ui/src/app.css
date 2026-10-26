@@ -51,16 +51,12 @@ code {
   margin-left: 0;
 }
 
-/* The monitor's colours (docs/apresentacao.md). Data is neutral: the lines and areas of traffic say amounts, not
-   alarms. One warm colour, --clear, says "without encryption" and nothing else uses it (the brand's red stays on
-   links and places). The categories' four hues leave orange and yellow out, so --clear stays alone; checked for
-   colour blindness, light and dark (the dataviz validator). */
+/* The monitor's colours. Data is neutral: the lines and areas of traffic say amounts, not alarms. Without encryption
+   has no colour at all: a small open padlock in the ink of the text beside it (ClearTag), its detail in the tip. The
+   categories' four hues, checked for colour blindness, light and dark (the dataviz validator). */
 :root {
   --data: #5b6470;
   --data-soft: color-mix(in srgb, var(--data) 16%, transparent);
-  --clear: #c2410c;
-  --clear-soft: color-mix(in srgb, var(--clear) 11%, transparent);
-  --clear-line: color-mix(in srgb, var(--clear) 45%, transparent);
   --cat-1: #2a78d6;
   --cat-2: #1baf7a;
   --cat-3: #6250d6;
@@ -71,8 +67,6 @@ code {
 :root[data-theme='dark'] {
   --data: #aab2bd;
   --data-soft: color-mix(in srgb, var(--data) 18%, transparent);
-  --clear: #fb923c;
-  --clear-soft: color-mix(in srgb, var(--clear) 13%, transparent);
   --cat-1: #3987e5;
   --cat-2: #199e70;
   --cat-3: #9085e9;
@@ -80,34 +74,59 @@ code {
   --cat-other: #6f6f6f;
 }
 
-/* Without encryption: the colour, and always an open padlock beside it (never colour alone). */
 .clear-tag {
   display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   align-items: center;
   gap: 4px;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: var(--clear-soft);
-  color: var(--clear);
-  font-size: 0.76rem;
-  font-weight: 600;
-  line-height: 1.6;
+  vertical-align: -2px;
+  color: var(--fg-2);
+  font-size: 0.8rem;
   white-space: nowrap;
+  cursor: help;
 }
 
 .clear-tag.quiet {
-  background: none;
-  color: var(--muted);
-  font-weight: 500;
-  padding: 0;
+  color: var(--faint);
 }
 
-.clear-row {
-  box-shadow: inset 3px 0 0 var(--clear);
-  background: linear-gradient(90deg, var(--clear-soft), transparent 70%);
+.clear-tag .cw {
+  color: var(--muted);
 }
 
 .sure-word {
   font-size: 0.74rem;
   color: var(--faint);
+}
+
+/* The tabs and where Argus listens (NetBar) stay at the top of every page as one block; text scrolling up fades out
+   under it. On a phone (no tabs there) it sits under the core's bar. */
+.stage > .top {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.stage > .top::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 18px;
+  background: linear-gradient(var(--b0), transparent);
+  pointer-events: none;
+}
+
+html.focus .stage > .top {
+  display: none;
+}
+
+@media (max-width: 960px) {
+  .stage > .top {
+    top: 50px;
+  }
 }

@@ -46,7 +46,7 @@ test('pnpm dev: Vite serves the page from source, /api goes through to the dev s
     await new Promise((r) => setTimeout(r, 100));
   }
   await page.goto(base);
-  await page.getByRole('heading', { name: 'Now' }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'Who is using the network' }).waitFor({ timeout: 10_000 });
   // The recording brought in, listed: the API went through Vite to the dev server.
   await page.goto(`${base}/#/captures`);
   await page.getByRole('table', { name: 'Captures' }).locator('tbody tr').first().waitFor({ timeout: 10_000 });

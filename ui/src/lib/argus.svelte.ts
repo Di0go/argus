@@ -58,6 +58,13 @@ class Argus {
   meters = $state<Record<string, number>>({});
   /** The whole network's, the same way. */
   meter = $state(0);
+  /** Each interface's listened rate, the same way: the bar's pills agree with the lines under them. */
+  ifaceMeters = $state<Record<string, number>>({});
+  /** Each conversation's rate now, both ways: what its totals grew by over the last three seconds or so (the window a
+   * device's rate is taken over, server/live.ts), smoothed the same way. */
+  flows = $state<Record<string, number>>({});
+  /** Each conversation's totals as they came, with when: the window its rate is read over. */
+  private seen = new Map<string, [number, number][]>();
   /** When each device was first seen by this page, to mark newcomers for a while. */
   private firstHere = new Map<string, number>();
   /** Saved captures' views, loaded when first looked at. */
@@ -177,8 +184,33 @@ class Argus {
     // A host or device forgotten takes its links with it.
     const gone = new Set([...e.gone.map((id) => `remote:${id}`), ...e.goneDevices.map((id) => `device:${id}`)]);
     if (gone.size) for (const [k, l] of Object.entries(this.links)) if (gone.has(l.from) || gone.has(l.to)) delete this.links[k];
+    const now = Date.now() / 1000;
+    for (const c of e.conversations) {
+      const had = this.seen.get(c.id) ?? (this.conversations[c.id] ? [[now - 1, this.conversations[c.id]!.sent + this.conversations[c.id]!.received] as [number, number]] : []);
+      had.push([now, c.sent + c.received]);
+      while (had.length > 2 && now - had[1]![0] >= 3) had.shift();
+      this.seen.set(c.id, had);
+    }
+    const flows: Record<string, number> = {};
+    const came = new Set(e.conversations.map((c) => c.id));
+    for (const [id, had] of this.seen) {
+      // A conversation not in this update did not grow: its newest total stands now.
+      if (!came.has(id)) had.push([now, had.at(-1)![1]]);
+      while (had.length > 2 && now - had[1]![0] >= 3) had.shift();
+      const [t0, b0] = had[0]!;
+      const [t1, b1] = had.at(-1)!;
+      const grew = t1 > t0 ? Math.max(0, b1 - b0) / Math.max(1, t1 - t0) : 0;
+      const shown = ballistics(this.flows[id] ?? 0, grew);
+      if (shown) flows[id] = shown;
+      // Still for three seconds: forgotten until it moves again (the next update starts it from its totals).
+      else if (!grew) this.seen.delete(id);
+    }
+    this.flows = flows;
     for (const c of e.conversations) this.conversations[c.id] = c;
-    for (const id of e.goneConversations) delete this.conversations[id];
+    for (const id of e.goneConversations) {
+      delete this.conversations[id];
+      this.seen.delete(id);
+    }
     if (gone.size) for (const [k, c] of Object.entries(this.conversations)) if (gone.has(c.a) || gone.has(c.b)) delete this.conversations[k];
     this.fine = overlay(this.fine, e.total.fine);
     this.coarse = overlay(this.coarse, e.total.coarse);
@@ -202,6 +234,9 @@ class Argus {
       meters[d.id] = reset ? raw : ballistics(this.meters[d.id] ?? 0, raw);
     }
     this.meters = meters;
+    const ifaces: Record<string, number> = {};
+    for (const l of this.session?.listening ?? []) ifaces[l.id] = reset ? (l.rate ?? 0) : ballistics(this.ifaceMeters[l.id] ?? 0, l.rate ?? 0);
+    this.ifaceMeters = ifaces;
     this.meter = reset ? (this.session?.rate ?? 0) : ballistics(this.meter, this.session?.rate ?? 0);
   }
 

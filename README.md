@@ -22,38 +22,37 @@
 
 ---
 
-**Argus shows your network as it happens, in plain words.** Open it and the first lines say who is using the network
-and for what ("Living Room TV · Watching Netflix", "Alex's iPhone · On a WhatsApp call"), what each device is and how
-sure it is, and whether anything went without encryption, in the one colour the page keeps for that. Below, the day
-as a diary. It runs on your own machine and listens only; on disk it keeps the last minutes of packets and the day's
+**Argus shows your network as it happens, in plain words.** Open it and it reads like a system monitor: who is using
+the network now and for what, a line each ("Living Room TV · Watching Netflix · 2.1 MB/s"), and whom they are talking
+to now, moving every second. One click opens a device: what it is doing and with whom, live, then the rest. The day,
+its diary and privacy are a click away. It runs on your own machine and listens only; on disk it keeps the last minutes of packets and the day's
 totals (never packets). An agent can ask it the same over MCP, the day before included.
 
 <p align="center">
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/now-dark.webp"><img src="docs/images/now-light.webp" alt="Argus's Now page: a sentence saying 10 of 13 devices are using the network, the TV watching Netflix, and a pill saying 1 unencrypted in the last hour; who is using the network, each device with what it is and what it is doing; beside it, privacy: the printer's HTTP with a password, tracking, where the data goes, DNS and TLS; below, the day by hour and what happened." width="100%"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/now-dark.webp"><img src="docs/images/now-light.webp" alt="Argus's home page: the networks it listens on as pills at the top; who is using the network, a line per device with what it is doing and how fast now; whom they are talking to now, each with what for and how fast." width="100%"></picture>
 </p>
 
 <p align="center"><sub>Every picture here is of <code>pnpm demo</code>: a made-up house, no real traffic.</sub></p>
 
 ## What it shows
 
-**Now, read in the order you ask.** Is everything normal: one sentence. Who is using the network and for what: a line
-per busy device, in a verb, with since when and how fast. What each device is: under its name. Is anything unsafe:
-beside it. What happened while you were not looking: the day by hour, and a diary of episodes ("22:14 the TV started
-Netflix, 2.3 GB in an hour"). Why it is laid out that way, and what was turned down:
-[docs/apresentacao.md](docs/apresentacao.md).
+**Now, at a glance.** Who is using the network and for what: a line per busy device, in a verb, with how fast now,
+busiest first; then whom they are talking to now (the app or company, what for, how fast). Both follow the network
+every second without a reload; the order holds still while the pointer is over it. The day by hour, the diary of
+episodes ("22:14 the TV started Netflix, 2.3 GB in an hour") and privacy each have their own page. Why it is laid out
+that way, and what was turned down: [docs/apresentacao.md](docs/apresentacao.md).
 
 **What each device is**, from what it says of itself: the DHCP vendor class and the options it asks for, the services
 and model it announces over mDNS, a User-Agent sent in the clear, its maker, what it talks to. Said with how sure
 (*sure*, *likely*, *possibly*) and the clues on its page; when the clues disagree or say nothing, nothing is made up.
 
-**Without encryption, in one colour.** HTTP, FTP, Telnet, mail without TLS, and whether a password went by in it
+**Without encryption, as a small open padlock.** HTTP, FTP, Telnet, mail without TLS, and whether a password went by in it
 (the pages, the history and the agent keep only that one did, never the password; the ring buffer of the last minutes,
-and a capture you save from it, hold the packets as they were, the password too), in the one warm colour on the page, with an open padlock, on
-the home page, in every list and on each device. Connectivity checks and certificate lists, in the clear by design,
+and a capture you save from it, hold the packets as they were, the password too): a small open padlock beside the line, with what it was in its tip,
+in every list and on each device; the full account on the Privacy page. Connectivity checks and certificate lists, in the clear by design,
 are said quietly. Also: tracking and telemetry by company and device, servers that agree old TLS, devices that ask
 another DNS than the house's (or encrypted DNS), and where the data goes (the country each host's network is
-registered in, from iptoasn.com's table: `pnpm geo` downloads it once). No alerts, no notifications: the colour and
-the right place.
+registered in, from iptoasn.com's table: `pnpm geo` downloads it once). No alerts, no notifications.
 
 **The day, kept.** A minute at a time, per device and per what it was for, never packets: 31 days and 200 MB at
 most, gzipped once the day is over. A reload or a restart loses nothing.
@@ -66,8 +65,9 @@ this PC are known by what they do.
 **The internet, by company.** Hosts are named by the DNS answers your network got for them and by the server name an
 encrypted connection asks for in the clear (SNI), then grouped by who runs them: `rr3---sn-…googlevideo.com` is Google.
 
-**Networks.** Where it listens is a list: each network with its kind, how it is going, the devices heard on it and
-its rate now. Every device says which network it is on, and one network can be chosen: its devices first and the
+**Networks.** Where it listens is a bar of pills at the top of every page: each network a switch, with its rate now;
+the minor ones (Docker's bridges, what is down) behind "more". Each network's page has its devices, its bandwidth and
+its conversations. Every device says which network it is on, and one network can be chosen: its devices first and the
 others' after, or the others left out altogether (remembered).
 
 **Conversations.** Open a device, a host, a company or a network and it says whom it talked to, by what service (as

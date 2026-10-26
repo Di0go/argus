@@ -57,42 +57,72 @@ test('Before listening: the page says so, offers the interfaces as switches, and
   await p.close();
 });
 
-test('Turning the Wi-Fi on: the devices, the hosts and the bandwidth arrive live, and a reload loses nothing', { skip: !CHROMIUM }, async () => {
+test('Turning the Wi-Fi on: who is using the network arrives live, moves without a reload, and a reload loses nothing', { skip: !CHROMIUM }, async () => {
   const { p, errors } = await page();
   await p.goto(app.base);
   await p.getByRole('switch', { name: /Wi-Fi/ }).click();
-  // The page turns into the monitor: the sentence first, who is using the network, privacy beside.
-  const verdict = p.getByRole('status').filter({ hasText: /devices/ });
-  await verdict.waitFor({ timeout: 15_000 });
-  assert.match(await p.locator('.statusline').innerText(), /Listening on Wi-Fi/);
-  await p.getByRole('heading', { name: 'Who is using the network' }).waitFor();
-  // The fixture's printer posted over HTTP with a login: the one colour, in the sentence's pill and in the box.
-  const pill = p.getByRole('link', { name: /unencrypted in the last hour, \d+ with a login/ });
-  await pill.waitFor();
-  const colour = await pill.evaluate((e) => getComputedStyle(e).color);
-  const box = p.getByRole('region', { name: 'Without encryption' });
-  assert.match(await box.innerText(), new RegExp(truth.hosts.upload.name.replaceAll('.', '\\.')));
-  // The FTP login comes a few frames after the first of that conversation: the box says so when it does.
-  await box.getByText('FTP, a login in the clear').waitFor({ timeout: 15_000 });
-  // Nothing else on the page wears that colour: not the links, not the charts.
-  const others = await p.evaluate(
-    (c) => [...document.querySelectorAll('main *, .page *')].filter((e) => getComputedStyle(e).color === c && !e.closest('.clear-tag, [aria-label="Without encryption"], .pill, .clear-row, li.clear')).length,
-    colour,
-  );
-  assert.equal(others, 0);
-  assert.equal(await p.getByRole('img', { name: /Bandwidth, whole network/ }).count(), 1);
-  await p.getByRole('link', { name: 'All the devices' }).click();
+  // The home page is the monitor: a line per device in use, and whom they are talking to now.
+  const who = p.getByRole('list', { name: 'Who is using the network' });
+  await who.locator('li[data-device]').first().waitFor({ timeout: 15_000 });
+  await p.getByText('Live, every second').waitFor();
+  await p.getByRole('table', { name: 'Talking to now' }).locator('tr').first().waitFor({ timeout: 15_000 });
+  // Live: the numbers change with no reload (the pretend tshark plays the fixture back as it comes).
+  const numbers = () => p.locator('main').evaluate((m) => [...m.querySelectorAll('.rt')].map((e) => e.textContent).join('|'));
+  const first = await numbers();
+  await p.waitForFunction((b) => [...document.querySelectorAll('main .rt')].map((e) => e.textContent).join('|') !== b, first, { timeout: 15_000 });
+  // Nothing else on it: no day, no diary, no privacy box, no pill counting what went unencrypted.
+  for (const gone of ['Today', 'What happened', 'Tracking and telemetry'])
+    assert.equal(await p.getByRole('heading', { name: gone }).count(), 0, gone);
+  assert.equal(await p.getByRole('region', { name: 'Without encryption' }).count(), 0);
+  assert.equal(await p.getByText(/unencrypted in the last hour/).count(), 0);
+  // A line is a door: one click to the device.
+  await who.locator('li[data-device] a').first().click();
+  await p.waitForURL(/#\/device\//);
+  await p.getByRole('table', { name: /is talking to now/ }).waitFor({ timeout: 15_000 });
+  await p.getByRole('navigation', { name: 'Places' }).getByRole('link', { name: 'Network' }).click();
   await p.waitForFunction((n) => document.querySelectorAll('table[aria-label="Devices"] tbody tr').length === n, DEVICES, { timeout: 15_000 });
   const phone = p.locator('tr', { hasText: truth.hosts.phone.name });
   assert.match(await phone.innerText(), new RegExp(truth.hosts.phone.ip.replaceAll('.', '\\.')));
   assert.match(await phone.innerText(), /iPhone, iOS/);
   assert.match(await p.locator('tr', { hasText: 'Router' }).innerText(), /Router/);
-  // Reloaded, the session is the server's: the same devices, the switch still on.
+  // Reloaded, the session is the server's: the same devices, the switch still on in the bar.
   await p.reload();
   await p.waitForFunction((n) => document.querySelectorAll('table[aria-label="Devices"] tbody tr').length === n, DEVICES);
-  await p.goto(app.base);
-  await p.getByRole('button', { name: 'Change' }).click();
   assert.equal(await p.getByRole('switch', { name: /Wi-Fi/ }).getAttribute('aria-checked'), 'true');
+  assert.deepEqual(errors, []);
+  await p.close();
+});
+
+test('Where Argus listens is on every page, and stays in view as the page scrolls', { skip: !CHROMIUM }, async () => {
+  const { p, errors } = await page();
+  for (const hash of ['#/', '#/devices', '#/internet', '#/privacy', '#/diary', '#/captures', `#/device/${encodeURIComponent(truth.hosts.me.mac)}`]) {
+    await p.goto(`${app.base}/${hash}`);
+    const bar = p.getByRole('group', { name: /Where Argus listens/ });
+    await bar.getByRole('switch', { name: /Wi-Fi/ }).waitFor();
+    await p.mouse.wheel(0, 3000);
+    await p.waitForTimeout(200);
+    const box = await bar.boundingBox();
+    assert.ok(box && box.y >= 0 && box.y < 120, `${hash}: the bar at ${box?.y}`);
+  }
+  assert.deepEqual(errors, []);
+  await p.close();
+});
+
+test('Without encryption is a small open padlock in the ink of the text, never a colour', { skip: !CHROMIUM }, async () => {
+  const { p, errors } = await page();
+  await p.goto(`${app.base}/#/privacy`);
+  const lock = p.getByRole('button', { name: /Unencrypted: FTP, a login in the clear/ }).first();
+  await lock.waitFor({ timeout: 15_000 });
+  assert.equal(await lock.evaluate((e) => getComputedStyle(e).backgroundColor), 'rgba(0, 0, 0, 0)');
+  // The old colour for it (orange, light and dark) is nowhere: no row striped, no box tinted, no text.
+  const orange = await p.evaluate(() =>
+    [...document.querySelectorAll('main *')].filter((e) => {
+      const c = getComputedStyle(e);
+      return [c.color, c.backgroundColor, c.boxShadow, c.backgroundImage].some((v) => /194, 65, 12|251, 146, 60/.test(v));
+    }).length,
+  );
+  assert.equal(orange, 0);
+  assert.equal(await p.locator('.clear-row').count(), 0);
   assert.deepEqual(errors, []);
   await p.close();
 });
@@ -188,7 +218,14 @@ test('A name as long as the network allows never widens a page, at 1440 or on a 
         await p.goto(`${long.base}/${hash}`);
         await p.locator('.page-title').first().waitFor();
         await p.waitForTimeout(400);
-        assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, `${width} ${hash}`);
+        const wide = await p.evaluate(() =>
+          [...document.querySelectorAll('body *')]
+            .filter((e) => e.getBoundingClientRect().right > innerWidth + 1)
+            .slice(0, 3)
+            .map((e) => `${e.tagName.toLowerCase()}.${e.className}`)
+            .join(', '),
+        );
+        assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, `${width} ${hash}: ${wide}`);
       }
       assert.deepEqual(errors, []);
       await p.close();
@@ -360,9 +397,11 @@ test('A device says what it is, how sure, and why; its conversations mark the un
   assert.match(await clues.innerText(), /User-Agent/);
   assert.match(await p.locator('.props').innerText(), /iPhone, iOS\s+sure/);
   await p.goto(`${app.base}/#/device/${encodeURIComponent(truth.hosts.pi.mac)}`);
-  const ftp = p.getByRole('table', { name: 'Conversations' }).locator('tr.clear-row');
+  // Without encryption is a small open padlock in the line, no colour; what it was is in its tip.
+  const ftp = p.getByRole('table', { name: 'Conversations' }).getByRole('button', { name: /Unencrypted: FTP, a login in the clear/ });
   await ftp.first().waitFor();
-  assert.match(await ftp.first().innerText(), /FTP, a login in the clear/);
+  assert.match((await ftp.first().getAttribute('data-tip')) ?? '', /A login went by/);
+  assert.equal(await p.locator('.clear-row').count(), 0);
   assert.deepEqual(errors, []);
   await p.close();
 });
@@ -381,20 +420,20 @@ test('Every device page of the fixture opens whole, with no error in the console
   await p.close();
 });
 
-test('Now: the sentence and the list count the same house (the router in neither)', { skip: !CHROMIUM }, async () => {
+test('Now: the lines and the quiet ones count the same house (the router in neither)', { skip: !CHROMIUM }, async () => {
   const { p, errors } = await page();
+  const { house } = await import('../ui/src/lib/house.ts');
   await p.goto(app.base);
-  const verdict = p.locator('.verdict p').filter({ hasText: /devices? on the network|devices are using/ });
-  await verdict.waitFor({ timeout: 15_000 });
-  await p.getByRole('list', { name: 'Who is using the network' }).waitFor();
-  const text = await verdict.innerText();
-  const total = Number((text.match(/of (\d+) devices are using/) ?? text.match(/(\d+) devices? on the network/))?.[1]);
-  const rows = await p.getByRole('list', { name: 'Who is using the network' }).locator(':scope > li').count();
-  const quietText = await p.locator('.quiet:not(.more-busy)').innerText().catch(() => '0 quiet');
-  const more = Number((await p.locator('.more-busy').innerText().catch(() => 'And 0 more')).match(/And (\d+) more/)?.[1] ?? 0);
-  const quiet = Number(quietText.match(/(\d+) quiet/)?.[1] ?? 0);
-  assert.equal(rows + more + quiet, total, `${text} / ${rows} rows, ${more} more, ${quiet} quiet`);
-  assert.doesNotMatch(quietText, /Router|router/);
+  const rows = p.getByRole('list', { name: 'Who is using the network' }).locator(':scope > li');
+  await p.locator('.quiet, .none').first().waitFor({ timeout: 15_000 });
+  await p.waitForTimeout(1500);
+  const v = (await (await fetch(`${app.base}/api/live`)).json()) as { devices: Parameters<typeof house>[0] };
+  const ifaces = (await (await fetch(`${app.base}/api/interfaces`)).json()) as { interfaces: Parameters<typeof house>[1] };
+  const total = house(v.devices, ifaces.interfaces).length;
+  const quietText = await p.locator('.quiet').innerText().catch(() => '0 more');
+  const quiet = Number(quietText.match(/(\d+) more/)?.[1] ?? 0);
+  assert.equal((await rows.count()) + quiet, total, `${await rows.count()} rows, ${quietText}`);
+  assert.doesNotMatch(await rows.allInnerTexts().then((t) => t.join(' ')), /Router/);
   assert.deepEqual(errors, []);
   await p.close();
 });

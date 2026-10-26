@@ -3,8 +3,7 @@
 A readable network spy for one person, on `tshark`, live: turn on one or more network interfaces and see, as it
 happens and in plain words, which devices are there (name, address, maker, how fast they move data now) and which
 hosts and companies out on the internet they talk to; save the last minutes as a capture. The agent asks the same
-over MCP (`get_hosts`, `get_device`, `list_captures`, `get_day`, `what_happened`). Since 2026-10-25 it is a monitor read at a
-glance (docs/apresentacao.md: the questions in order, the one colour for unencrypted, what was turned down). The first app born on the saga's shared core, [Organon](../Organon) (`@organon/core`, pinned at an exact version in `package.json`).
+over MCP (`get_hosts`, `get_device`, `list_captures`, `get_day`, `what_happened`). Since 2026-10-26 the home page is a live monitor: who is using the network now and for what, a line each, moving every second; where it listens is a bar of pills on every page (docs/apresentacao.md: why, what was tried and turned down). The first app born on the saga's shared core, [Organon](../Organon) (`@organon/core`, pinned at an exact version in `package.json`).
 
 ## The rule of the core
 
@@ -37,7 +36,7 @@ counters, names, clues, flags), never interpretations. Everything that reads the
 (docs/sensor.md): a new rule about what traffic means goes in `interpret.ts` or `shared/`, never in the tally. The
 history (`data/history/`, a JSONL a day) keeps aggregates only; a password that went by is a flag there, never its value. The ring buffer and saved captures
 are raw packets and do hold it: say so wherever the flag is shown, never claim otherwise.
-Colour: data is neutral, `--clear` (app.css) means without encryption and nothing else may use it.
+Colour: data is neutral, and without encryption has no colour either: a small open padlock (`ui/src/lib/ClearTag.svelte`) beside the line, its detail in the tip, and the full account on the Privacy page, never on the home page.
 
 ## Working on it
 

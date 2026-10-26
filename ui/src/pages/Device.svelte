@@ -1,6 +1,6 @@
 <script lang="ts">
-  // One device: what it is, how sure, and the clues (shared/identify.ts); what it is doing now, in words; its day by
-  // hour and its diary; its privacy (unencrypted, trackers, its DNS, old TLS); its conversations (the unencrypted
+  // One device: first what it is doing now, live (in words, how fast, its last minutes, and whom it is talking to now);
+  // then what it is, how sure, and the clues (shared/identify.ts); its day by hour and its diary; its privacy (unencrypted, trackers, its DNS, old TLS); its conversations (the unencrypted
   // marked); the companies and hosts it talks to, the devices here it talks to, and the other devices that talk to the
   // same companies; and where each fact came from (its names and who said them, its addresses, its maker).
   import { getJson } from '@organon/core/ui/live';
@@ -25,6 +25,8 @@
   import PrivacyPanel from '../lib/PrivacyPanel.svelte';
   import { BACKGROUND, doing } from '../../../shared/words.ts';
   import { span } from '../lib/format.ts';
+  import { talks } from '../lib/talks.ts';
+  import TalkTable from '../lib/TalkTable.svelte';
 
   let { id, capture }: { id: string; capture?: string } = $props();
 
@@ -32,20 +34,23 @@
   const live = $derived(source?.kind === 'live');
   const d = $derived(source?.graph.get(`device:${id}`) as Device | undefined);
   const key = $derived(`device:${id}`);
-  const talks = $derived(source ? source.conversations.filter((c) => c.a === key || c.b === key) : []);
+  const convs = $derived(source ? source.conversations.filter((c) => c.a === key || c.b === key) : []);
   const linked = $derived(d && source ? source.graph.linked(key) : []);
   const sites = $derived(linked.filter((n) => n.entity.kind === 'site'));
   const hosts = $derived(linked.filter((n) => n.entity.kind === 'remote'));
   const locals = $derived(linked.filter((n) => n.entity.kind === 'device'));
   const unnamed = $derived(hosts.filter((n) => !sites.some((s) => (s.entity.kind === 'site' ? s.entity.hosts.includes(n.entity.id) : false))));
   const others = $derived(d && source ? source.graph.twoSteps(key, 'uses', 'uses').filter((o) => o.entity.kind === 'device') : []);
-  let period = $state<'minutes' | 'day'>('minutes');
+  // The last minutes are in Now, above: the chart down here starts on the day. (The page is made anew for each capture.)
+  // svelte-ignore state_referenced_locally
+  let period = $state<'minutes' | 'day'>(capture ? 'minutes' : 'day');
   const PERIODS = [
     { id: 'minutes' as const, label: '10 min' },
     { id: 'day' as const, label: 'Today' },
   ];
   let coarse = $state<SeriesData | null>(null);
   const day = $derived(live ? days.get(undefined, key) : undefined);
+  const talking = $derived(source && live ? talks(source, { device: key }) : []);
   const p = $derived(source ? privacy(source, { device: key }) : undefined);
   const recent = $derived(source && live ? privacy(source, { device: key, since: Date.now() / 1000 - 3600 }) : undefined);
   const now = $derived.by(() => {
@@ -78,54 +83,73 @@
           </p>
         </div>
       </div>
-      {#if live}
-        <p class="now-line">
-          {#if now.length}<b>{now.map((x, i) => (i ? doing(x.what).replace(/^./, (c) => c.toLowerCase()) : doing(x.what))).join(', ')}</b
-            >{#if Date.now() / 1000 - now[0]!.since > 60}<span class="muted">{' for '}{span(Date.now() / 1000 - now[0]!.since)}</span>{/if}
-            <span class="muted">· {rate(argus.meters[d.id])}</span>
-          {:else}<span class="muted">Quiet now{d.lastSeen ? `; last heard ${since(d.lastSeen)}` : ''}.</span>{/if}
-        </p>
-      {/if}
       {#if source}<SourceHead {source} />{/if}
-      <dl class="props">
-        <dt>What it is</dt>
-        <dd>
-          {#if d.identity}
-            {d.identity.label} <span class="src" data-tip={CONFIDENCE[d.identity.confidence]}>{d.identity.confidence}</span>
-            <ul class="clues" aria-label="Clues">
-              {#each d.identity.clues as c (`${c.from}|${c.says}`)}<li>{c.says}: <span class="muted">{c.from}</span></li>{/each}
-            </ul>
-          {:else}<span class="muted">Not known: it said nothing that tells, and Argus does not guess.</span>{/if}
-        </dd>
-        <dt>MAC</dt>
-        <dd class="mono">
-          {d.mac ?? 'none: seen by its address'}{#if d.randomMac}
-            <span class="tag" data-tip="Phones and laptops make up a MAC on every network, so they are not followed from network to network."
-              >private</span
-            >{/if}
-        </dd>
-        <dt>Addresses</dt>
-        <dd class="mono">{d.ips.join(', ') || '—'}</dd>
-        <dt>Maker</dt>
-        <dd>{d.vendor ?? (d.randomMac ? 'Cannot be seen: the device made its MAC up' : 'Unknown')}</dd>
-        <dt>Names</dt>
-        <dd>
-          {#each d.names as n, i (n.name)}{i ? ', ' : ''}{n.name} <span class="src" data-tip={SOURCES[n.source]}>{n.source}</span>{:else}<span
-              class="muted">Did not say its name</span
-            >{/each}
-        </dd>
-        <dt>Network</dt>
-        <dd><NetTag ids={d.interfaces} />{#if d.interfaces.length > 1}<span class="muted small"> (heard on {d.interfaces.length})</span>{/if}</dd>
-        <dt>Seen</dt>
-        <dd>{when(d.firstSeen)} to {when(d.lastSeen)}{live ? ` (${since(d.lastSeen)})` : ''}</dd>
-      </dl>
     {:else}
       <h1 class="page-title">{source ? 'Not seen' : ''}</h1>
       {#if source}<p class="page-lede">{live ? 'The live session has not seen it yet (or has forgotten it).' : 'This capture did not see it.'}</p>{/if}
     {/if}
   </header>
 
+  {#if d && live}
+    <section class="band live-now" aria-label="Now">
+      <div class="now-head">
+        <p class="now-line">
+          {#if now.length}<b>{now.map((x, i) => (i ? doing(x.what).replace(/^./, (c) => c.toLowerCase()) : doing(x.what))).join(', ')}</b
+            >{#if Date.now() / 1000 - now[0]!.since > 60}<span class="muted">{' for '}{span(Date.now() / 1000 - now[0]!.since)}</span>{/if}
+          {:else if d.role === 'gateway'}<b>Carrying the network's traffic to the internet</b>
+          {:else if (argus.meters[d.id] ?? 0) >= 1024}<b>Moving data</b> <span class="muted">(nothing Argus can name: announcements, or what it does not know)</span>
+          {:else}<span class="muted">Quiet now{d.lastSeen ? `; last heard ${since(d.lastSeen)}` : ''}.</span>{/if}
+        </p>
+        <span class="big">{rate(argus.meters[d.id])}</span>
+      </div>
+      {#if argus.byDevice[d.id]}<RateChart series={argus.byDevice[d.id]!} label="Bandwidth of {d.name}, last minutes" seconds={300} height={110} since={d.firstSeen} />{/if}
+      <h2 class="talk-h">Talking to now</h2>
+      <TalkTable
+        talks={talking}
+        limit={8}
+        label="{d.name} is talking to now"
+        none={d.role === 'gateway' ? 'Only its own conversations are here: the others’ pass through it and are on their pages.' : undefined}
+      />
+    </section>
+  {/if}
+
   {#if d}
+    <section class="band" aria-labelledby="what-h">
+      <h2 id="what-h">Details</h2>
+        <dl class="props">
+          <dt>What it is</dt>
+          <dd>
+            {#if d.identity}
+              {d.identity.label} <span class="src" data-tip={CONFIDENCE[d.identity.confidence]}>{d.identity.confidence}</span>
+              <ul class="clues" aria-label="Clues">
+                {#each d.identity.clues as c (`${c.from}|${c.says}`)}<li>{c.says}: <span class="muted">{c.from}</span></li>{/each}
+              </ul>
+            {:else}<span class="muted">Not known: it said nothing that tells, and Argus does not guess.</span>{/if}
+          </dd>
+          <dt>MAC</dt>
+          <dd class="mono">
+            {d.mac ?? 'none: seen by its address'}{#if d.randomMac}
+              <span class="tag" data-tip="Phones and laptops make up a MAC on every network, so they are not followed from network to network."
+                >private</span
+              >{/if}
+          </dd>
+          <dt>Addresses</dt>
+          <dd class="mono">{d.ips.join(', ') || '—'}</dd>
+          <dt>Maker</dt>
+          <dd>{d.vendor ?? (d.randomMac ? 'Cannot be seen: the device made its MAC up' : 'Unknown')}</dd>
+          <dt>Names</dt>
+          <dd>
+            {#each d.names as n, i (n.name)}{i ? ', ' : ''}{n.name} <span class="src" data-tip={SOURCES[n.source]}>{n.source}</span>{:else}<span
+                class="muted">Did not say its name</span
+              >{/each}
+          </dd>
+          <dt>Network</dt>
+          <dd><NetTag ids={d.interfaces} />{#if d.interfaces.length > 1}<span class="muted small"> (heard on {d.interfaces.length})</span>{/if}</dd>
+          <dt>Seen</dt>
+          <dd>{when(d.firstSeen)} to {when(d.lastSeen)}{live ? ` (${since(d.lastSeen)})` : ''}</dd>
+        </dl>
+    </section>
+
     <section class="band">
       <div class="stats">
         <div class="stat"><span class="stat-v">{bytes(d.bytesSent)}</span><span class="stat-l">sent</span></div>
@@ -167,7 +191,7 @@
 
     {#if source}
       <section class="band">
-        <Conversations conversations={talks} me={new Set([key])} {source} {capture} />
+        <Conversations conversations={convs} me={new Set([key])} {source} {capture} />
       </section>
     {/if}
 
@@ -253,9 +277,34 @@
     border-left: 1px solid var(--rule-strong);
   }
 
+  .live-now {
+    margin-top: -12px;
+  }
+
+  .now-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 8px;
+  }
+
   .now-line {
-    margin: 14px 0 0;
-    font-size: 1.05rem;
+    margin: 0;
+    font-size: 1.1rem;
+  }
+
+  .big {
+    font-size: 1.6rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .talk-h {
+    margin: 22px 0 8px;
+    font-size: 1.02rem;
+    font-weight: 600;
   }
 
   .now-line b {

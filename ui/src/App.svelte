@@ -15,6 +15,7 @@
   import EntityCard from './lib/EntityCard.svelte';
   import { rate } from './lib/format.ts';
   import Logo from './lib/Logo.svelte';
+  import NetBar from './lib/NetBar.svelte';
   import { entityHref, link, router, tabs, type Located } from './lib/router.svelte.ts';
   import Capture from './pages/Capture.svelte';
   import Captures from './pages/Captures.svelte';
@@ -208,7 +209,10 @@
     {#if on.length}<span class="listening-m" title="Listening on {onNames}"><i></i>{rate(argus.meter)}</span>{/if}
   {/snippet}
   {#snippet tabbar()}
-    <TabBar {tabs} {title} icon={(key) => PAGE_ICON[router.parse(key).page]} />
+    <div class="top">
+      <TabBar {tabs} {title} icon={(key) => PAGE_ICON[router.parse(key).page]} />
+      {#if argus.live.loaded}<NetBar />{/if}
+    </div>
   {/snippet}
   {#snippet status()}
     <StatusLine warnings={argus.warnings}>

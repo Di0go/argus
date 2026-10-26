@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Privacy and safety, for the whole network or one device: first what went without encryption (in the colour that
-  // means it, each line a link, the harmless ones and those inside the house said quietly under it), then tracking
+  // Privacy and safety, for the whole network or one device: first what went without encryption (each line a link, an
+  // open padlock by it, the harmless ones and those inside the house said quietly under it), then tracking
   // and telemetry, where the data goes, and how names are looked up and which servers agreed old TLS. Facts, no score.
   // `full` lists everything (the Privacy page); otherwise the first few of each.
   import Lock from '@lucide/svelte/icons/lock';
@@ -45,14 +45,14 @@
       <span class="arrow" aria-hidden="true">→</span>
       <a class="other" href={hrefOf(l.otherKey)}>{l.other}</a>
     </span>
-    <span class="how"><ClearTag clear={l.c.clear!} />{#if full}<span class="when"> {ago(l.c.last)}</span>{/if}</span>
+    <span class="how"><ClearTag clear={l.c.clear!} words />{#if full}<span class="when">{ago(l.c.last)}</span>{/if}</span>
   </li>
 {/snippet}
 
 <div class="privacy" class:full>
   <section class="box" class:on={shown.clear.length} aria-label="Without encryption">
     <h2>
-      {#if shown.clear.length}<LockOpen size={17} strokeWidth={2.4} aria-hidden="true" />{:else}<Lock size={16} aria-hidden="true" />{/if}
+      {#if shown.clear.length}<LockOpen size={16} strokeWidth={2} aria-hidden="true" />{:else}<Lock size={16} aria-hidden="true" />{/if}
       Without encryption{live && hour && recent ? ' · last hour' : ''}
     </h2>
     {#if shown.clear.length}
@@ -185,14 +185,6 @@
     border: 1px solid var(--rule);
   }
 
-  .box.on {
-    border-color: var(--clear-line);
-    background: var(--clear-soft);
-  }
-
-  .box.on h2 {
-    color: var(--clear);
-  }
 
   .lines,
   .kv,
@@ -213,9 +205,6 @@
     font-size: 0.9rem;
   }
 
-  .box.on .lines li {
-    border-color: var(--clear-line);
-  }
 
   .who {
     min-width: 0;
@@ -242,6 +231,7 @@
   }
 
   .when {
+    margin-left: 8px;
     font-size: 0.8rem;
     color: var(--muted);
   }

@@ -55,10 +55,10 @@
         </li>
       {:else if e.ev}
         {@const ev = e.ev}
-        <li class:clear={ev.type === 'clear' && (!ev.local || ev.credentials)}>
+        <li>
           <time>{clock(ev.t)}</time>
           <span class="what">
-            {#if ev.type === 'clear'}<LockOpen size={13} strokeWidth={2.4} aria-hidden="true" />{/if}
+            {#if ev.type === 'clear'}<LockOpen size={13} strokeWidth={2} aria-label="Unencrypted" />{/if}
             {#if device}<a class="who" href={link.device(deviceId(ev.device))}>{ev.deviceName}</a>{' '}{/if}
             {#if ev.type === 'new'}joined the network for the first time
             {:else if ev.type === 'clear'}talked {ev.proto} without encryption to {ev.withName ?? ev.with}{ev.credentials ? ', with a login' : ''}{ev.local ? ' (inside the house)' : ''}
@@ -115,16 +115,6 @@
     color: var(--muted);
   }
 
-  li.clear {
-    box-shadow: inset 3px 0 0 var(--clear);
-    background: linear-gradient(90deg, var(--clear-soft), transparent 70%);
-    padding-left: 8px;
-  }
-
-  li.clear .what,
-  li.clear .who {
-    color: var(--clear);
-  }
 
   .what :global(svg) {
     vertical-align: -1px;

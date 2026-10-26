@@ -5,7 +5,78 @@ know in seconds what is happening on the network, what each device is and is doi
 is how the pages are laid out, why, and what was tried and turned down. (The file keeps the name it was asked for;
 everything in it is in English, like the rest of Argus.)
 
-## The questions, in the order a person asks them
+## 2026-10-26: the monitor (this replaces the newsroom below)
+
+He saw the newsroom (layout A below, release 8df7daa) on his own network and turned it down: "the homepage is
+horrible, the selector with pills is great, but it needs to be there all of the time, the rest of the homepage is
+unusable, I'm completely lost in all of this information, and the unencrypted traffic icons and signals are horrible
+too, it's too much, just a small icon for it … and I can't see anything in real time that's useful". What is below this
+section is kept as the record of what was tried; where it disagrees with this section, this section holds.
+
+**The home page answers one question: who is using the network now, and for what.** A line per device in use (its
+mark, its name, what it is doing in words, how fast now with a bar on the scale of the busiest), busiest over the last
+ten seconds first, a call ahead of anything else; the quiet ones are one link ("49 more devices, quiet now"). Under
+it, *Talking to now*: the four busiest other ends (the app, else the company, else the host), what for, and how fast,
+the device said only when there is more than one. Both move every second over the live stream, without a reload ("Live,
+every second" says so); the order is re-sorted at most every few seconds (two for the conversations) and never under
+the pointer, and a conversation that has just begun lights up for a moment. A line is a door: one click to the device.
+The sentence on top, the day by hour, the diary, privacy and the bandwidth chart left the home page; they are each
+one click away in the ribbon (Diary, Privacy; the bandwidth of a network on its own page).
+
+**Where Argus listens is a bar of pills on every page**, under the tabs, sticky: a pill per network that usually
+matters (Wi-Fi, cable, VPN, up), each a switch with its rate now, the rest behind "N more", and "Save last minutes" at
+the end. It replaces the list that opened under "Change" on Now.
+
+**Without encryption is a small open padlock**, in the ink of the text beside it, no colour, no badge, no stripe, no
+counter; its tip says what it was (the protocol, whether a login went by, why it matters). The full account (every
+unencrypted conversation, tracking, DNS, old TLS, where the data goes) is on the Privacy page. `--clear` and its orange
+are gone.
+
+**A device's page** starts with what it is doing now, how fast, its last five minutes, and whom it is talking to now
+(live, the same table as the home page); what it is, the clues, its day, privacy and conversations come after.
+
+**Counted** (every visible text and icon above the fold at 1440 × 900, in headless Chromium, on the same real network
+with one device busy): the page area (the frame every page shares, ribbon, tabs and status line, left out: it is 22 of
+them) went from 59 on 8df7daa to 27, 46 %; the whole screen from 81 to 49. Each busy device adds four (its mark, name,
+words and rate). Two screenshots five seconds apart, no reload, show different rates on every line.
+
+**The crew**, the trades the verbs asked for and their methods, applied here:
+- *The broadcast-graphics designer* (live scores, election night): figures in fixed-width columns that change in place,
+  an order re-sorted on a slow clock and never under the eye, a newcomer marked for a moment, the refresh said on
+  screen. *Changed:* tabular figures with a fixed column, `Ranked` (re-sort every 3 s, 2 s for the conversations, hold
+  under the pointer, newcomers join at the end), the brief grey on a new conversation, "Live, every second".
+- *The wayfinding designer* (stations, hospitals): the same sign in the same place everywhere, saying where you are,
+  every door labelled by what is behind it. *Changed:* the network pills sticky under the tabs on every page, their
+  state (dot, rate) on the pill itself; every line of the home page is a link to its device.
+- *The usability researcher* (five-second and first-click tests): the page's one question written first, then a fresh
+  reader shown the screen once. *Changed:* a reader with no context, shown the real and the demo home page once each,
+  named every busy device and what it was doing and where to click; what confused it (an order that did not follow the
+  number shown, two rates for the same thing, a pink highlight that meant nothing) was fixed: the order follows the
+  number, the pills use the rows' ballistics, the highlight is grey.
+
+**The red team** (a fresh reviewer told to break it) found, and it was fixed: the first rule for a second router turned
+a host with a public address, or a device sending made-up addresses, into a router (now: a way out is where frames for
+eight or more internet hosts are sent; this PC never is; a session kept before keeps its router); a printer's
+announcements made a line blink in and out 34 times a minute (now: in use means doing something named or talking to
+someone, held ten seconds; 0 changes in 60 s); a conversation shown faster than its whole device (now both over the
+same three seconds; 0 in 20 s); lines that moved under the pointer (0 now); a login in the clear that never reached the
+home page (now a padlock by the device's name); the router's page saying "Quiet now" at 3 MB/s.
+
+**Turned down, with the reason:**
+- *Cards per device* (mock-up B): the busiest device's number big, its top three conversations inside. Pretty with
+  one device, a wall with eight, and two cards a row break the "read down one column" of a monitor.
+- *A feed of what begins* (mock-up C): a ticker of new conversations, newest first. It moves, but what is new is
+  rarely what matters; a monitor's question is "what is busy", not "what just started".
+- *A sparkline per row*: htop and Activity Monitor have none; the number and a bar say it, and the sparklines alone
+  were five icons above the fold.
+- *The status sentence* ("In use. 1 of 13 devices are using the network…"): the list says it, line by line.
+
+## The newsroom (2026-10-25, turned down on 2026-10-26)
+
+Everything from here down is the design he turned down, kept so nobody draws it again: the one colour for
+unencrypted, the status sentence, privacy beside the list and the day under it all left the home page (see the top).
+
+### The questions, in the order a person asks them
 
 1. **Is everything normal?** One sentence at the top, in words, and the only colour on the page when something is not.
 2. **Who is using the network now, and for what?** One line per busy device: its name, what it is, and what it is
@@ -21,7 +92,7 @@ everything in it is in English, like the rest of Argus.)
 Everything else (interfaces, ring buffer, captures, the 10-minute bandwidth chart, MAC addresses) is still there, one
 click deeper: it is how Argus works, not what is happening.
 
-## How the best do it, and what they do badly
+### How the best do it, and what they do badly
 
 | Tool | Kept | Turned down |
 | --- | --- | --- |
@@ -32,7 +103,7 @@ click deeper: it is how Argus works, not what is happening.
 | **Pi-hole** | The query log, where a colour says at once what was blocked. Top clients, top domains. | Big counters (queries today, % blocked) that say a number, not a meaning. |
 | **ntopng** | Depth: every flow, ASN, country, TLS version, a score per host. | Built for a network engineer: a human looking for "is anything wrong" drowns. |
 
-## The crew: the trades whose methods shaped it
+### The crew: the trades whose methods shaped it
 
 The task, as verbs: *let one person, in ten seconds, tell who is using the network and for what, and whether anything
 is unencrypted; name each device for what it is without claiming more than the evidence says; tell what happened while
@@ -54,7 +125,7 @@ usually call answer those verbs:
   stopped, with how much), not of minutes; quiet background (DNS, the network's own chatter) never makes an entry; a
   device's first appearance and every unencrypted conversation do.
 
-## The three layouts drawn
+### The three layouts drawn
 
 Over the same made-up house (`docs/mockups/home.html`, opened at `#a`, `#b`, `#c`):
 
@@ -74,7 +145,7 @@ C answers with numbers (11 devices, 9.7 GB, 4 %) that need interpreting, the don
 the best place on the page for what changes least. B's idea survives where it helps: a device's page shows who it
 talks to, grouped by company, each line its width in bytes.
 
-## The pages
+### The pages
 
 - **Now** (the home page): as A. The interfaces' switches move to a compact line at the head ("Listening on Wi-Fi
   and Docker · change"), opening the full list; the bandwidth chart of the last ten minutes moves under the diary.
@@ -92,7 +163,7 @@ Navigation: every name is a link to its page (the core's hover card on each); th
 pill go to **Privacy**; the diary's lines go to the device; the ribbon has Now, Network, Internet, Privacy, Diary,
 Captures.
 
-## Turned down
+### Turned down
 
 - **Alerts and notifications** (out of scope, and the reason GlassWire and Firewalla tire their users): colour and
   place only.
@@ -105,7 +176,7 @@ Captures.
   database of them under a licence compatible with this repository, and a fingerprint names a TLS library, not a
   device. They are kept as clues ("the same software as …"), never as a name.
 
-## As built, and what changed on the way
+### As built, and what changed on the way
 
 - **The status sentence** says how many devices are using the network and what the two busiest are doing; the router
   is never counted as a user (it carries everyone's traffic). Beside it, either "N unencrypted in the last hour"

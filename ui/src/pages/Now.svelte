@@ -1,296 +1,257 @@
 <script lang="ts">
-  // Now, the home page, read in the order a person asks (docs/apresentacao.md): is everything normal (one sentence,
-  // and whether anything went unencrypted in the last hour); who is using the network and for what; what each device
-  // is (under its name); is anything unsafe (privacy and safety, beside); what happened while nobody was looking (the
-  // day by hour, and the diary). How Argus listens (the interfaces, the bandwidth chart, saving) is at the bottom, and
-  // a line at the top says where it listens.
+  // Now, the home page, as a system monitor reads: who is using the network now and for what, a line each (the
+  // device, what it is doing in words, how fast now), busiest first; then whom they are talking to
+  // now. Both move every second. Where Argus listens is the bar above every page (NetBar); the day, the diary, privacy
+  // and the internet are a click away in the ribbon (docs/apresentacao.md).
+  import { flip } from 'svelte/animate';
+  import { fade } from 'svelte/transition';
+  import { saying, score, split, talkers } from '../lib/active.ts';
   import { argus } from '../lib/argus.svelte.ts';
-  import DayColumns from '../lib/DayColumns.svelte';
-  import { days } from '../lib/day.svelte.ts';
-  import Diary from '../lib/Diary.svelte';
-  import { bytes, rate, span } from '../lib/format.ts';
+  import EntityIcon from '../lib/EntityIcon.svelte';
+  import { rate } from '../lib/format.ts';
   import Limits from '../lib/Limits.svelte';
-  import Listen from '../lib/Listen.svelte';
-  import { privacy } from '../lib/privacy.ts';
-  import PrivacyPanel from '../lib/PrivacyPanel.svelte';
-  import RateChart from '../lib/RateChart.svelte';
-  import { link } from '../lib/router.svelte.ts';
-  import Seg from '../lib/Seg.svelte';
-  import Verdict from '../lib/Verdict.svelte';
-  import WhoList from '../lib/WhoList.svelte';
   import { networks } from '../lib/networks.svelte.ts';
-
-  let period = $state<'minutes' | 'day'>('minutes');
-  const PERIODS = [
-    { id: 'minutes' as const, label: '10 min' },
-    { id: 'day' as const, label: 'Today' },
-  ];
-  let saving = $state(false);
-  let saved = $state('');
-  let alertText = $state('');
-  let listenOpen = $state(false);
+  import { Ranked } from '../lib/ranked.svelte.ts';
+  import { link } from '../lib/router.svelte.ts';
+  import { talks } from '../lib/talks.ts';
+  import TalkTable from '../lib/TalkTable.svelte';
+  import type { Conversation, Device } from '../../../shared/types.ts';
+  import ClearTag from '../lib/ClearTag.svelte';
 
   const s = $derived(argus.session);
-  const src = $derived(argus.liveSource);
   const on = $derived(s?.listening.filter((l) => l.on) ?? []);
-  const names = $derived(on.map((l) => argus.interfaces.find((i) => i.id === l.id)?.name ?? l.id));
   const seen = $derived(Boolean(s?.packets));
-  const today = $derived(days.get());
   // The network chosen on Devices, when the others are hidden there, is the one shown here too.
-  const mine = $derived(networks.hideOthers && networks.selected ? networks.split(src.devices).mine : src.devices);
-  // The colour is for the last hour; the panel's other facts are the session's.
-  const whole = $derived(privacy(src));
-  const recent = $derived(privacy(src, { since: Date.now() / 1000 - 3600 }));
-  const stamp = $derived(new Date().toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }));
-
-  function list(xs: string[]): string {
-    return xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
-  }
-
-  async function save() {
-    saving = true;
-    try {
-      const c = await argus.save();
-      saved = c.id;
-    } catch (err) {
-      saved = '';
-      alertText = (err as Error).message;
-    } finally {
-      saving = false;
-    }
-  }
+  const devices = $derived(networks.hideOthers && networks.selected ? networks.split(argus.liveSource.devices).mine : argus.liveSource.devices);
+  const groups = $derived(split(devices, argus.interfaces, argus.meters, talkers(argus.liveSource.conversations)));
+  // By the number shown, re-sorted every three seconds: what a glance reads is what the order says.
+  const rank = new Ranked(3000);
+  $effect(() => rank.update(groups.active.map((d) => d.id), (id) => score(devices.find((d) => d.id === id)!, argus.meters[id] ?? 0)));
+  const active = $derived(rank.order.map((id) => devices.find((d) => d.id === id)).filter((d): d is Device => Boolean(d)));
+  const max = $derived(Math.max(1, ...active.map((d) => argus.meters[d.id] ?? 0)));
+  // Whom the devices shown are talking to (the router carries everyone's: its own lines are not the house's).
+  const keys = $derived(new Set(devices.map((d) => `device:${d.id}`)));
+  // A device that sent something without encryption in the last hour (a login in the clear even inside the house): its
+  // small padlock by its name, the detail in its tip.
+  const clearFor = $derived.by(() => {
+    const hour = Date.now() / 1000 - 3600;
+    const out = new Map<string, NonNullable<Conversation['clear']>>();
+    for (const c of argus.liveSource.conversations)
+      if (c.clear && !c.clear.harmless && c.last >= hour && (c.b.startsWith('remote:') || c.clear.credentials) && !out.get(c.a)?.credentials) out.set(c.a, c.clear);
+    return out;
+  });
+  const now = $derived(talks(argus.liveSource).filter((t) => t.device && keys.has(`device:${t.device.id}`) && t.device.role !== 'gateway'));
 </script>
 
 <div class="page now">
-  <header class="page-head head">
-    <div>
-      <h1 class="page-title">Now</h1>
-      <p class="page-lede">{stamp}</p>
-    </div>
-    {#if s && (on.length || seen)}
-      <p class="where">
-        {#if on.length}<i class="on" aria-hidden="true"></i>Listening on {list(names)} for {span(Date.now() / 1000 - Math.min(...on.map((l) => l.since ?? Date.now() / 1000)))} · {rate(
-            argus.meter,
-          )}{:else}<i aria-hidden="true"></i>Not listening now{/if}
-        <button class="ghost small" aria-expanded={listenOpen} onclick={() => (listenOpen = !listenOpen)}>{listenOpen ? 'Done' : 'Change'}</button>
-      </p>
-    {/if}
+  <header class="head">
+    <h1 class="page-title">Who is using the network</h1>
+    {#if on.length && seen}<p class="live" title="The rates and the lists follow the network each second, without reloading"><i aria-hidden="true"></i>Live, every second</p>{/if}
   </header>
 
   {#if !argus.live.loaded}
-    <section class="band" aria-hidden="true">
-      <div class="sk tall w30"></div>
-      <div class="sk-chart"></div>
-    </section>
+    <div class="sk tall w30" aria-hidden="true"></div>
   {:else if !seen}
-    <section class="band listen-band" aria-label="Where to listen">
-      <Listen />
-    </section>
-    <section class="band first">
-      <div class="empty-state">
-        <h2>{on.length ? 'Listening' : 'Not listening yet'}</h2>
-        <p>
-          {on.length
-            ? 'The first packets show here as soon as they arrive. On a quiet network they may take a few seconds.'
-            : 'Choose above where to listen: the Wi-Fi, the cable or the VPN, one or several. It stays on until you turn it off, even if you close this page.'}
-        </p>
-      </div>
-      <Limits />
-    </section>
+    <div class="empty-state">
+      <h2>{on.length ? 'Listening' : 'Not listening yet'}</h2>
+      <p>
+        {on.length
+          ? 'The first packets show here as soon as they arrive. On a quiet network they may take a few seconds.'
+          : 'Choose a network in the bar above: the Wi-Fi, the cable or the VPN, one or several. It stays on until you turn it off, even if you close this page.'}
+      </p>
+    </div>
+    <Limits />
   {:else}
-    {#if listenOpen}
-      <section class="band listen-band" aria-label="Where to listen">
-        <Listen />
-      </section>
+    {#if active.length}
+      <ul class="rows" aria-label="Who is using the network" onpointerenter={() => (rank.hold = true)} onpointerleave={() => (rank.hold = false)}>
+        {#each active as d (d.id)}
+          <li data-device={d.id} animate:flip={{ duration: 400 }} in:fade={{ duration: 300 }}>
+            <a class="row" href={link.device(d.id)}>
+              <EntityIcon entity={d} size={30} />
+              <span class="name"><b>{d.name}</b>{#if clearFor.get(`device:${d.id}`)}<ClearTag clear={clearFor.get(`device:${d.id}`)!} inLink />{/if}</span>
+              <span class="doing">{saying(d).now}</span>
+              <span class="now-rt"><span class="bar" style:width="{Math.max(2, 60 * Math.sqrt((argus.meters[d.id] ?? 0) / max))}px"></span><span class="rt"
+                  >{rate(argus.meters[d.id])}</span
+                ></span>
+            </a>
+          </li>
+        {/each}
+      </ul>
+    {:else}
+      <p class="none">Nobody is using the network right now.</p>
+    {/if}
+    {#if groups.quiet.length}
+      <p class="quiet"><a href={link.devices()}>{groups.quiet.length} more {groups.quiet.length === 1 ? 'device' : 'devices'}, quiet now</a></p>
     {/if}
 
-    <Verdict devices={src.devices} {recent} />
-
-    <div class="grid">
-      <div class="col">
-        <section class="band o-who" aria-labelledby="who-h">
-          <div class="band-h">
-            <h2 id="who-h">Who is using the network</h2>
-            <a href={link.devices()}>All the devices</a>
-          </div>
-          <WhoList devices={mine} />
-        </section>
-
-        <section class="band o-today" aria-labelledby="today-h">
-          <div class="band-h">
-            <h2 id="today-h">Today</h2>
-            {#if today}<span class="aside">{bytes(today.bytes)}</span>{/if}
-          </div>
-          {#if today?.bytes}
-            <DayColumns hours={today.hours} />
-          {:else}
-            <p class="empty">The day fills in as it goes: a minute at a time, kept across reloads and restarts.</p>
-          {/if}
-        </section>
-
-        <section class="band o-diary" aria-labelledby="diary-h">
-          <div class="band-h">
-            <h2 id="diary-h">What happened</h2>
-            <a href={link.diary()}>The whole day</a>
-          </div>
-          <Diary episodes={today?.diary ?? []} events={today?.events ?? []} limit={9} />
-        </section>
-      </div>
-
-      <aside class="col side" aria-label="Privacy and safety">
-        <PrivacyPanel p={whole} {recent} source={src} />
-      </aside>
-    </div>
-
-    <section class="band pulse" aria-label="Bandwidth">
-      <div class="band-h">
-        <h2>Bandwidth</h2>
-        <Seg bind:value={period} label="Period" options={PERIODS} />
-      </div>
-      <p class="what">{rate(argus.meter)} now, the whole network as seen from here; {bytes(s?.bytes ?? 0)} since the session began.</p>
-      {#if period === 'minutes'}
-        <RateChart series={argus.fine} label="Bandwidth, whole network" seconds={600} height={160} since={s?.started} />
-      {:else}
-        <RateChart series={argus.coarse} label="Bandwidth, whole network, today" height={160} since={s?.started} />
-      {/if}
-    </section>
-
-    <section class="band foot">
-      <div class="keep">
-        <button class="ghost small" disabled={saving} onclick={save}>{saving ? 'Saving…' : 'Save the last minutes'}</button>
-        <span class="muted"
-          >What the ring buffer holds on disk, up to {s ? `${s.limits.ringFiles * s.limits.ringFileMB} MB` : ''} per interface, is kept
-          as a capture.</span
-        >
-        {#if saved}<a href={link.capture(saved)}>Open the saved capture</a>{/if}
-        {#if alertText}<span class="error" role="alert">{alertText}</span>{/if}
-      </div>
-      <Limits />
+    <section class="talking" aria-labelledby="talk-h">
+      <h2 id="talk-h">Talking to now</h2>
+      <TalkTable talks={now} limit={4} from={new Set(now.slice(0, 4).map((t) => t.device?.id)).size > 1} />
     </section>
   {/if}
 </div>
 
 <style>
-  .head {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 8px 24px;
+  .now {
+    padding-top: 32px;
   }
 
-  .where {
+  .head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    margin-bottom: 20px;
+  }
+
+  .head .page-title {
+    margin: 0;
+    font-size: 1.7rem;
+  }
+
+  .live {
     display: inline-flex;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 6px 10px;
-    margin: 0 0 6px;
-    font-size: 0.88rem;
+    gap: 7px;
+    margin: 0;
+    font-size: 0.84rem;
     color: var(--muted);
   }
 
-  .where i {
+  .live i {
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: var(--faint);
-  }
-
-  .where i.on {
     background: var(--solid);
+    animation: beat 2s var(--ease) infinite;
   }
 
-  .listen-band {
-    margin-bottom: 28px;
+  @keyframes beat {
+    50% {
+      opacity: 0.35;
+    }
   }
 
-  .grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1.75fr) minmax(300px, 1fr);
-    gap: 8px 48px;
-    margin-top: 28px;
-  }
-
-  .col {
-    min-width: 0;
-  }
-
-  .side {
-    padding-top: 4px;
-  }
-
-  .band-h a {
-    font-size: 0.84rem;
-    color: var(--acc);
-  }
-
-  .aside {
-    font-size: 0.84rem;
-    color: var(--muted);
-  }
-
-  .what {
-    margin: -4px 0 10px;
-    font-size: 0.84rem;
-    color: var(--muted);
-  }
-
-  .foot {
-    display: grid;
-    gap: 22px;
-    padding-top: 22px;
+  .rows {
+    margin: 0;
+    padding: 0;
+    list-style: none;
     border-top: 1px solid var(--rule);
   }
 
-  .keep {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px 14px;
-    font-size: 0.84rem;
-  }
-
-  .first {
+  .row {
     display: grid;
-    gap: 12px;
+    grid-template-columns: 30px minmax(10em, 14em) minmax(0, 1fr) 11em;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--rule);
+    color: var(--fg);
   }
 
-  .first .empty-state {
-    padding: 8px 0 0;
+  .row:hover {
+    background: var(--hover);
+    text-decoration: none;
   }
 
-  .sk-chart {
-    height: 210px;
-    margin-top: 18px;
-    border-radius: var(--radius-lg);
-    background: var(--b1);
+  .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  @media (max-width: 1100px) {
-    .grid {
-      grid-template-columns: minmax(0, 1fr);
+  .name b {
+    font-weight: 600;
+  }
+
+  .name :global(.clear-tag) {
+    margin-left: 7px;
+  }
+
+  .doing {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .now-rt {
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .bar {
+    display: inline-block;
+    height: 6px;
+    margin-right: 10px;
+    border-radius: 3px;
+    background: var(--data);
+    opacity: 0.55;
+    vertical-align: middle;
+    transition: width 0.6s var(--ease);
+  }
+
+  .rt {
+    display: inline-block;
+    min-width: 5.5em;
+    text-align: right;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .quiet,
+  .none {
+    margin: 10px 0 0;
+    font-size: 0.86rem;
+    color: var(--muted);
+  }
+
+  .quiet a {
+    color: var(--muted);
+  }
+
+  .talking {
+    margin-top: 36px;
+  }
+
+  .talking h2 {
+    margin: 0 0 8px;
+    font-size: 1.02rem;
+    font-weight: 600;
+  }
+
+  .empty-state {
+    padding: 8px 0 16px;
+  }
+
+  @media (max-width: 760px) {
+    .row {
+      grid-template-columns: 28px minmax(0, 1fr) 5.5em;
+      grid-template-areas: 'icon name rt' 'icon doing doing';
+      gap: 2px 12px;
     }
 
-    /* On a narrow screen, safety comes right after who is using the network. */
-    .grid > .col:first-child {
-      display: contents;
+    .row > :global(.ei) {
+      grid-area: icon;
     }
 
-    .o-who {
-      order: 1;
+    .name {
+      grid-area: name;
     }
 
-    .side {
-      order: 2;
-      margin-bottom: 36px;
+    .doing {
+      grid-area: doing;
+      font-size: 0.86rem;
+      color: var(--fg-2);
     }
 
-    .o-today {
-      order: 3;
+    .now-rt {
+      grid-area: rt;
     }
 
-    .o-diary {
-      order: 4;
+    .bar {
+      display: none;
     }
   }
 </style>

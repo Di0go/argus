@@ -54,7 +54,7 @@
         <dd>{#if r.where}{r.where.country ?? 'Unknown country'}<span class="src"> · network AS{r.where.asn} {r.where.org ?? ''}, registered there</span>{:else}<span class="muted">{argus.geo ? 'Not in the table of networks' : 'Unknown (pnpm geo)'}</span>{/if}</dd>
         <dt>Encryption</dt>
         <dd>
-          {#if clear}<ClearTag {clear} long />{/if}
+          {#if clear}<ClearTag {clear} words />{/if}
           {#if tls.length}TLS {tls.join(', ')}{:else if !clear}<span class="muted">Not seen (the handshake did not pass here, or it is QUIC)</span>{/if}
         </dd>
         <dt>Seen</dt>

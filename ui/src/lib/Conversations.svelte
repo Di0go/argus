@@ -89,7 +89,7 @@
           {@const s = side(c)}
           {@const there = source.graph.get(s.there)}
           {@const here = source.graph.get(s.here)}
-          <tr class:hot={hot(c)} class:clear-row={c.clear && !c.clear.harmless} data-conversation={c.id}>
+          <tr class:hot={hot(c)} data-conversation={c.id}>
             <td class="who">
               <span class="who-in">
                 <i class="dot" aria-hidden="true"></i>

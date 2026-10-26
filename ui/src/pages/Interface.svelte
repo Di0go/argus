@@ -1,11 +1,13 @@
 <script lang="ts">
-  // One interface: what it is, whether Argus listens on it and how that goes, and the devices heard on it.
+  // One interface: what it is, whether Argus listens on it and how that goes, its bandwidth of the last ten minutes,
+  // and the devices heard on it.
   import type { Interface } from '../../../shared/types.ts';
   import { argus } from '../lib/argus.svelte.ts';
   import Conversations from '../lib/Conversations.svelte';
   import DeviceTable from '../lib/DeviceTable.svelte';
   import EntityIcon from '../lib/EntityIcon.svelte';
-  import { bytes, since, span } from '../lib/format.ts';
+  import { bytes, rate, since, span } from '../lib/format.ts';
+  import RateChart from '../lib/RateChart.svelte';
   import { link } from '../lib/router.svelte.ts';
 
   let { id }: { id: string } = $props();
@@ -56,6 +58,12 @@
       <p class="page-lede">This interface no longer exists on this PC.</p>
     {/if}
   </header>
+  {#if l?.on && argus.byInterface[id]}
+    <section class="band" aria-label="Bandwidth">
+      <div class="band-h"><h2>Bandwidth</h2><span class="aside">{rate(l.rate)} now</span></div>
+      <RateChart series={argus.byInterface[id]!} label="Bandwidth on {i?.name ?? id}" seconds={600} height={160} since={l.since} />
+    </section>
+  {/if}
   {#if devices.length}
     <section class="band">
       <div class="band-h"><h2>Heard here</h2><span class="aside">{devices.length}</span></div>
@@ -78,6 +86,11 @@
 
   .who {
     margin: 4px 0 0;
+    color: var(--muted);
+  }
+
+  .aside {
+    font-size: 0.84rem;
     color: var(--muted);
   }
 </style>
