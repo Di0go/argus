@@ -12,7 +12,7 @@ import { Warnings } from '@organon/core/server/warnings';
 import type { Classification } from '../shared/classify.ts';
 import type { Conversation, Device } from '../shared/types.ts';
 import { History } from '../server/history.ts';
-import { doing as say } from '../shared/words.ts';
+import { doing as say, siteOnly } from '../shared/words.ts';
 
 const YOUTUBE: Classification = { company: 'Google', app: 'YouTube', category: 'video', label: 'Video', activity: 'watching video', tracking: false, by: 'name', rule: 'googlevideo.com' };
 const CALL: Classification = { company: 'Meta', app: 'WhatsApp', category: 'calls', label: 'Calls', activity: 'on a call', tracking: false, by: 'pattern', rule: 'udp/3478' };
@@ -119,6 +119,34 @@ test("One visit to YouTube's home page is browsing it, not watching: watching ta
   const day = await h.dayView();
   assert.deepEqual(day.diary.map((e) => say(e.what, 'past')), ['browsed YouTube']);
   assert.deepEqual(day.devices[0]?.top.map((t) => say(t.what, 'past')), ['browsed YouTube']);
+});
+
+test('A host the dictionary does not know is said by its site; it never heads what a device is doing over a named app', async () => {
+  const { clock, make } = await setup();
+  const h = await make();
+  const laptop = device('aa:aa:aa:aa:aa:05', 'laptop');
+  const SPOTIFY: Classification = { company: 'Spotify', app: 'Spotify', category: 'music', label: 'Music', activity: 'listening to music', tracking: false, by: 'name', rule: 'spotify.com' };
+  await h.observe({ devices: [laptop], conversations: [] });
+  for (let i = 1; i <= 72; i++) {
+    clock.add(5);
+    await h.observe({
+      devices: [laptop],
+      conversations: [
+        { ...talk(laptop.id, '203.0.113.7', 0, i * 400_000), site: 'example.net' },
+        talk(laptop.id, '203.0.113.8', 0, i * 20_000, SPOTIFY),
+        talk(laptop.id, '192.0.2.9', 0, i * 900_000),
+      ],
+    });
+  }
+  const now = (h.doing(`device:${laptop.id}`) ?? []).map((x) => say(x.what));
+  // The named app first, though the least; then the site by its name; the address with no name last.
+  assert.deepEqual(now, ['Listening to Spotify', 'Using example.net', 'Talking to hosts with no name']);
+  await h.flush();
+  const day = await h.dayView();
+  const story = day.diary.find((e) => e.device === `device:${laptop.id}`);
+  assert.equal(say(story?.what, 'past'), 'listened to Spotify');
+  assert.ok(story?.also?.some((w) => say(w, 'past') === 'used example.net'), JSON.stringify(story?.also));
+  assert.equal(say(siteOnly('example.net')), 'Using example.net');
 });
 
 test('A restart: the day reads back, the first look after it is a baseline, and counters that went down count from zero', async () => {

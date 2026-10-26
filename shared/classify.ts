@@ -26,8 +26,11 @@ export interface Classification {
   carrier?: boolean;
   /** The registrable name it was known by ("googlevideo.com"), by the Public Suffix List. */
   site?: string;
-  /** How it was known: by a name, by the address's network, by the port, or by how the traffic goes. */
-  by: 'name' | 'network' | 'port' | 'pattern';
+  /**
+   * How it was known: by a name, by the address's network, by the port, or by how the traffic goes; `site`: not known,
+   * only the site's name is (shared/words.ts siteOnly: the dictionary has no word for it).
+   */
+  by: 'name' | 'network' | 'port' | 'pattern' | 'site';
   /** The rule that said it: the name's suffix, "AS15169", "udp/3478". */
   rule: string;
 }

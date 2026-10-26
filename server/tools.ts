@@ -65,6 +65,7 @@ function deviceLine(d: Device) {
 /** What the dictionary says, as the agent reads it. */
 function what(c: Classification | undefined) {
   if (!c) return undefined;
+  if (c.by === 'site') return { site: c.site, knownBy: 'its name only: the dictionary has no word for it' };
   return {
     ...(c.company ? { company: c.company } : {}),
     ...(c.app ? { app: c.app } : {}),
@@ -236,6 +237,7 @@ export function argusTools(captures: Captures, live: Live, history?: History) {
                 service: serviceName(c.service),
                 ...(c.service.includes('/') ? { port: c.service } : {}),
                 ...(c.app ? { what: what(c.app) } : {}),
+                ...(!c.app && c.site ? { site: c.site } : {}),
                 ...(c.clear ? { unencrypted: `${c.clear.proto}${c.clear.credentials ? ', a login went by (Argus keeps that it did, not its value; the ring buffer of the last minutes holds the raw packets)' : ''}${c.clear.harmless ? ', harmless by design' : ''}` } : {}),
                 ...(c.tls ? { tls: c.tls } : {}),
                 sent: mine ? c.sent : c.received,

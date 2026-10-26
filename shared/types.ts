@@ -160,6 +160,8 @@ export interface Conversation {
   protocol?: string;
   /** What it is, in plain words: the app, the category, the activity (shared/classify.ts); absent when unknown. */
   app?: Classification;
+  /** When `app` is absent but the other end has a name: its site (the registrable name), said as "using <site>". */
+  site?: string;
   /** What it carried in the clear (shared/security.ts): the protocol, and whether a password went with it. */
   clear?: { proto: string; credentials?: boolean; harmless?: boolean };
   /** The TLS version it agreed ("1.0" … "1.3"), when its handshake was seen. */

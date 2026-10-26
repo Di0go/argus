@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Classification } from '../shared/classify.ts';
 import { identify } from '../shared/identify.ts';
-import { doing, doingList, fromKey, keyOf } from '../shared/words.ts';
+import { doing, doingList, fromKey, groupOf, keyOf, siteOnly } from '../shared/words.ts';
 
 const w = (category: Classification['category'], app?: string, company?: string): Classification => ({
   category,
@@ -23,7 +23,7 @@ test('Doing, in a verb: now and in the past; a CDN names who carries, not the ap
   assert.equal(doing(w('calls', 'WhatsApp')), 'On a WhatsApp call');
   assert.equal(doing(w('updates', 'Windows Update')), 'Updating Windows');
   assert.equal(doing({ ...w('cdn', undefined, 'Akamai'), carrier: true }), 'Downloading from Akamai');
-  assert.equal(doing(undefined), 'Moving data (unknown)');
+  assert.equal(doing(undefined), 'Talking to hosts with no name');
   assert.equal(doingList([w('calls', 'Google Meet'), w('work', 'npm')]), 'On a Google Meet call, using npm');
   const k = keyOf(w('music', 'Spotify', 'Spotify'));
   assert.equal(fromKey(k, (c) => c)?.app, 'Spotify');
@@ -93,4 +93,15 @@ test('Identity: two User-Agents that read the same as clues (they differ past 80
   const lines = (i?.clues ?? []).map((c) => `${c.from}|${c.says}`);
   assert.equal(lines.length, 1);
   assert.equal(new Set(lines).size, lines.length);
+});
+
+test('A site the dictionary does not know is said by its name, kept by it in the history, and grouped apart', () => {
+  const w = siteOnly('example.org');
+  assert.equal(doing(w), 'Using example.org');
+  assert.equal(doing(w, 'past'), 'used example.org');
+  const k = keyOf(w);
+  // Its category in the history is none: the day's chart still says "Not named".
+  assert.equal(k.split('|')[0], '');
+  assert.equal(doing(fromKey(k, (c) => c)), 'Using example.org');
+  assert.notEqual(groupOf(w), groupOf(siteOnly('example.net')));
 });

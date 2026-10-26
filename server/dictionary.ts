@@ -71,5 +71,6 @@ export function classify(clue: Clue): Classification | undefined {
 }
 
 export function siteOf(name: string): string | undefined {
-  return dictionary.siteOf(name);
+  return dictionary.siteOf(name.toLowerCase().replace(/\.$/, ''));
 }
+

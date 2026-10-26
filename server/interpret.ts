@@ -9,7 +9,7 @@
 import { identify } from '../shared/identify.ts';
 import { type DnsUse, harmless, RESOLVERS } from '../shared/security.ts';
 import type { Conversation, Device, Remote } from '../shared/types.ts';
-import { classify } from './dictionary.ts';
+import { classify, siteOf } from './dictionary.ts';
 import type { Geo } from './geo.ts';
 import type { Dissected } from './tally.ts';
 
@@ -34,6 +34,10 @@ export function interpret<V extends Dissected | Pick<Dissected, 'devices' | 'rem
     const h = c.b.startsWith('remote:') ? remotes.get(c.b.slice('remote:'.length)) : undefined;
     const app = classify({ names: h && telling(h), ip: h?.ip, service: c.service, protocol: c.protocol });
     if (app) c.app = app;
+    // Not known, but named: the site, said by its name rather than as nothing.
+    const site = !app && h ? telling(h).map((n) => siteOf(n)).find(Boolean) : undefined;
+    if (site) c.site = site;
+    else delete c.site;
     const asked = h?.names.filter((n) => n.source === 'HTTP' || n.source === 'TLS').map((n) => n.name) ?? [];
     if (c.clear && !c.clear.credentials && harmless(c.clear.proto, asked, app)) c.clear.harmless = true;
   }

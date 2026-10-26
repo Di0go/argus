@@ -27,7 +27,7 @@ import { CATEGORIES } from '../shared/dictionary/apps.ts';
 import type { Classification } from '../shared/classify.ts';
 import { isOldTls } from '../shared/security.ts';
 import type { Conversation, DayEvent, DayView, Device, Doing, Episode, Remote } from '../shared/types.ts';
-import { BACKGROUND, fromKey, groupOf, keyOf, visit } from '../shared/words.ts';
+import { BACKGROUND, fromKey, groupOf, keyOf, siteOnly, visit } from '../shared/words.ts';
 
 export interface HistoryOptions {
   dir: string;
@@ -155,8 +155,9 @@ export class History {
       if (!delta) continue;
       // Who did it: the device that spoke first (between two here, the one that asked).
       const device = c.a;
-      const key = keyOf(c.app);
-      if (c.app) this.words.set(key, c.app);
+      const what = c.app ?? (c.site ? siteOnly(c.site) : undefined);
+      const key = keyOf(what);
+      if (what) this.words.set(key, what);
       const share = c.sent / (total || 1);
       const m = this.minute.get(`${device}\t${key}`) ?? [0, 0];
       m[0] += Math.round(delta * share);
@@ -564,12 +565,13 @@ function merge(episodes: Episode[]): Episode[] {
   return out;
 }
 
-/** Calls first (light but what someone is doing), then by bytes; the network's own chatter last. */
+/**
+ * Calls first (light but what someone is doing), then what the dictionary names, by bytes; then sites it does not know,
+ * then addresses with no name; the network's own chatter last. Unknown traffic never heads named activity.
+ */
 function weight(d: { what?: Classification; bytes: number }): number {
-  if (!d.what) return d.bytes / 4;
-  if (BACKGROUND.has(d.what.category)) return d.bytes / 100;
-  // A call is light but it is what someone is doing: ahead of any download.
-  return d.what.category === 'calls' && d.bytes >= 10_000 ? 1e12 + d.bytes : d.bytes;
+  const tier = !d.what ? 1 : BACKGROUND.has(d.what.category) ? 0 : d.what.by === 'site' ? 2 : d.what.category === 'calls' && d.bytes >= 10_000 ? 4 : 3;
+  return tier * 1e15 + d.bytes;
 }
 
 /** Minutes on end of a stream (VIDEO_RUN, each VIDEO_MINUTE or more) between start and end. */
@@ -587,6 +589,7 @@ function worth(e: Episode): boolean {
   const minutes = (e.end - e.start) / 60;
   const cat = e.what?.category;
   if (!cat) return e.bytes >= 100 * 1024 * 1024;
+  if (e.what?.by === 'site') return e.bytes >= 10 * 1024 * 1024 || (minutes >= 5 && e.bytes >= 2 * 1024 * 1024);
   if (cat === 'cdn') return e.bytes >= 50 * 1024 * 1024;
   if (BACKGROUND.has(cat)) return false;
   if (cat === 'calls') return minutes >= 2;

@@ -44,9 +44,13 @@ const VERBS: Record<string, Verb> = {
   adult: () => ['On adult sites', 'was on adult sites'],
 };
 
-/** "Watching Netflix" (now) or "watched Netflix" (past); traffic the dictionary does not know is "Moving data". */
+/**
+ * "Watching Netflix" (now) or "watched Netflix" (past); a site the dictionary does not know, by its name ("Using
+ * example.org"); traffic to addresses with no name at all, said as that.
+ */
 export function doing(w: Classification | undefined, tense: 'now' | 'past' = 'now'): string {
-  if (!w) return tense === 'now' ? 'Moving data (unknown)' : 'moved data no one named';
+  if (!w) return tense === 'now' ? 'Talking to hosts with no name' : 'talked to hosts with no name';
+  if (w.by === 'site') return tense === 'now' ? `Using ${w.site}` : `used ${w.site}`;
   const verb = VERBS[w.category];
   const x = w.carrier ? w.company : subject(w);
   if (!verb) return tense === 'now' ? capital(w.activity) : w.activity;
@@ -69,16 +73,27 @@ export function doingList(ws: (Classification | undefined)[]): string {
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+/**
+ * Traffic the dictionary has no word for, to a host with a name: said by its site (the registrable name), and never
+ * given a category (the day's chart says "Not named").
+ */
+export function siteOnly(site: string): Classification {
+  return { category: 'web', label: 'Not named', activity: 'using', tracking: false, site, by: 'site', rule: site };
+}
+
 /** The key a stretch of traffic is added up under in the history: what it is, in the dictionary's words. */
 export function keyOf(w: Classification | undefined): string {
   if (!w) return '';
+  // A site only: no category, its name last.
+  if (w.by === 'site') return ['', '', '', 'using', '', '', w.site ?? ''].join('|');
   return [w.category, w.company ?? '', w.carrier ? '' : (w.app ?? ''), w.activity, w.tracking ? 't' : '', w.carrier ? 'c' : ''].join('|');
 }
 
 /** A key read back into the words it was made of (the label is the category's, given by the caller). */
 export function fromKey(key: string, label: (category: string) => string): Classification | undefined {
   if (!key) return undefined;
-  const [category = 'web', company, app, activity = '', t, c] = key.split('|');
+  const [category = 'web', company, app, activity = '', t, c, site] = key.split('|');
+  if (site) return siteOnly(site);
   return {
     category: category as Classification['category'],
     label: label(category),
@@ -94,5 +109,6 @@ export function fromKey(key: string, label: (category: string) => string): Class
 
 /** What a stretch of traffic is grouped under for "doing" and the diary: its app, else company, else category. */
 export function groupOf(w: Classification | undefined): string {
+  if (w?.by === 'site') return `site:${w.site ?? ''}`;
   return w ? (w.carrier ? `carrier:${w.company ?? ''}` : (w.app ?? w.company ?? `category:${w.category}`)) : 'unknown';
 }

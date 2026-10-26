@@ -163,3 +163,19 @@ test("The house's own words go on top, checked; a category that is not one is le
     loadHouse(path.join(dir, 'none.json'));
   }
 });
+
+test("A conversation the dictionary has no word for, with a host that has a name: its site, to be said by it", async () => {
+  const { interpret } = await import('../server/interpret.ts');
+  const remote = (id: string, names: string[]) => ({ kind: 'remote', id, ip: id, names: names.map((name) => ({ name, source: 'TLS' })) });
+  const talk = (b: string) => ({ id: `device:d remote:${b} tcp/443`, a: 'device:d', b: `remote:${b}`, service: 'tcp/443', interfaces: [], sent: 1, received: 1, packets: 1, first: 0, last: 0 });
+  const v = interpret({
+    devices: [],
+    remotes: [remote('203.0.113.40', ['api.unheard-of-shop.example.org']), remote('203.0.113.41', ['www.youtube.com']), remote('203.0.113.42', [])],
+    conversations: [talk('203.0.113.40'), talk('203.0.113.41'), talk('203.0.113.42')],
+  } as never) as unknown as { conversations: { app?: unknown; site?: string }[] };
+  assert.equal(v.conversations[0]?.app, undefined);
+  assert.equal(v.conversations[0]?.site, 'example.org');
+  // Named by the dictionary: no site of its own; no name at all: none.
+  assert.equal(v.conversations[1]?.site, undefined);
+  assert.equal(v.conversations[2]?.site, undefined);
+});
