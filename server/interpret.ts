@@ -41,9 +41,28 @@ export function interpret<V extends Dissected | Pick<Dissected, 'devices' | 'rem
     const asked = h?.names.filter((n) => n.source === 'HTTP' || n.source === 'TLS').map((n) => n.name) ?? [];
     if (c.clear && !c.clear.credentials && harmless(c.clear.proto, asked, app)) c.clear.harmless = true;
   }
+  // A CDN or cloud this side mostly sent to is uploaded to (logs, backups, photos), not downloaded from.
+  const up = new Map<string, [number, number]>();
+  for (const c of v.conversations) {
+    if (c.app?.carrier && c.b.startsWith('remote:')) {
+      const u = up.get(c.b) ?? [0, 0];
+      u[0] += c.sent;
+      u[1] += c.received;
+      up.set(c.b, u);
+      if (uploads(c.sent, c.received)) c.app = { ...c.app, activity: UPLOADING };
+    }
+  }
+  for (const h of v.remotes) {
+    const u = up.get(`remote:${h.id}`);
+    if (h.app?.carrier && u && uploads(u[0], u[1])) h.app = { ...h.app, activity: UPLOADING };
+  }
   judge(v.devices, v.conversations, o);
   return v;
 }
+
+const UPLOADING = 'uploading to a CDN or cloud';
+/** Mostly sent: twice what came back, and a megabyte or more. */
+const uploads = (sent: number, received: number) => sent >= 1_000_000 && sent > 2 * received;
 
 /**
  * The names that say what a host is: those TLS and HTTP asked it for, which are what its connections were for; only

@@ -12,7 +12,8 @@ export function subject(w: Pick<Classification, 'app' | 'company' | 'site'> | un
   return w?.app ?? w?.company ?? w?.site;
 }
 
-type Verb = (x: string | undefined) => [now: string, past: string];
+/** `up`: the activity says it was mostly sent (server/interpret.ts: uploading to a CDN or cloud). */
+type Verb = (x: string | undefined, up?: boolean) => [now: string, past: string];
 
 const VERBS: Record<string, Verb> = {
   video: (x) => [x ? `Watching ${x}` : 'Watching video', x ? `watched ${x}` : 'watched video'],
@@ -39,7 +40,8 @@ const VERBS: Record<string, Verb> = {
   vpn: (x) => [x ? `Through ${x}` : 'Through a VPN', x ? `went through ${x}` : 'went through a VPN'],
   ads: (x) => [x ? `Talking to ${x}'s ads and tracking` : 'Talking to ads and trackers', x ? `talked to ${x}'s ads and tracking` : 'talked to ads and trackers'],
   telemetry: (x) => [x ? `Sending telemetry to ${x}` : 'Sending telemetry', x ? `sent telemetry to ${x}` : 'sent telemetry'],
-  cdn: (x) => [x ? `Downloading from ${x}` : 'Downloading', x ? `downloaded from ${x}` : 'downloaded'],
+  cdn: (x, up) =>
+    up ? [x ? `Uploading to ${x}` : 'Uploading', x ? `uploaded to ${x}` : 'uploaded'] : [x ? `Downloading from ${x}` : 'Downloading', x ? `downloaded from ${x}` : 'downloaded'],
   network: (x) => [x ? `${x}: the network at work` : 'The network at work', x ? `talked to ${x}` : 'kept the network going'],
   adult: () => ['On adult sites', 'was on adult sites'],
 };
@@ -54,7 +56,7 @@ export function doing(w: Classification | undefined, tense: 'now' | 'past' = 'no
   const verb = VERBS[w.category];
   const x = w.carrier ? w.company : subject(w);
   if (!verb) return tense === 'now' ? capital(w.activity) : w.activity;
-  return verb(x)[tense === 'now' ? 0 : 1];
+  return verb(x, w.activity.startsWith('uploading'))[tense === 'now' ? 0 : 1];
 }
 
 /**

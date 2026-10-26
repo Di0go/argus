@@ -91,6 +91,9 @@ export class Dictionary {
   classify(clue: Clue): Classification | undefined {
     let best = this.byNames(clue.names ?? []);
     const net = clue.ip ? this.byNetwork(clue.ip) : undefined;
+    // One address of a CDN that served several sites (a shared front door): which bytes went to which is not seen, so
+    // one site's app is not said of all of them; the CDN that carried them is.
+    if (best && !best.carrier && net?.carrier && this.shared(clue.names ?? [])) best = net;
     // A network that names the app tells more than a name that only says the carrier (a host behind its own CDN).
     if (net && rank(net) > rank(best) && (!best || best.carrier)) best = { ...net, site: best?.site };
     const port = clue.service ? this.byPort(clue.service) : undefined;
@@ -105,6 +108,17 @@ export class Dictionary {
     }
     if (best && (clue.service || clue.protocol)) best = this.pattern(best, clue.service ?? '', clue.protocol);
     return best;
+  }
+
+  /**
+   * Names of more than one site that do not all say the same app (some unknown, or other apps). The CDN's own names
+   * (www.apple.com.edgekey.net, the CNAME a site points at it) are its, not another site's: left out.
+   */
+  private shared(names: string[]): boolean {
+    const own = names.map((n) => ({ n, c: this.byName(n) })).filter((x) => !x.c?.carrier);
+    const sites = new Set(own.map((x) => this.siteOf(clean(x.n))).filter(Boolean));
+    if (sites.size < 2) return false;
+    return own.some((x) => !x.c) || new Set(own.map((x) => x.c?.app ?? x.c?.company)).size > 1;
   }
 
   /**

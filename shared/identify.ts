@@ -92,6 +92,8 @@ const NAMES: Rule[] = [
   [/^(DESKTOP|LAPTOP)-[A-Z0-9]{5,}/i, { os: 'Windows', kind: 'computer' }],
   [/webos/i, { product: 'LG TV', os: 'webOS', kind: 'tv', family: 'LG' }],
   [/^\[TV\] Samsung|tizen|^samsung[-_ ].*\btv\b/i, { product: 'Samsung TV', os: 'Tizen', kind: 'tv', family: 'Samsung' }],
+  // Samsung's TVs name themselves by size and range: '50" Crystal UHD', '65" QLED', '55" Neo QLED', 'The Frame'.
+  [/^\d{2,3}" (Crystal UHD|Neo QLED|QLED|OLED)\b|^Samsung .*Series \(\d{2,3}\)|^The (Frame|Serif|Sero)\b/i, { product: 'Samsung TV', os: 'Tizen', kind: 'tv', family: 'Samsung' }],
   [/chromecast/i, { product: 'Chromecast', kind: 'tv', family: 'Google' }],
   [/^raspberrypi$|raspberry/i, { product: 'Raspberry Pi', os: 'Linux', kind: 'board' }],
   [/^ESP[-_]|^esp32|^esp8266|tasmota|shelly/i, { product: 'ESP board', kind: 'board' }],
@@ -118,6 +120,8 @@ const MODELS: Rule[] = [
   [/sonos/i, { product: 'Sonos', kind: 'speaker', family: 'Sonos' }],
   [/laserjet|deskjet|officejet|envy|epson|brother|canon|pixma/i, { kind: 'printer' }],
   [/\bTV\b|bravia|webos|tizen/i, { kind: 'tv' }],
+  // Samsung's TV ranges by year (DU 2024, CU 2023, BU 2022, AU 2021, TU 2020) and its QLEDs (Q80C, QN90B).
+  [/^(DU|CU|BU|AU|TU)\d{3,4}[A-Z]?$|^QN?\d{2}[A-D]$/, { kind: 'tv', family: 'Samsung' }],
 ];
 
 /** mDNS service types: what a device offers says what it is. */

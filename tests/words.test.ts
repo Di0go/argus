@@ -109,3 +109,12 @@ test('A site the dictionary does not know is said by its name, kept by it in the
   assert.equal(doing(fromKey(k, (c) => c)), 'Using example.org');
   assert.notEqual(groupOf(w), groupOf(siteOnly('example.net')));
 });
+
+test('Identity: a Samsung TV by its default mDNS name ("55\" Crystal UHD") and its series model is a Samsung TV, not "possibly"', () => {
+  const tv = identify({ names: [{ name: '55" Crystal UHD', source: 'mDNS' }], model: 'CU700D', vendor: 'Samsung Electronics Co.,Ltd' });
+  assert.equal(tv?.kind, 'tv');
+  assert.match(tv?.label ?? '', /Samsung/);
+  assert.notEqual(tv?.confidence, 'possibly');
+  // The fridge stays what it was.
+  assert.equal(identify({ names: [{ name: 'Samsung-Fridge', source: 'DHCP' }], vendor: 'Samsung Electronics' })?.label, 'Samsung device');
+});

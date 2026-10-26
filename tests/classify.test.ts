@@ -179,3 +179,38 @@ test("A conversation the dictionary has no word for, with a host that has a name
   assert.equal(v.conversations[1]?.site, undefined);
   assert.equal(v.conversations[2]?.site, undefined);
 });
+
+test('Datadog intake is telemetry, by name, over the cloud that carries it', () => {
+  for (const n of ['http-intake.logs.us5.datadoghq.com', 'browser-intake-datadoghq.com']) {
+    const c = what([n]);
+    assert.equal(c?.company, 'Datadog', n);
+    assert.equal(c?.category, 'telemetry', n);
+  }
+});
+
+test('A CDN or cloud that this side mostly sent to is uploaded to, not downloaded from', async () => {
+  const { interpret } = await import('../server/interpret.ts');
+  const { doing } = await import('../shared/words.ts');
+  const r = { kind: 'remote', id: '203.0.113.50', ip: '203.0.113.50', names: [{ name: 'd111111abcdef8.cloudfront.net', source: 'TLS' }] };
+  const talk = (id: string, sent: number, received: number) => ({ id, a: 'device:d', b: 'remote:203.0.113.50', service: 'tcp/443', interfaces: [], sent, received, packets: 1, first: 0, last: 0 });
+  const v = interpret({ devices: [], remotes: [r], conversations: [talk('up', 5_000_000, 100_000)] } as never) as unknown as { conversations: { app?: never }[]; remotes: { app?: never }[] };
+  assert.equal(doing(v.conversations[0]?.app), 'Uploading to CloudFront');
+  assert.equal(doing(v.remotes[0]?.app, 'past'), 'uploaded to CloudFront');
+  const down = interpret({ devices: [], remotes: [{ ...r, names: [...r.names] }], conversations: [talk('down', 100_000, 5_000_000)] } as never) as unknown as { conversations: { app?: never }[] };
+  assert.equal(doing(down.conversations[0]?.app), 'Downloading from CloudFront');
+});
+
+test("One address of a CDN that served several sites is the CDN's: one site's app is not all its bytes", () => {
+  const FASTLY = '151.101.1.140';
+  const one = what(['www.reddit.com'], 'tcp/443', undefined, FASTLY);
+  assert.equal(one?.app, 'Reddit');
+  const shared = what(['www.reddit.com', 'pypi.org', 'shop.unheard-of.example.org'], 'tcp/443', undefined, FASTLY);
+  assert.equal(shared?.app, undefined);
+  assert.equal(shared?.carrier, true);
+  assert.equal(shared?.company, 'Fastly');
+  // Several names of one site, or one company's own network: still that app.
+  assert.equal(what(['www.reddit.com', 'i.redd.it', 'old.reddit.com'], 'tcp/443', undefined, FASTLY)?.app, 'Reddit');
+  assert.equal(what(['www.youtube.com', 'i.ytimg.com'], 'tcp/443', undefined, '142.250.184.14')?.app, 'YouTube');
+  // A site and the CDN's own name for it (its CNAME): the site's.
+  assert.equal(what(['www.reddit.com', 'reddit.map.fastly.net'], 'tcp/443', undefined, FASTLY)?.app, 'Reddit');
+});

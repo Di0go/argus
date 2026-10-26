@@ -531,6 +531,11 @@ export const DOMAINS: Record<string, Entry> = {
   'oaiusercontent.com': { company: 'OpenAI', app: 'ChatGPT', category: 'ai' },
   'sentry.io': { company: 'Sentry', app: 'Sentry', category: 'telemetry' },
   'ingest.sentry.io': { company: 'Sentry', app: 'Sentry', category: 'telemetry' },
+  // Datadog's intake: logs, metrics and browser sessions sent by apps (an open list files one of them under OpenAI).
+  'datadoghq.com': { company: 'Datadog', app: 'Datadog', category: 'telemetry' },
+  'datadoghq.eu': { company: 'Datadog', app: 'Datadog', category: 'telemetry' },
+  'browser-intake-datadoghq.com': { company: 'Datadog', app: 'Datadog', category: 'telemetry' },
+  'browser-intake-datadoghq.eu': { company: 'Datadog', app: 'Datadog', category: 'telemetry' },
   'segment.io': { company: 'Twilio', app: 'Segment', category: 'telemetry' },
   'segment.com': { company: 'Twilio', app: 'Segment', category: 'telemetry' },
   'mixpanel.com': { company: 'Mixpanel', app: 'Mixpanel', category: 'telemetry' },
