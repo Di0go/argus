@@ -10,7 +10,7 @@
 //   fixture and the demo), which use those and the documentation ranges (192.0.2.0/24, 198.51.100.0/24,
 //   203.0.113.0/24, 2001:db8::/32);
 // - with --history, the same in every file of every commit of every ref, in every commit message, and an author or
-//   committer e-mail that is not a noreply one.
+//   committer e-mail that is not a noreply one; each finding says which refs reach it (a local tag is not on GitHub).
 //
 // The real values are read from the machine each time and never written anywhere: on a machine without them (or
 // without `ip`) only the rules on private and public addresses apply. Captures (pcap, pcapng) are read with tshark
@@ -172,7 +172,8 @@ function listen(seconds: number): string[] {
 
 // ---- Reading a file.
 
-type Finding = { where: string; line: number; why: string; text: string };
+/** `commits`: in the history, the commits it is in (to say which refs reach it). */
+type Finding = { where: string; line: number; why: string; text: string; commits?: string[] };
 
 function check(file: string, data: Buffer, real: Real): Finding[] {
   const binary = data.subarray(0, 8000).includes(0);
@@ -254,22 +255,26 @@ if (!HISTORY) {
   }
 } else {
   const commits = git(['rev-list', '--all'])?.split('\n').filter(Boolean) ?? [];
-  const seen = new Map<string, string>();
+  // Each version of each file, with every commit it is in.
+  const seen = new Map<string, string[]>();
   for (const c of commits) {
     for (const row of git(['ls-tree', '-r', '-z', c])?.split('\0').filter(Boolean) ?? []) {
       const [meta = '', file = ''] = row.split('\t');
       const blob = meta.split(' ')[2]!;
-      if (!seen.has(`${blob} ${file}`)) seen.set(`${blob} ${file}`, c);
+      const key = `${blob} ${file}`;
+      const cs = seen.get(key);
+      if (cs) cs.push(c);
+      else seen.set(key, [c]);
     }
     const [who = '', ...message] = (git(['show', '-s', '--format=%ae %ce%n%B', c]) ?? '').split('\n');
-    for (const e of who.split(' ')) if (e && !/noreply/.test(e)) found.push({ where: `${c.slice(0, 7)} author`, line: 0, why: 'an e-mail that is not noreply', text: e });
-    for (const f of check(`${c.slice(0, 7)} message`, Buffer.from(message.join('\n')), real)) found.push(f);
+    for (const e of who.split(' ')) if (e && !/noreply/.test(e)) found.push({ where: `${c.slice(0, 7)} author`, line: 0, why: 'an e-mail that is not noreply', text: e, commits: [c] });
+    for (const f of check(`${c.slice(0, 7)} message`, Buffer.from(message.join('\n')), real)) found.push({ ...f, commits: [c] });
   }
-  for (const [key, c] of seen) {
+  for (const [key, cs] of seen) {
     const [blob = '', file = ''] = key.split(' ');
     const data = run('git', ['cat-file', 'blob', blob]);
     if (!data) continue;
-    for (const f of check(file, data, real)) found.push({ ...f, where: `${c.slice(0, 7)}:${f.where}` });
+    for (const f of check(file, data, real)) found.push({ ...f, where: `${cs[0]!.slice(0, 7)}:${f.where}`, commits: cs });
     read++;
   }
   console.log(`${commits.length} commits, ${read} versions of files`);
@@ -281,6 +286,16 @@ if (!found.length) {
   process.exit(0);
 }
 const unique = [...new Map(found.map((f) => [`${f.where}:${f.line}:${f.why}:${f.text}`, f])).values()];
-for (const f of unique) console.log(`${f.where}${f.line ? `:${f.line}` : ''}  ${f.why}: ${f.text}`);
+// In the history, which refs reach each finding: a local tag or a stash is not on GitHub, a branch is pushed with it.
+const contains = new Map<string, string[]>();
+const refsOf = (c: string) => {
+  if (!contains.has(c)) {
+    const refs = git(['for-each-ref', '--contains', c, '--format=%(refname)'])?.split('\n').filter(Boolean) ?? [];
+    contains.set(c, refs.map((r) => r.replace(/^refs\/heads\//, '').replace(/^refs\/tags\//, 'tag ').replace(/^refs\/remotes\//, '')));
+  }
+  return contains.get(c)!;
+};
+const reach = (f: Finding) => (f.commits ? `  (reached from: ${[...new Set(f.commits.flatMap(refsOf))].sort().join(', ') || 'no ref, only HEAD'})` : '');
+for (const f of unique) console.log(`${f.where}${f.line ? `:${f.line}` : ''}  ${f.why}: ${f.text}${reach(f)}`);
 console.log(`check-leaks: ${unique.length} found (${known})`);
 process.exit(1);
