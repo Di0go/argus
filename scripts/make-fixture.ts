@@ -319,6 +319,14 @@ const packets: Buffer[] = [
     0x0800,
     ipv4(phone.ip, captive.ip, 6, tcp(53001, 80, 1, 0x18, http(['GET /library/test/success.html HTTP/1.1', `Host: ${captive.name}`, 'User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148']))),
   ),
+  // And again, from an app's web view: a User-Agent that differs from Safari's only past what a clue shows of it (80
+  // characters) and before what is kept of it (100), so two clues read the same (the device's page once failed on that).
+  ether(
+    router.mac,
+    phone.mac,
+    0x0800,
+    ipv4(phone.ip, captive.ip, 6, tcp(53002, 80, 1, 0x18, http(['GET /library/test/success.html HTTP/1.1', `Host: ${captive.name}`, 'User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)']))),
+  ),
   // The Windows PC fetches a certificate list over HTTP (signed, so harmless in the clear).
   ether(router.mac, windows.mac, 0x0800, ipv4(windows.ip, crl.ip, 6, tcp(53100, 80, 1, 0x18, http(['GET /pki/root.crl HTTP/1.1', 'User-Agent: Microsoft-CryptoAPI/10.0', `Host: ${crl.name}`])))),
   // The printer announces printing over mDNS, and posts to a server out there over HTTP, with a (made-up) password.

@@ -93,7 +93,7 @@
           {#if d.identity}
             {d.identity.label} <span class="src" data-tip={CONFIDENCE[d.identity.confidence]}>{d.identity.confidence}</span>
             <ul class="clues" aria-label="Clues">
-              {#each d.identity.clues as c (c.from)}<li>{c.says}: <span class="muted">{c.from}</span></li>{/each}
+              {#each d.identity.clues as c (`${c.from}|${c.says}`)}<li>{c.says}: <span class="muted">{c.from}</span></li>{/each}
             </ul>
           {:else}<span class="muted">Not known: it said nothing that tells, and Argus does not guess.</span>{/if}
         </dd>

@@ -197,7 +197,9 @@ export function clues(f: Facts): Clue[] {
   const add = (r: Rule[1] | undefined, strength: Clue['strength'], from: string, says?: string) => {
     if (!r || !(r.kind || r.os || r.product || r.family)) return;
     const { says: own, ...rest } = r;
-    out.push({ says: says ?? own ?? describe(rest), from, strength, ...rest });
+    const line = { says: says ?? own ?? describe(rest), from, strength, ...rest };
+    // Two User-Agents that differ only past what a clue shows of them read the same: one line.
+    if (!out.some((c) => c.from === line.from && c.says === line.says)) out.push(line);
   };
   if (f.role === 'gateway') out.push({ says: 'the way out to the internet', from: 'it carries the traffic of other networks', strength: 'direct', kind: 'router', product: 'Router' });
   if (f.role === 'self' && f.self)

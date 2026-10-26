@@ -366,3 +366,17 @@ test('A device says what it is, how sure, and why; its conversations mark the un
   assert.deepEqual(errors, []);
   await p.close();
 });
+
+test('Every device page of the fixture opens whole, with no error in the console (this PC first: it once failed)', { skip: !CHROMIUM }, async () => {
+  const { p, errors } = await page();
+  const v = (await (await fetch(`${app.base}/api/live`)).json()) as { devices: { id: string; name: string; role?: string }[] };
+  assert.equal(v.devices.length, DEVICES);
+  const ids = [...v.devices].sort((a, b) => Number(b.role === 'self') - Number(a.role === 'self')).map((d) => d);
+  for (const d of ids) {
+    await p.goto(`${app.base}/#/device/${encodeURIComponent(d.id)}`);
+    await p.getByRole('heading', { name: d.name, exact: true }).waitFor({ timeout: 10_000 });
+    await p.getByRole('heading', { name: 'Conversations' }).waitFor({ timeout: 10_000 });
+    assert.deepEqual(errors, [], `${d.name}: ${errors.join('; ')}`);
+  }
+  await p.close();
+});

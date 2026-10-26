@@ -1,6 +1,6 @@
 {
-  "packets": 46,
-  "bytes": 12602,
+  "packets": 47,
+  "bytes": 12833,
   "hosts": {
     "router": {
       "mac": "50:c7:bf:12:34:56",
@@ -101,8 +101,8 @@
   },
   "sentByMac": {
     "3c:22:fb:ab:cd:ef": {
-      "packets": 3,
-      "bytes": 738
+      "packets": 4,
+      "bytes": 969
     },
     "50:c7:bf:12:34:56": {
       "packets": 15,
@@ -222,9 +222,9 @@
       "a": "192.168.50.23",
       "b": "203.0.113.30",
       "service": "tcp/80",
-      "sent": 423,
+      "sent": 654,
       "received": 0,
-      "packets": 2
+      "packets": 3
     },
     {
       "a": "192.168.50.50",

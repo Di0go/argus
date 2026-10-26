@@ -86,3 +86,11 @@ test('Identity, from a real network: a TV that offers Google Cast and AirPlay is
   const me = identify({ role: 'self', self: { os: 'Linux', laptop: true }, names: [], clues: { userAgents: ['Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile'] } });
   assert.equal(`${me?.label} [${me?.confidence}]`, 'Linux laptop [sure]');
 });
+
+test('Identity: two User-Agents that read the same as clues (they differ past 80 characters) are one clue', () => {
+  const ua = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
+  const i = identify({ names: [], clues: { userAgents: [ua, ua.replace('Chrome/141', 'Chrome/142')] } });
+  const lines = (i?.clues ?? []).map((c) => `${c.from}|${c.says}`);
+  assert.equal(lines.length, 1);
+  assert.equal(new Set(lines).size, lines.length);
+});
