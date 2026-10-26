@@ -118,7 +118,7 @@ export class History {
     this.learning = Object.keys(this.known).length ? 0 : this.started + 600;
     // Today's events already said (before a restart) are not said again.
     this.todayBytes = (await stat(this.file(this.day)).catch(() => undefined))?.size ?? 0;
-    for (const line of await this.lines(this.day)) if (line.e) this.count(line.e), this.said.add(eventKey(line.e, line.d ?? '', line.w ?? '', `${line.p ?? ''}${line.c ? '+login' : ''}`));
+    for (const line of await this.lines(this.day)) if (line.e) this.count(line.e), this.said.add(eventKey(line.e, line.d ?? '', line.wn ?? line.w ?? '', `${line.p ?? ''}${line.c ? '+login' : ''}`));
     this.loaded = true;
     // A day that ended while the server was down is gzipped now.
     for (const d of await this.days()) if (d !== this.day) await this.gzip(d);
@@ -398,7 +398,8 @@ export class History {
 
   private event(type: DayEvent['type'], device: string, other: string, proto: string, t: number, credentials?: boolean, local?: boolean): Record<string, unknown> {
     // A login seen later in the same conversation is news again: it upgrades the event (dayView keeps the one with it).
-    const key = eventKey(type, device, other, `${proto}${credentials ? '+login' : ''}`);
+    // By the other end's name: one host on several addresses (IPv4 and IPv6, a CDN's) is one story.
+    const key = eventKey(type, device, this.others.get(other) ?? other, `${proto}${credentials ? '+login' : ''}`);
     if (this.said.has(key)) return undefined as unknown as Record<string, unknown>;
     this.said.add(key);
     if (this.counted.all >= EVENTS_A_DAY || (type === 'new' && this.counted.fresh >= NEW_A_DAY)) {
@@ -515,7 +516,7 @@ interface Line {
 function once(events: DayEvent[]): DayEvent[] {
   const by = new Map<string, DayEvent>();
   for (const e of [...events].sort((a, b) => a.t - b.t)) {
-    const k = eventKey(e.type, e.device, e.with ?? '', e.proto ?? '');
+    const k = eventKey(e.type, e.device, e.withName ?? e.with ?? '', e.proto ?? '');
     const had = by.get(k);
     if (!had || (e.credentials && !had.credentials)) by.set(k, had ? { ...e, t: had.t } : e);
   }

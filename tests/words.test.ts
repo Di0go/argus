@@ -54,6 +54,10 @@ test('Harmless in the clear only by the name asked for and the authorities\' own
   assert.equal(harmless('HTTP', []), false);
   assert.equal(harmless('HTTP', ['ocsp.digicert.com']), true);
   assert.equal(harmless('HTTP', ['r3.o.lencr.org']), true);
+  // An authority's intermediate certificates (signed), asked through its CDN: crt.sectigo.com behind Cloudflare.
+  assert.equal(harmless('HTTP', ['crt.sectigo.com']), true);
+  assert.equal(harmless('HTTP', ['cacerts.digicert.com']), true);
+  assert.equal(harmless('HTTP', ['crt.sectigo.com.attacker.example']), false);
   assert.equal(harmless('HTTP', ['captive.apple.com']), true);
   // An update by the dictionary's name rule; but not a category said only by the address's network.
   assert.equal(harmless('HTTP', ['dl.google.com'], { category: 'updates', activity: 'updating', by: 'name' }), true);

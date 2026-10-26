@@ -7,14 +7,15 @@
   import type { Device } from '../../../shared/types.ts';
   import { BACKGROUND, doing } from '../../../shared/words.ts';
   import { argus } from './argus.svelte.ts';
+  import { house } from './house.ts';
   import type { Privacy } from './privacy.ts';
   import { link } from './router.svelte.ts';
 
   let { devices, recent }: { devices: Device[]; recent: Privacy } = $props();
 
+  const users = $derived(house(devices, argus.interfaces));
   const busy = $derived(
-    devices
-      .filter((d) => d.role !== 'gateway' && !(d.role === 'self' && d.mac?.startsWith('02:42:')))
+    users
       .filter((d) => (argus.meters[d.id] ?? 0) >= 2048 || (d.doing ?? []).some((x) => !BACKGROUND.has(x.what?.category ?? '')))
       .sort((a, b) => (argus.meters[b.id] ?? 0) - (argus.meters[a.id] ?? 0)),
   );
@@ -27,7 +28,6 @@
       .filter(Boolean)
       .slice(0, 2),
   );
-  const users = $derived(devices.filter((d) => d.role !== 'gateway'));
   const head = $derived(!busy.length ? 'Quiet.' : busy.length >= 3 || argus.meter > 1_000_000 ? 'Busy.' : 'In use.');
   const sentence = $derived(
     !busy.length

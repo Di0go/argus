@@ -15,6 +15,8 @@ export interface ClearLine {
   otherKey: string;
   /** Between two devices here, not out to the internet. */
   local: boolean;
+  /** The device, the other end's name and the protocol: one line each. */
+  key: string;
 }
 
 export interface Privacy {
@@ -44,7 +46,8 @@ export function privacy(src: Source, o: { device?: string; since?: number } = {}
   const mine = src.conversations.filter((c) => (!o.device || c.a === o.device || c.b === o.device) && (!o.since || c.last >= o.since));
   const line = (c: Conversation): ClearLine => {
     const other = remotes.get(c.b) ?? devices.get(c.b);
-    return { c, device: devices.get(c.a), other: other?.name ?? c.b.replace(/^\w+:/, ''), otherKey: c.b, local: c.b.startsWith('device:') };
+    const name = other?.name ?? c.b.replace(/^\w+:/, '');
+    return { c, device: devices.get(c.a), other: name, otherKey: c.b, local: c.b.startsWith('device:'), key: `${c.a}\t${name}\t${c.clear?.proto ?? c.tls ?? ''}` };
   };
   const out: Privacy = { clear: [], local: [], harmless: [], oldTls: [], dns: [], dnsHouse: 0, tracking: [], trackingBytes: 0, bytes: 0, where: [], whereBytes: 0 };
   const tracking = new Map<string, { company: string; bytes: number; devices: Set<Device> }>();
@@ -77,9 +80,16 @@ export function privacy(src: Source, o: { device?: string; since?: number } = {}
     }
   }
   const newest = (a: ClearLine, b: ClearLine) => Number(Boolean(b.c.clear?.credentials)) - Number(Boolean(a.c.clear?.credentials)) || b.c.last - a.c.last;
-  out.clear.sort(newest);
-  out.local.sort(newest);
-  out.harmless.sort(newest);
+  // One host is one line per device: the same name on another address (IPv4 and IPv6, a CDN's several) or connection
+  // is the same story; the line kept is the one with a login, else the newest.
+  const once = (ls: ClearLine[]) => {
+    const seen = new Set<string>();
+    return ls.sort(newest).filter((l) => !seen.has(l.key) && Boolean(seen.add(l.key)));
+  };
+  out.clear = once(out.clear);
+  out.local = once(out.local);
+  out.harmless = once(out.harmless);
+  out.oldTls = once(out.oldTls);
   out.tracking = [...tracking.values()].sort((a, b) => b.bytes - a.bytes).map((t) => ({ ...t, devices: [...t.devices] }));
   out.where = [...where.values()].sort((a, b) => b.bytes - a.bytes);
   for (const d of o.device ? [devices.get(o.device)].filter((x): x is Device => Boolean(x)) : src.devices) {

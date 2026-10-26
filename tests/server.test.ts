@@ -169,11 +169,14 @@ test('Saving: what the ring buffer holds becomes a capture, with its devices, li
 test('A restart (a release) picks up the session where it was, and listens again on what was on', async () => {
   const first = await start();
   await listen(first.app.base, 'wlan0');
-  await until(first.app.base, (x) => x.session.packets === truth.packets);
+  const before = await until(first.app.base, (x) => x.session.packets === truth.packets);
   await first.app.stop();
+  await new Promise((r) => setTimeout(r, 1100));
   const second = await start({}, first.app.dataDir);
   const v = await until(second.app.base, (x) => x.session.packets === 2 * truth.packets);
   assert.equal(v.devices.length, DEVICES);
+  // Listening since it was turned on, not since the restart.
+  assert.equal(v.session.listening[0]?.since, before.session.listening[0]?.since);
   assert.deepEqual(
     v.session.listening.map((l) => [l.id, l.on]),
     [['wlan0', true]],

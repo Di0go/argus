@@ -380,3 +380,19 @@ test('Every device page of the fixture opens whole, with no error in the console
   }
   await p.close();
 });
+
+test('Now: the sentence and the list count the same house (the router in neither)', { skip: !CHROMIUM }, async () => {
+  const { p, errors } = await page();
+  await p.goto(app.base);
+  const verdict = p.locator('.verdict p').filter({ hasText: /devices? on the network|devices are using/ });
+  await verdict.waitFor({ timeout: 15_000 });
+  await p.getByRole('list', { name: 'Who is using the network' }).waitFor();
+  const text = await verdict.innerText();
+  const total = Number((text.match(/of (\d+) devices are using/) ?? text.match(/(\d+) devices? on the network/))?.[1]);
+  const rows = await p.getByRole('list', { name: 'Who is using the network' }).locator(':scope > li').count();
+  const quiet = Number((await p.locator('.quiet').innerText().catch(() => '0 quiet')).match(/(\d+) quiet/)?.[1] ?? 0);
+  assert.equal(rows + quiet, total, `${text} / ${rows} rows, ${quiet} quiet`);
+  assert.doesNotMatch(await p.locator('.quiet').innerText().catch(() => ''), /Router|router/);
+  assert.deepEqual(errors, []);
+  await p.close();
+});

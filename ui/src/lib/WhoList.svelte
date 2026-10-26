@@ -8,6 +8,7 @@
   import { BACKGROUND, doing } from '../../../shared/words.ts';
   import { argus } from './argus.svelte.ts';
   import ClearTag from './ClearTag.svelte';
+  import { house } from './house.ts';
   import EntityIcon from './EntityIcon.svelte';
   import EntityLink from './EntityLink.svelte';
   import { rate, span } from './format.ts';
@@ -23,18 +24,17 @@
     for (const c of Object.values(argus.conversations)) if (c.clear && !c.clear.harmless && c.last >= hour && !(c.b.startsWith('device:') && !c.clear.credentials)) out.set(c.a, c.clear);
     return out;
   });
-  // The router carries everyone's traffic: it is the way out, not someone using the network.
-  // Nor is this PC's Docker bridge: it carries the containers' traffic, which they show themselves.
-  const bridge = (d: Device) => d.role === 'self' && Boolean(d.mac?.startsWith('02:42:'));
+  // The house only (house.ts: not the router, the Docker bridge or a VPN peer), as the sentence on top counts it.
+  const users = $derived(house(devices, argus.interfaces));
   // A device that sent something unencrypted in the last hour stays in the list, in the colour, quiet or not.
-  const busy = (d: Device) => d.role !== 'gateway' && !bridge(d) && (clearFor.has(`device:${d.id}`) || ((argus.meters[d.id] ?? 0) >= 2048 || (d.doing ?? []).some((x) => !BACKGROUND.has(x.what?.category ?? ''))));
+  const busy = (d: Device) => (clearFor.has(`device:${d.id}`) || ((argus.meters[d.id] ?? 0) >= 2048 || (d.doing ?? []).some((x) => !BACKGROUND.has(x.what?.category ?? ''))));
   const score = (d: Device) => (argus.meters[d.id] ?? 0) + ((d.doing ?? []).some((x) => x.what?.category === 'calls') ? 5e6 : 0);
 
   let hovering = $state(false);
   let order = $state<string[]>([]);
   let sortedAt = 0;
   $effect(() => {
-    const ids = devices.filter(busy).map((d) => d.id);
+    const ids = users.filter(busy).map((d) => d.id);
     const same = ids.length === order.length && ids.every((id) => order.includes(id));
     if (same && (hovering || Date.now() - sortedAt < 4000)) return;
     sortedAt = Date.now();
@@ -42,7 +42,7 @@
     order = ids.sort((a, b) => score(byId.get(b)!) - score(byId.get(a)!));
   });
   const active = $derived(order.map((id) => devices.find((d) => d.id === id)).filter((d): d is Device => Boolean(d)));
-  const quiet = $derived(devices.filter((d) => !order.includes(d.id)));
+  const quiet = $derived(users.filter((d) => !order.includes(d.id)));
   const max = $derived(Math.max(1, ...active.map((d) => argus.meters[d.id] ?? 0)));
 
   /** What it is doing, headline first; the rest after a comma. */

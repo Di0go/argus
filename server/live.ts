@@ -70,7 +70,7 @@ interface Listener {
 
 /** What an interface may be called: dumpcap's names (wlan0, br-1a2b, veth9f@if3, enp0s20f0u1). */
 const IFACE = /^[\w.:@-]{1,64}$/;
-const isState = (v: unknown): v is { on: string[]; started?: number } => isObject(v) && Array.isArray(v.on);
+const isState = (v: unknown): v is { on: string[]; started?: number; since?: Record<string, number> } => isObject(v) && Array.isArray(v.on);
 const isTally = (v: unknown): v is TallyData => isObject(v) && Array.isArray(v.devices) && Array.isArray(v.flows);
 
 export class Live {
@@ -114,7 +114,7 @@ export class Live {
     for (const dir of await safeReaddir(path.join(this.o.dir, 'ring'))) {
       if (!on.some((id) => ringName(id) === dir)) await rm(path.join(this.o.dir, 'ring', dir), { recursive: true, force: true });
     }
-    for (const id of on) this.listen(id);
+    for (const id of on) this.listen(id, state.since?.[id]);
     this.timer = setInterval(() => this.emit(), this.o.emitEvery);
     this.saver = setInterval(() => void this.save(), this.o.saveEvery);
     return this;
@@ -234,10 +234,11 @@ export class Live {
     await this.save();
   }
 
-  private listen(id: string) {
+  /** `since`: when it was turned on, before a restart (it has been on since, as far as he is concerned). */
+  private listen(id: string, since?: number) {
     let l = this.listeners.get(id);
     if (!l) {
-      l = { state: { id, on: true, status: 'off', packets: 0, ringBytes: 0 }, backoff: 2, stderr: '' };
+      l = { state: { id, on: true, status: 'off', packets: 0, ringBytes: 0, ...(typeof since === 'number' ? { since } : {}) }, backoff: 2, stderr: '' };
       this.listeners.set(id, l);
     }
     l.state.on = true;
@@ -310,7 +311,8 @@ export class Live {
       this.dirty = true;
     });
     child.on('spawn', () => {
-      l.state.since = Date.now() / 1000;
+      // Since it was turned on: a retry, or a restart that listens again, goes on from then.
+      l.state.since ??= Date.now() / 1000;
       // A quiet network can take a while to show its first frame: once tshark says it is capturing, it is listening.
       setTimeout(() => {
         if (l.child === child && l.state.status === 'starting' && !/error|denied|permission/i.test(l.stderr)) l.state.status = 'listening';
@@ -454,7 +456,8 @@ export class Live {
   }
 
   private saveState() {
-    return this.o.store.writeJson(this.file('state.json'), { on: this.on(), started: this.started });
+    const since = Object.fromEntries([...this.listeners.values()].filter((l) => l.state.on && l.state.since).map((l) => [l.state.id, l.state.since]));
+    return this.o.store.writeJson(this.file('state.json'), { on: this.on(), started: this.started, since });
   }
 
   private ringDir(id: string) {

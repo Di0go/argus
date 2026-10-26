@@ -201,6 +201,21 @@ test('Traffic in the clear and old TLS are events, once a day each; harmless che
   );
 });
 
+test('In the clear to one host on several addresses is one event a day, not one per address', async () => {
+  const { clock, make } = await setup();
+  const h = await make();
+  const pc = device('aa:aa:aa:aa:aa:06', 'laptop');
+  const remotes = ['192.0.2.20', '192.0.2.21', '2001:db8::20', '2001:db8::21'].map((ip) => ({ kind: 'remote', id: ip, ip, name: 'example.com', names: [] }) as never);
+  const http = (ip: string, n: number) => talk(pc.id, ip, n, n, undefined, { id: `h ${ip}`, clear: { proto: 'HTTP' } });
+  await h.observe({ devices: [pc], conversations: [], remotes });
+  for (let i = 1; i <= 4; i++) {
+    clock.add(5);
+    await h.observe({ devices: [pc], conversations: ['192.0.2.20', '192.0.2.21', '2001:db8::20', '2001:db8::21'].slice(0, i).map((ip) => http(ip, i * 100)), remotes });
+  }
+  const day = await h.dayView();
+  assert.deepEqual(day.events.filter((e) => e.type === 'clear').map((e) => e.withName), ['example.com']);
+});
+
 test('The oldest days go past the days kept; today never', async () => {
   const { dir, make } = await setup();
   const hist = path.join(dir, 'history');

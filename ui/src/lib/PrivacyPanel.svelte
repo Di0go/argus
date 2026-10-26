@@ -35,7 +35,7 @@
     return entityHref(kind, id.join(':'), capture);
   };
   const ago = (t: number) => (live ? since(t) : when(t));
-  const earlier = $derived(recent ? p.clear.filter((l) => !recent.clear.some((r) => r.c.id === l.c.id)) : []);
+  const earlier = $derived(recent ? p.clear.filter((l) => !recent.clear.some((r) => r.key === l.key)) : []);
 </script>
 
 {#snippet line(l: ClearLine, quiet = false)}
@@ -57,7 +57,7 @@
     </h2>
     {#if shown.clear.length}
       <ul class="lines">
-        {#each shown.clear.slice(0, n) as l (l.c.id)}{@render line(l)}{/each}
+        {#each shown.clear.slice(0, n) as l (l.key)}{@render line(l)}{/each}
       </ul>
       {#if shown.clear.length > n}<a class="more" href={link.privacy(capture)}>All {shown.clear.length}</a>{/if}
       <p class="note">
@@ -71,12 +71,12 @@
     {#if earlier.length}<p class="note">Earlier in the session: {earlier.length} more, <a href={link.privacy(capture)}>listed</a>.</p>{/if}
     {#if full && p.local.length}
       <h3>Inside the house, without a login</h3>
-      <ul class="lines">{#each p.local as l (l.c.id)}{@render line(l, true)}{/each}</ul>
+      <ul class="lines">{#each p.local as l (l.key)}{@render line(l, true)}{/each}</ul>
     {/if}
     {#if p.harmless.length || p.local.length}
       {#if full && p.harmless.length}
         <h3>Harmless by design</h3>
-        <ul class="lines">{#each p.harmless as l (l.c.id)}{@render line(l, true)}{/each}</ul>
+        <ul class="lines">{#each p.harmless as l (l.key)}{@render line(l, true)}{/each}</ul>
       {:else if !full}
         <p class="note">
           Not counted: {[
@@ -141,7 +141,7 @@
       <li>
         <span>Old TLS (1.0, 1.1)</span>
         {#if p.oldTls.length}
-          <span>{#each p.oldTls.slice(0, full ? 50 : 3) as l, i (l.c.id)}{i ? ', ' : ''}<a href={hrefOf(l.otherKey)}>{l.other}</a>{/each}</span>
+          <span>{#each p.oldTls.slice(0, full ? 50 : 3) as l, i (l.key)}{i ? ', ' : ''}<a href={hrefOf(l.otherKey)}>{l.other}</a>{/each}</span>
         {:else}<span class="muted">none</span>{/if}
       </li>
     </ul>
