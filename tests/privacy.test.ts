@@ -46,3 +46,12 @@ test('Without encryption: a host on two addresses (IPv4 and IPv6) is one line pe
     ['laptop example.com 5 login', 'laptop neverssl.com 20', 'TV neverssl.com 15'],
   );
 });
+
+test("Two devices with one name are two lines: a login to each is said (the red team's case)", () => {
+  const pc = device('aa:aa:aa:aa:aa:01', 'laptop');
+  const a = device('aa:aa:aa:aa:aa:02', 'iPhone');
+  const b = device('aa:aa:aa:aa:aa:03', 'iPhone');
+  const local = (to: string, last: number): Conversation => ({ ...talk(pc.id, 'x', last, { clear: { proto: 'HTTP', credentials: true } }), id: `l ${to}`, b: `device:${to}` });
+  const p = privacy({ kind: 'live', devices: [pc, a, b], remotes: [], sites: [], links: [], conversations: [local(a.id, 10), local(b.id, 20)] } as never);
+  assert.deepEqual(p.clear.map((l) => l.otherKey).sort(), [`device:${a.id}`, `device:${b.id}`]);
+});

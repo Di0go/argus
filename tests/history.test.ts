@@ -59,7 +59,7 @@ test('Minutes kept, doing now, the diary: ten minutes of YouTube are one episode
   yt = 999_999;
   for (let i = 0; i < 120; i++) {
     clock.add(5);
-    yt += 50_000;
+    yt += 300_000;
     const burst = talk(phone.id, '203.0.113.3', 0, i >= 60 ? 1_500_000 : 0, { ...YOUTUBE, app: 'Instagram', category: 'social', company: 'Meta' });
     await h.observe({ devices: [tv, phone], conversations: [talk(tv.id, '203.0.113.1', 0, yt, YOUTUBE), talk(phone.id, '203.0.113.2', i * 1_000, i * 2_000, CALL), burst] });
   }
@@ -67,8 +67,8 @@ test('Minutes kept, doing now, the diary: ten minutes of YouTube are one episode
   assert.equal(doing?.[0]?.what.app, 'YouTube');
   // Ten minutes on end of streaming: watching.
   assert.equal(say(doing?.[0]?.what), 'Watching YouTube');
-  // The last minute: twelve looks of 50 kB.
-  assert.equal(doing?.[0]?.bytes, 600_000);
+  // The last minute: twelve looks of 300 kB (a stream of 480 kbit/s).
+  assert.equal(doing?.[0]?.bytes, 3_600_000);
   assert.equal(doing?.[0]?.since, new Date(2026, 9, 25, 20, 0, 5).getTime() / 1000);
   await h.flush();
   const day = await h.dayView();
@@ -77,16 +77,16 @@ test('Minutes kept, doing now, the diary: ten minutes of YouTube are one episode
   assert.ok(ep, 'the TV watched YouTube');
   assert.equal(ep.what?.app, 'YouTube');
   assert.equal(say(ep.what, 'past'), 'watched YouTube');
-  assert.equal(ep.bytes, 120 * 50_000);
+  assert.equal(ep.bytes, 120 * 300_000);
   assert.equal(ep.deviceName, 'Living Room TV');
   // The baseline was never counted: only what grew.
-  assert.equal(day.bytes, 120 * 50_000 + 119 * 3_000 + 1_500_000);
+  assert.equal(day.bytes, 120 * 300_000 + 119 * 3_000 + 1_500_000);
   // The call, light but long, is an episode; the burst on Instagram, one minute and 1.5 MB, is not.
   assert.deepEqual(day.diary.map((e) => [e.deviceName, e.what?.app]).sort(), [
     ['Alexs-iPhone', 'WhatsApp'],
     ['Living Room TV', 'YouTube'],
   ]);
-  assert.equal(day.hours[20]?.video, 120 * 50_000);
+  assert.equal(day.hours[20]?.video, 120 * 300_000);
   // The phone appeared after the first look: a new device, said once.
   assert.deepEqual(
     day.events.filter((e) => e.type === 'new').map((e) => e.deviceName),
@@ -193,6 +193,22 @@ test('One story names each thing once: two stretches of the same app inside it a
   assert.deepEqual(story?.also?.map((w) => w.app), ['Google Search']);
 });
 
+test('A VPN does not head a story over what is named: it carries the rest', async () => {
+  const { clock, make } = await setup();
+  const h = await make();
+  const pc = device('aa:aa:aa:aa:aa:0d', 'laptop');
+  const VPN: Classification = { app: 'WireGuard', category: 'vpn', label: 'VPN', activity: 'through the VPN', tracking: false, by: 'pattern', rule: 'wg' };
+  const GH: Classification = { company: 'Microsoft', app: 'GitHub', category: 'work', label: 'Work', activity: 'working', tracking: false, by: 'name', rule: 'github.com' };
+  await h.observe({ devices: [pc], conversations: [] });
+  for (let i = 1; i <= 120; i++) {
+    clock.add(5);
+    await h.observe({ devices: [pc], conversations: [talk(pc.id, '203.0.113.70', 0, i * 400_000, VPN), talk(pc.id, '203.0.113.71', 0, i * 40_000, GH)] });
+  }
+  assert.equal(say(h.doing(`device:${pc.id}`)?.[0]?.what), 'Using GitHub');
+  await h.flush();
+  assert.equal((await h.dayView()).diary[0]?.what?.app, 'GitHub');
+});
+
 test('A restart: the day reads back, the first look after it is a baseline, and counters that went down count from zero', async () => {
   const { clock, make } = await setup();
   const tv = device('aa:aa:aa:aa:aa:01', 'Living Room TV');
@@ -258,6 +274,49 @@ test('In the clear to one host on several addresses is one event a day, not one 
   }
   const day = await h.dayView();
   assert.deepEqual(day.events.filter((e) => e.type === 'clear').map((e) => e.withName), ['example.com']);
+});
+
+test("In the clear: two devices of one name are two events; a host that gets its name later is still one (the red team's cases)", async () => {
+  const { clock, make } = await setup();
+  const h = await make();
+  const pc = device('aa:aa:aa:aa:aa:09', 'laptop');
+  const a = device('aa:aa:aa:aa:aa:0a', 'iPhone');
+  const b = device('aa:aa:aa:aa:aa:0b', 'iPhone');
+  const local = (to: string, n: number) => ({ ...talk(pc.id, 'x', n, n, undefined, { id: `l ${to}`, clear: { proto: 'HTTP', credentials: true } }), b: `device:${to}` });
+  const web = (n: number) => talk(pc.id, '192.0.2.30', n, n, undefined, { id: 'w', clear: { proto: 'HTTP' } });
+  await h.observe({ devices: [pc, a, b], conversations: [], remotes: [] });
+  clock.add(5);
+  await h.observe({ devices: [pc, a, b], conversations: [local(a.id, 100), local(b.id, 100), web(100)], remotes: [{ kind: 'remote', id: '192.0.2.30', ip: '192.0.2.30', name: '192.0.2.30', names: [] } as never] });
+  clock.add(5);
+  await h.observe({ devices: [pc, a, b], conversations: [local(a.id, 200), local(b.id, 200), web(200)], remotes: [{ kind: 'remote', id: '192.0.2.30', ip: '192.0.2.30', name: 'example.com', names: [] } as never] });
+  const day = await h.dayView();
+  const clear = day.events.filter((e) => e.type === 'clear');
+  assert.deepEqual(clear.filter((e) => e.with?.startsWith('device:')).map((e) => e.with).sort(), [`device:${a.id}`, `device:${b.id}`]);
+  assert.equal(clear.filter((e) => e.with?.startsWith('remote:')).length, 1);
+});
+
+test('Other video and music apps are not watched or listened to from a visit: artwork, a news page, one fetch', async () => {
+  const { clock, make } = await setup();
+  const h = await make();
+  const pc = device('aa:aa:aa:aa:aa:0c', 'laptop');
+  const NETFLIX: Classification = { company: 'Netflix', app: 'Netflix', category: 'video', label: 'Video', activity: 'watching video', tracking: false, by: 'name', rule: 'nflxso.net' };
+  const SPOTIFY: Classification = { company: 'Spotify', app: 'Spotify', category: 'music', label: 'Music', activity: 'listening to music', tracking: false, by: 'name', rule: 'spotify.com' };
+  await h.observe({ devices: [pc], conversations: [] });
+  let art = 0;
+  for (let i = 1; i <= 48; i++) {
+    clock.add(5);
+    art += 60_000;
+    await h.observe({ devices: [pc], conversations: [talk(pc.id, '203.0.113.60', 0, art, NETFLIX), talk(pc.id, '203.0.113.61', 0, 900_000, SPOTIFY)] });
+  }
+  const now = (h.doing(`device:${pc.id}`) ?? []).map((x) => say(x.what));
+  assert.ok(!now.includes('Watching Netflix'), now.join(', '));
+  assert.ok(!now.includes('Listening to Spotify'), now.join(', '));
+  clock.add(60);
+  await h.observe({ devices: [pc], conversations: [] });
+  await h.flush();
+  const day = await h.dayView();
+  const said = [...day.diary.flatMap((e) => [e.what, ...(e.also ?? [])]), ...day.devices.flatMap((d) => d.top.map((t) => t.what))].map((w) => say(w, 'past'));
+  assert.ok(!said.includes('watched Netflix') && !said.includes('listened to Spotify'), said.join(', '));
 });
 
 test('The oldest days go past the days kept; today never', async () => {

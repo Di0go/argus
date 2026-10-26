@@ -271,7 +271,8 @@ if (!HISTORY) {
     for (const f of check(`${c.slice(0, 7)} message`, Buffer.from(message.join('\n')), real)) found.push({ ...f, commits: [c] });
   }
   for (const [key, cs] of seen) {
-    const [blob = '', file = ''] = key.split(' ');
+    const blob = key.slice(0, key.indexOf(' '));
+    const file = key.slice(key.indexOf(' ') + 1);
     const data = run('git', ['cat-file', 'blob', blob]);
     if (!data) continue;
     for (const f of check(file, data, real)) found.push({ ...f, where: `${cs[0]!.slice(0, 7)}:${f.where}`, commits: cs });

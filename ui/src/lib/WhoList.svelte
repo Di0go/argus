@@ -79,8 +79,14 @@
 {:else}
   <p class="none">Nobody is using the network right now.</p>
 {/if}
-{#if quiet.length || active.length > limit}
-  {@const rest = [...active.slice(limit), ...quiet]}
+{#if active.length > limit}
+  <p class="quiet more-busy">
+    And {active.length - limit} more:
+    {#each active.slice(limit, limit + 6) as d, i (d.id)}{i ? ', ' : ''}<EntityLink entity={d} />{/each}{active.length - limit > 6 ? `, and ${active.length - limit - 6} others` : ''}
+  </p>
+{/if}
+{#if quiet.length}
+  {@const rest = quiet}
   <p class="quiet">
     {rest.length} quiet now:
     {#each rest.slice(0, 6) as d, i (d.id)}{i ? ', ' : ''}<EntityLink entity={d} />{/each}{rest.length > 6 ? `, and ${rest.length - 6} more` : ''}

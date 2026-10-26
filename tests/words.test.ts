@@ -58,6 +58,9 @@ test('Harmless in the clear only by the name asked for and the authorities\' own
   assert.equal(harmless('HTTP', ['crt.sectigo.com']), true);
   assert.equal(harmless('HTTP', ['cacerts.digicert.com']), true);
   assert.equal(harmless('HTTP', ['crt.sectigo.com.attacker.example']), false);
+  for (const n of ['i.pki.goog', 'crt.r2m01.amazontrust.com', 'ocsp.r2m01.amazontrust.com', 'certs.apple.com', 'secure.globalsign.com', 'aia.entrust.net', 'cacerts.thawte.com'])
+    assert.equal(harmless('HTTP', [n]), true, n);
+  assert.equal(harmless('HTTP', ['crt.amazontrust.com.attacker.example']), false);
   assert.equal(harmless('HTTP', ['captive.apple.com']), true);
   // An update by the dictionary's name rule; but not a category said only by the address's network.
   assert.equal(harmless('HTTP', ['dl.google.com'], { category: 'updates', activity: 'updating', by: 'name' }), true);
@@ -117,4 +120,17 @@ test('Identity: a Samsung TV by its default mDNS name ("55\" Crystal UHD") and i
   assert.notEqual(tv?.confidence, 'possibly');
   // The fridge stays what it was.
   assert.equal(identify({ names: [{ name: 'Samsung-Fridge', source: 'DHCP' }], vendor: 'Samsung Electronics' })?.label, 'Samsung device');
+});
+
+test("Identity, the red team's Samsung cases: another maker's OLED or QLED, a shop called The Frame, a model alone", () => {
+  const id = (f: Parameters<typeof identify>[0]) => identify(f)?.label ?? 'none';
+  assert.doesNotMatch(id({ names: [{ name: '65" OLED', source: 'mDNS' }], vendor: 'LG Electronics' }), /Samsung/);
+  assert.doesNotMatch(id({ names: [{ name: '55" QLED', source: 'mDNS' }], vendor: 'TCL' }), /Samsung/);
+  assert.doesNotMatch(id({ names: [{ name: 'The Frame Shop', source: 'DHCP' }] }), /Samsung/);
+  assert.doesNotMatch(id({ names: [], model: 'AU1234', vendor: 'Bose' }), /Samsung/);
+});
+
+test('A site with a | in its name keeps its whole name in the history key', () => {
+  const w = siteOnly('ex|ample.com');
+  assert.equal(doing(fromKey(keyOf(w), (c) => c)), doing(w));
 });

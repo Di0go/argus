@@ -123,7 +123,7 @@ export function harmless(clear: string, asked: string[], app?: { category: strin
 
 /** The certificate authorities' CRL and OCSP hosts, and those of their intermediate certificates (signed: crt., cacerts.). */
 const AUTHORITIES =
-  /^((ocsp|crl|crt|cacerts)\d*\.(digicert|sectigo|comodoca|usertrust|globalsign|entrust|godaddy|identrust|verisign|starfieldtech)\.(com|net)|[a-z0-9.-]*\.lencr\.org|(ocsp|crl|c)\.pki\.goog|crl\.microsoft\.com|ocsp\.msocsp\.com|ctldl\.windowsupdate\.com|ocsp\.apple\.com|crl\.apple\.com)$/i;
+  /^((ocsp|crl|crt|cacerts|aia|secure)\d*\.(digicert|sectigo|comodoca|usertrust|globalsign|entrust|godaddy|identrust|verisign|starfieldtech|thawte)\.(com|net)|(ocsp|crl|crt)\.[a-z0-9]+\.amazontrust\.com|certs\.apple\.com|[a-z0-9.-]*\.lencr\.org|(ocsp|crl|c|i)\.pki\.goog|crl\.microsoft\.com|ocsp\.msocsp\.com|ctldl\.windowsupdate\.com|ocsp\.apple\.com|crl\.apple\.com)$/i;
 
 /** Connectivity checks, by their exact hosts. */
 const CHECKS = new Set([

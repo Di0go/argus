@@ -56,7 +56,10 @@ const ACTIVE = 30_000;
  * is a megabyte at a time, as often as it is asked for; the lowest video is more than this every minute it plays).
  */
 const VIDEO_RUN = 3;
-const VIDEO_MINUTE = 500_000;
+/** 3 MB a minute, 400 kbit/s: under the lowest picture a video app plays (artwork and pages are less, or not for long). */
+const VIDEO_MINUTE = 3_000_000;
+/** Listening is a while of it (seconds): a music app's page or one fetch is not a song. */
+const MUSIC_FOR = 180;
 const STREAM = 'watching video';
 const streaming = (w: Classification | undefined) => w?.category === 'video' && w.activity === STREAM;
 /** Pauses shorter than this keep one episode going (seconds). */
@@ -121,7 +124,7 @@ export class History {
     this.learning = Object.keys(this.known).length ? 0 : this.started + 600;
     // Today's events already said (before a restart) are not said again.
     this.todayBytes = (await stat(this.file(this.day)).catch(() => undefined))?.size ?? 0;
-    for (const line of await this.lines(this.day)) if (line.e) this.count(line.e), this.said.add(eventKey(line.e, line.d ?? '', line.wn ?? line.w ?? '', `${line.p ?? ''}${line.c ? '+login' : ''}`));
+    for (const line of await this.lines(this.day)) if (line.e) this.count(line.e), this.said.add(eventKey(line.e, line.d ?? '', line.w ?? '', `${line.p ?? ''}${line.c ? '+login' : ''}`));
     this.loaded = true;
     // A day that ended while the server was down is gzipped now.
     for (const d of await this.days()) if (d !== this.day) await this.gzip(d);
@@ -221,11 +224,11 @@ export class History {
     };
     const out = [...by]
       .filter(([, e]) => e.bytes >= 2_000)
-      .map(([g, e]) => ({
-        what: e.what?.category === 'video' && !watching(g, e.bytes) ? visit(e.what, label('web')) : (e.what as Classification),
-        bytes: e.bytes,
-        since: this.streaks.get(`${device}\t${g}`)?.start ?? this.o.now(),
-      }))
+      .map(([g, e]) => {
+        const since = this.streaks.get(`${device}\t${g}`)?.start ?? this.o.now();
+        const short = (e.what?.category === 'video' && !watching(g, e.bytes)) || (e.what?.category === 'music' && this.o.now() - since < MUSIC_FOR);
+        return { what: short ? visit(e.what!, label('web')) : (e.what as Classification), bytes: e.bytes, since };
+      })
       .sort((a, b) => weight(b) - weight(a));
     return out.length ? out : undefined;
   }
@@ -333,8 +336,9 @@ export class History {
         // Its bytes: every minute of the group within it, the quiet ones too.
         const { start, end } = ep;
         ep.bytes = [...m].filter(([t]) => t >= start && t < end).reduce((n, [, b]) => n + b, 0);
-        if (ep.what?.category === 'video') {
-          if (streamed(streams.get(g) ?? new Map(), start, end)) watched.add(g);
+        if (ep.what?.category === 'video' || ep.what?.category === 'music') {
+          const real = ep.what.category === 'video' ? streamed(streams.get(g) ?? new Map(), start, end) : end - start >= MUSIC_FOR + 60;
+          if (real) watched.add(g);
           else ep.what = visit(ep.what, label('web'));
         }
         if (worth(ep)) diary.push(ep);
@@ -368,7 +372,7 @@ export class History {
             .slice(0, 5)
             .map(([k, bytes]) => {
               const what = fromKey(k, label);
-              const seen = what?.category === 'video' && !watched.has(`${id}\t${groupOf(what)}`) ? visit(what, label('web')) : what;
+              const seen = (what?.category === 'video' || what?.category === 'music') && !watched.has(`${id}\t${groupOf(what)}`) ? visit(what, label('web')) : what;
               return { ...(seen ? { what: seen } : {}), bytes };
             }),
         })),
@@ -407,8 +411,7 @@ export class History {
 
   private event(type: DayEvent['type'], device: string, other: string, proto: string, t: number, credentials?: boolean, local?: boolean): Record<string, unknown> {
     // A login seen later in the same conversation is news again: it upgrades the event (dayView keeps the one with it).
-    // By the other end's name: one host on several addresses (IPv4 and IPv6, a CDN's) is one story.
-    const key = eventKey(type, device, this.others.get(other) ?? other, `${proto}${credentials ? '+login' : ''}`);
+    const key = eventKey(type, device, other, `${proto}${credentials ? '+login' : ''}`);
     if (this.said.has(key)) return undefined as unknown as Record<string, unknown>;
     this.said.add(key);
     if (this.counted.all >= EVENTS_A_DAY || (type === 'new' && this.counted.fresh >= NEW_A_DAY)) {
@@ -525,7 +528,9 @@ interface Line {
 function once(events: DayEvent[]): DayEvent[] {
   const by = new Map<string, DayEvent>();
   for (const e of [...events].sort((a, b) => a.t - b.t)) {
-    const k = eventKey(e.type, e.device, e.withName ?? e.with ?? '', e.proto ?? '');
+    // A host by its name (one host on several addresses, IPv4 and IPv6, is one story); a device here by itself (two
+    // phones may share a name).
+    const k = eventKey(e.type, e.device, e.with?.startsWith('remote:') ? (e.withName ?? e.with) : (e.with ?? ''), e.proto ?? '');
     const had = by.get(k);
     if (!had || (e.credentials && !had.credentials)) by.set(k, had ? { ...e, t: had.t } : e);
   }
@@ -585,7 +590,8 @@ function merge(episodes: Episode[]): Episode[] {
  * then addresses with no name; the network's own chatter last. Unknown traffic never heads named activity.
  */
 function weight(d: { what?: Classification; bytes: number }): number {
-  const tier = !d.what ? 1 : BACKGROUND.has(d.what.category) ? 0 : d.what.by === 'site' ? 2 : d.what.category === 'calls' && d.bytes >= 10_000 ? 4 : 3;
+  // A VPN carries the rest, as a CDN does: what went through it, when named, says more.
+  const tier = !d.what ? 1 : BACKGROUND.has(d.what.category) ? 0 : d.what.by === 'site' || d.what.category === 'vpn' ? 2 : d.what.category === 'calls' && d.bytes >= 10_000 ? 4 : 3;
   return tier * 1e15 + d.bytes;
 }
 

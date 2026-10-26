@@ -390,9 +390,11 @@ test('Now: the sentence and the list count the same house (the router in neither
   const text = await verdict.innerText();
   const total = Number((text.match(/of (\d+) devices are using/) ?? text.match(/(\d+) devices? on the network/))?.[1]);
   const rows = await p.getByRole('list', { name: 'Who is using the network' }).locator(':scope > li').count();
-  const quiet = Number((await p.locator('.quiet').innerText().catch(() => '0 quiet')).match(/(\d+) quiet/)?.[1] ?? 0);
-  assert.equal(rows + quiet, total, `${text} / ${rows} rows, ${quiet} quiet`);
-  assert.doesNotMatch(await p.locator('.quiet').innerText().catch(() => ''), /Router|router/);
+  const quietText = await p.locator('.quiet:not(.more-busy)').innerText().catch(() => '0 quiet');
+  const more = Number((await p.locator('.more-busy').innerText().catch(() => 'And 0 more')).match(/And (\d+) more/)?.[1] ?? 0);
+  const quiet = Number(quietText.match(/(\d+) quiet/)?.[1] ?? 0);
+  assert.equal(rows + more + quiet, total, `${text} / ${rows} rows, ${more} more, ${quiet} quiet`);
+  assert.doesNotMatch(quietText, /Router|router/);
   assert.deepEqual(errors, []);
   await p.close();
 });

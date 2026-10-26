@@ -15,7 +15,7 @@ export interface ClearLine {
   otherKey: string;
   /** Between two devices here, not out to the internet. */
   local: boolean;
-  /** The device, the other end's name and the protocol: one line each. */
+  /** The device, the other end (a host by its name, a device here by itself) and the protocol: one line each. */
   key: string;
 }
 
@@ -47,7 +47,7 @@ export function privacy(src: Source, o: { device?: string; since?: number } = {}
   const line = (c: Conversation): ClearLine => {
     const other = remotes.get(c.b) ?? devices.get(c.b);
     const name = other?.name ?? c.b.replace(/^\w+:/, '');
-    return { c, device: devices.get(c.a), other: name, otherKey: c.b, local: c.b.startsWith('device:'), key: `${c.a}\t${name}\t${c.clear?.proto ?? c.tls ?? ''}` };
+    return { c, device: devices.get(c.a), other: name, otherKey: c.b, local: c.b.startsWith('device:'), key: `${c.a}\t${c.b.startsWith('remote:') ? name : c.b}\t${c.clear?.proto ?? c.tls ?? ''}` };
   };
   const out: Privacy = { clear: [], local: [], harmless: [], oldTls: [], dns: [], dnsHouse: 0, tracking: [], trackingBytes: 0, bytes: 0, where: [], whereBytes: 0 };
   const tracking = new Map<string, { company: string; bytes: number; devices: Set<Device> }>();

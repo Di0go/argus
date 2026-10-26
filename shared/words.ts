@@ -80,7 +80,9 @@ const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
  * given a category (the day's chart says "Not named").
  */
 export function siteOnly(site: string): Classification {
-  return { category: 'web', label: 'Not named', activity: 'using', tracking: false, site, by: 'site', rule: site };
+  // The history's keys are joined by "|": a name that came in off the network loses any.
+  const name = site.replaceAll('|', '');
+  return { category: 'web', label: 'Not named', activity: 'using', tracking: false, site: name, by: 'site', rule: name };
 }
 
 /** The key a stretch of traffic is added up under in the history: what it is, in the dictionary's words. */
