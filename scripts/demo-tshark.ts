@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// A tshark for the demo (pnpm demo): asked to listen (-i), it makes up a house at work instead of capturing (a
-// laptop streaming a series, music, a build pulling packages, a video call; on docker0, a few containers at work), and
-// prints each made-up frame's fields
-// as the real one does (-T fields, server/tally.ts's list), as they "arrive". The other devices are heard as a PC on
-// a switched network hears them: by what they announce to everyone (DHCP, mDNS, NetBIOS, ARP). Every name, address
-// and MAC is invented. Asked anything else (-r, a file), it is the real tshark.
+// A tshark for the demo (pnpm demo): asked to listen (-i), it makes up a house at work instead of capturing, and
+// prints each made-up frame's fields as the real one does (-T fields, server/tally.ts's list), as they "arrive". It
+// hears the house as a sensor on the router would (a mirror port): the TV on Netflix, a phone on Instagram and then
+// on a WhatsApp call, a tablet on YouTube asking Google's DNS directly, the office PC updating Windows, a speaker on
+// Spotify, a printer posting scans over plain HTTP with a password, and this PC on a call and a build; on docker0, a
+// few containers at work. The devices also say what they are (DHCP, mDNS, User-Agent). Every name, address, MAC and
+// password is invented. Asked anything else (-r, a file), it is the real tshark.
 //
 // It touches no network and writes no packets: the ring buffer folder it is given gets the test fixture, so saving a
 // capture works too.
@@ -19,31 +20,46 @@ type Frame = Partial<Record<(typeof FIELDS)[number], string | string[]>>;
 const ROUTER = { mac: '50:c7:bf:12:34:56', vendor: 'TP-LINK TECHNOLOGIES CO.,LTD.', ip: '192.168.50.1' };
 const ME = { mac: '3c:a9:f4:10:20:30', vendor: 'Intel Corporate', ip: '192.168.50.10', ip6: '2001:db8:50:1::10' };
 /** The others, heard by what they announce. */
-const HOUSE = [
-  { mac: '3c:22:fb:ab:cd:ef', vendor: 'Apple, Inc.', ip: '192.168.50.23', dhcp: 'Alexs-iPhone' },
-  { mac: 'f4:f5:d8:c0:ff:ee', vendor: 'Google, Inc.', ip: '192.168.50.31', mdns: { fn: 'Living Room TV', md: 'Chromecast' } },
-  { mac: '00:04:3c:11:22:33', vendor: 'SONOS Co., Ltd.', ip: '192.168.50.32', mdns: { fn: 'Kitchen Speaker', md: 'Sonos One' } },
-  { mac: '00:01:e6:ab:cd:01', vendor: 'Hewlett Packard', ip: '192.168.50.60', mdns: { fn: 'Office Printer', md: 'LaserJet' } },
-  { mac: '00:1b:21:aa:bb:cc', vendor: 'Intel Corporate', ip: '192.168.50.50', netbios: 'DESKTOP-OFFICE' },
-  { mac: 'b8:27:eb:44:55:66', vendor: 'Raspberry Pi Foundation', ip: '192.168.50.40', mdns: { host: 'raspberrypi' } },
+type Home = { mac: string; vendor?: string; ip: string; dhcp?: string; vendorClass?: string; netbios?: string; mdns?: { fn?: string; md?: string; host?: string; service?: string }; ua?: string };
+const HOUSE: Home[] = [
+  { mac: '3c:22:fb:ab:cd:ef', vendor: 'Apple, Inc.', ip: '192.168.50.23', dhcp: 'Alexs-iPhone', ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148' },
+  { mac: 'f4:f5:d8:c0:ff:ee', vendor: 'Google, Inc.', ip: '192.168.50.31', mdns: { fn: 'Living Room TV', md: 'Chromecast', service: '_googlecast._tcp' } },
+  { mac: '00:04:3c:11:22:33', vendor: 'SONOS Co., Ltd.', ip: '192.168.50.32', mdns: { fn: 'Kitchen Speaker', md: 'Sonos One', service: '_sonos._tcp' } },
+  { mac: '00:01:e6:ab:cd:01', vendor: 'Hewlett Packard', ip: '192.168.50.60', mdns: { fn: 'Office Printer', md: 'LaserJet', service: '_ipp._tcp' } },
+  { mac: '00:1b:21:aa:bb:cc', vendor: 'Intel Corporate', ip: '192.168.50.50', netbios: 'DESKTOP-OFFICE', vendorClass: 'MSFT 5.0', dhcp: 'DESKTOP-OFFICE' },
+  { mac: 'b8:27:eb:44:55:66', vendor: 'Raspberry Pi Foundation', ip: '192.168.50.40', mdns: { host: 'raspberrypi', service: '_workstation._tcp' } },
   { mac: '9a:11:22:33:44:55', ip: '192.168.50.77' },
-  { mac: '00:00:f0:65:43:21', vendor: 'Samsung Electronics Co.,Ltd', ip: '192.168.50.45', dhcp: 'Galaxy-Tab-S9' },
+  { mac: '00:00:f0:65:43:21', vendor: 'Samsung Electronics Co.,Ltd', ip: '192.168.50.45', dhcp: 'Galaxy-Tab-S9', vendorClass: 'android-dhcp-14' },
 ];
-/** What this PC talks to, and how: a stream, music, a build, a call, and the small talk of an open browser. */
-const REMOTES = [
-  { name: 'ipv6-c001-xyz001-ix.1.oca.nflxvideo.net', ip: '2001:db8:2042::162', bulk: [2_600_000, 0.35] },
-  { name: 'audio-ak-spotify-com.akamaized.net', ip: '203.0.113.17', bulk: [60_000, 0.25] },
+const [PHONE, TV, SPEAKER, PRINTER, OFFICE, , , TABLET] = HOUSE as [Home, Home, Home, Home, Home, Home, Home, Home];
+/**
+ * Who talks to what, and how: `by` is the device (this PC when not said), `bulk` the peak bytes a second and the
+ * share of the time it is on, `udp` a port for a call, `http` plain HTTP (with a login, `auth`), `every` seconds
+ * between short visits.
+ */
+type Talk = { name: string; ip: string; bulk: readonly [number, number]; by?: Home; udp?: number; http?: boolean; auth?: boolean; dns?: string };
+const REMOTES: readonly Talk[] = [
+  { name: 'ipv6-c001-xyz001-ix.1.oca.nflxvideo.net', ip: '198.51.100.162', bulk: [2_600_000, 0.75], by: TV },
+  { name: 'audio-ak-spotify-com.akamaized.net', ip: '203.0.113.17', bulk: [60_000, 0.8], by: SPEAKER },
   { name: 'registry.npmjs.org', ip: '198.51.100.35', bulk: [900_000, 0.12] },
+  { name: 'scontent-lis1-1.cdninstagram.com', ip: '203.0.113.120', bulk: [400_000, 0.45], by: PHONE },
+  { name: 'graph.instagram.com', ip: '203.0.113.121', bulk: [6_000, 0.3], by: PHONE },
+  { name: 'e7.whatsapp.net', ip: '203.0.113.122', bulk: [40_000, 0.95], by: PHONE, udp: 3478 },
+  { name: 'rr2---sn-aigl6nzr.googlevideo.com', ip: '203.0.113.130', bulk: [700_000, 0.6], by: TABLET, dns: '8.8.8.8' },
+  { name: 'app-measurement.com', ip: '203.0.113.131', bulk: [8_000, 0.4], by: TABLET, dns: '8.8.8.8' },
+  { name: 'dl.delivery.mp.microsoft.com', ip: '203.0.113.140', bulk: [1_800_000, 0.2], by: OFFICE },
+  { name: 'ctldl.windowsupdate.com', ip: '203.0.113.141', bulk: [3_000, 0.1], by: OFFICE, http: true },
+  { name: 'scan.printhub.example', ip: '198.51.100.77', bulk: [20_000, 0.08], by: PRINTER, http: true, auth: true },
   { name: 'meet.google.com', ip: '203.0.113.110', bulk: [180_000, 0.9], udp: 3478 },
   { name: 'api.anthropic.com', ip: '198.51.100.10', bulk: [24_000, 0.5] },
   { name: 'github.com', ip: '198.51.100.4', bulk: [40_000, 0.2] },
-  { name: 'www.google.com', ip: '203.0.113.14', bulk: [6_000, 0.3] },
+  { name: 'www.google.com', ip: '2001:db8:4860::2004', bulk: [6_000, 0.3] },
   { name: 'fonts.gstatic.com', ip: '203.0.113.3', bulk: [3_000, 0.15] },
   { name: 'www.icloud.com', ip: '203.0.113.68', bulk: [2_000, 0.15] },
   { name: 'outlook.office.com', ip: '203.0.113.162', bulk: [9_000, 0.35] },
   { name: 'www.theguardian.com', ip: '198.51.100.42', bulk: [12_000, 0.2] },
   { name: 'cdn.jsdelivr.net', ip: '198.51.100.229', bulk: [5_000, 0.2] },
-] as const;
+];
 /** On docker0: this PC's bridge, and containers: a web app with its database and cache, pulling packages now and then. */
 const BRIDGE = { mac: '02:42:5a:11:22:33', ip: '172.30.0.1' };
 const CONTAINERS = [
@@ -65,20 +81,23 @@ const udp = (src: number, dst: number): Frame => ({ 'udp.srcport': String(src), 
 function play(iface: string) {
   if (iface === 'docker0') return containers(iface);
   const out = (f: Frame) => process.stdout.write(`${line({ 'frame.time_epoch': String(Date.now() / 1000), 'frame.interface_name': iface, ...f })}\n`);
-  const fromRouter = { 'eth.src': ROUTER.mac, 'eth.dst': ME.mac, 'eth.src.oui_resolved': ROUTER.vendor, 'eth.dst.oui_resolved': ME.vendor };
-  const toRouter = { 'eth.src': ME.mac, 'eth.dst': ROUTER.mac, 'eth.src.oui_resolved': ME.vendor, 'eth.dst.oui_resolved': ROUTER.vendor };
+  const who = (r: Talk) => r.by ?? { ...ME, vendor: ME.vendor };
+  const fromRouter = (d: Home) => ({ 'eth.src': ROUTER.mac, 'eth.dst': d.mac, 'eth.src.oui_resolved': ROUTER.vendor, 'eth.dst.oui_resolved': d.vendor ?? '' });
+  const toRouter = (d: Home) => ({ 'eth.src': d.mac, 'eth.dst': ROUTER.mac, 'eth.src.oui_resolved': d.vendor ?? '', 'eth.dst.oui_resolved': ROUTER.vendor });
   const v6 = (ip: string) => ip.includes(':');
   const ipPair = (src: string, dst: string): Frame =>
     v6(src) || v6(dst) ? { 'ipv6.src': v6(src) ? src : ME.ip6, 'ipv6.dst': v6(dst) ? dst : ME.ip6 } : { 'ip.src': src, 'ip.dst': dst };
 
-  // The names first: what DNS said of each host, as the PC asked.
+  // The names first: what DNS said of each host, as each device asked (the tablet asks Google's DNS directly).
   for (const r of REMOTES) {
-    out({ ...toRouter, 'frame.len': '78', 'ip.src': ME.ip, 'ip.dst': ROUTER.ip, ...udp(53000, 53), 'dns.flags.response': '0', 'dns.qry.name': r.name });
+    const d = who(r);
+    const server = r.dns ?? ROUTER.ip;
+    out({ ...toRouter(d), 'frame.len': '78', 'ip.src': d.ip, 'ip.dst': server, ...udp(53000, 53), 'dns.flags.response': '0', 'dns.qry.name': r.name });
     out({
-      ...fromRouter,
+      ...fromRouter(d),
       'frame.len': '110',
-      'ip.src': ROUTER.ip,
-      'ip.dst': ME.ip,
+      'ip.src': server,
+      'ip.dst': d.ip,
       ...udp(53, 53000),
       'dns.flags.response': '1',
       'dns.qry.name': r.name,
@@ -89,7 +108,15 @@ function play(iface: string) {
     for (const d of HOUSE) {
       const eth = { 'eth.src': d.mac, 'eth.dst': 'ff:ff:ff:ff:ff:ff', 'eth.src.oui_resolved': d.vendor ?? '' };
       out({ ...eth, 'frame.len': '60', 'arp.src.hw_mac': d.mac, 'arp.src.proto_ipv4': d.ip });
-      if (d.dhcp) out({ ...eth, 'frame.len': '342', 'dhcp.hw.mac_addr': d.mac, 'dhcp.option.hostname': d.dhcp, 'dhcp.option.requested_ip_address': d.ip });
+      if (d.dhcp)
+        out({
+          ...eth,
+          'frame.len': '342',
+          'dhcp.hw.mac_addr': d.mac,
+          'dhcp.option.hostname': d.dhcp,
+          'dhcp.option.requested_ip_address': d.ip,
+          ...(d.vendorClass ? { 'dhcp.option.vendor_class_id': d.vendorClass } : {}),
+        });
       if (d.netbios) out({ ...eth, 'frame.len': '110', 'ip.src': d.ip, 'ip.dst': '192.168.50.255', ...udp(137, 137), 'nbns.name': `${d.netbios}<00>` });
       if (d.mdns) {
         const host = 'host' in d.mdns ? d.mdns.host : 'c0ffee00-0000-4000-8000-00000000ca57';
@@ -102,8 +129,8 @@ function play(iface: string) {
           'ip.dst': '224.0.0.251',
           ...udp(5353, 5353),
           'dns.flags.response': '1',
-          'dns.resp.name': [`${host}.local`],
-          'dns.resp.type': ['1'],
+          'dns.resp.name': [`${host}.local`, ...(d.mdns.service ? [`${d.mdns.service}.local`] : [])],
+          'dns.resp.type': ['1', ...(d.mdns.service ? ['12'] : [])],
           'dns.txt': 'fn' in d.mdns ? [`fn=${d.mdns.fn}`, `md=${d.mdns.md}`] : [],
         });
       }
@@ -123,17 +150,25 @@ function play(iface: string) {
       const wave = 0.5 + 0.5 * Math.sin(t / (9 + k * 3) + k);
       const on = (Math.sin(t / (4 + k) + k * 1.7) + 1) / 2 < duty || wave > 0.92;
       let bytes = (on ? peak * (0.4 + 0.6 * Math.random()) * wave : peak * 0.02 * Math.random()) / 10;
-      const port = 'udp' in r ? r.udp : 443;
-      const ports = (out: boolean) => ('udp' in r ? (out ? udp(50000 + k, port) : udp(port, 50000 + k)) : out ? tcp(50000 + k, port) : tcp(port, 50000 + k));
+      const d = who(r);
+      const port = r.udp ?? (r.http ? 80 : 443);
+      const ports = (out: boolean) => (r.udp ? (out ? udp(50000 + k, port) : udp(port, 50000 + k)) : out ? tcp(50000 + k, port) : tcp(port, 50000 + k));
+      const layers = r.udp ? 'eth:ethertype:ip:udp:stun' : r.http ? 'eth:ethertype:ip:tcp:http' : 'eth:ethertype:ip:tcp:tls';
       if (!opened.has(r.ip)) {
-        // Its encrypted connection opens: the name it asked for (SNI) is said in the clear.
+        // Its connection opens: TLS says the name it asked for (SNI) in the clear; plain HTTP says it all.
         opened.add(r.ip);
-        out({ ...toRouter, 'frame.len': '583', ...ipPair(ME.ip, r.ip), ...ports(true), 'tls.handshake.extensions_server_name': r.name });
+        const hello: Frame = r.http
+          ? { 'http.host': r.name, 'http.user_agent': d.ua ?? (d === OFFICE ? 'Microsoft-CryptoAPI/10.0' : 'HP-ChaiSOE/1.0'), ...(r.auth ? { 'http.authorization': 'Basic ZGVtbzpkZW1v' } : {}) }
+          : r.udp
+            ? {}
+            : { 'tls.handshake.extensions_server_name': r.name, 'tls.handshake.type': '1' };
+        out({ ...toRouter(d), 'frame.len': '583', ...ipPair(d.ip, r.ip), ...ports(true), 'frame.protocols': layers, ...hello });
+        if (!r.udp && !r.http) out({ ...fromRouter(d), 'frame.len': '1400', ...ipPair(r.ip, d.ip), ...ports(false), 'frame.protocols': layers, 'tls.handshake.type': '2', 'tls.handshake.extensions.supported_version': '0x0304' });
       }
       while (bytes > 0) {
         const len = Math.min(1514, Math.max(66, Math.round(bytes)));
-        out({ ...fromRouter, 'frame.len': String(len), ...ipPair(r.ip, ME.ip), ...ports(false) });
-        if (Math.random() < 0.25) out({ ...toRouter, 'frame.len': '66', ...ipPair(ME.ip, r.ip), ...ports(true) });
+        out({ ...fromRouter(d), 'frame.len': String(len), ...ipPair(r.ip, d.ip), ...ports(false), 'frame.protocols': layers });
+        if (Math.random() < 0.25) out({ ...toRouter(d), 'frame.len': '66', ...ipPair(d.ip, r.ip), ...ports(true), 'frame.protocols': layers });
         bytes -= len;
       }
     });

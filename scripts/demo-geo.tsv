@@ -1,0 +1,5 @@
+198.51.100.0	198.51.100.127	64496	US	EXAMPLE-STREAM - Example Streaming Inc.
+198.51.100.128	198.51.100.255	64497	US	EXAMPLE-CDN - Example CDN
+203.0.113.0	203.0.113.127	64498	IE	EXAMPLE-CLOUD - Example Cloud Ireland
+203.0.113.128	203.0.113.255	64499	PT	EXAMPLE-PT - Example Telecom Portugal
+2001:db8::	2001:db8:ffff:ffff:ffff:ffff:ffff:ffff	64500	NL	EXAMPLE-V6 - Example Networks

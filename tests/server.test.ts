@@ -10,8 +10,8 @@ import { tmpdir } from 'node:os';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { type Running, startServer } from '@organon/core/testing';
-import type { Capture, HostsView, Interface, LiveEvent, LiveView, Session } from '../shared/types.ts';
-import { FIXTURE, fakeCapture, fakeTshark, ROOT, TSHARK } from './helpers.ts';
+import type { DayView, Capture, HostsView, Interface, LiveEvent, LiveView, Session } from '../shared/types.ts';
+import { DEVICES, FIXTURE, fakeCapture, fakeTshark, ROOT, TSHARK } from './helpers.ts';
 
 const running: Running[] = [];
 after(async () => {
@@ -59,7 +59,7 @@ test('Listening on the Wi-Fi: tshark is asked for a bounded ring buffer and fiel
   assert.equal((await listen(app.base, 'wlan0')).status, 200);
   const v = await until(app.base, (x) => x.session.packets === truth.packets);
   assert.equal(v.session.bytes, truth.bytes);
-  assert.equal(v.devices.length, 7);
+  assert.equal(v.devices.length, DEVICES);
   for (const [mac, sent] of Object.entries(truth.sentByMac as Record<string, { bytes: number }>)) {
     assert.equal(v.devices.find((d) => d.mac === mac)?.bytesSent, sent.bytes, mac);
   }
@@ -104,7 +104,7 @@ test('The live stream: a page gets what changed, once in a while, as aggregates 
   const last = events.at(-1)!;
   assert.equal(last.type, 'live');
   // Each event carries the devices that changed; across them, all seven arrived.
-  assert.equal(new Set(events.flatMap((e) => e.devices.map((d) => d.id))).size, 7);
+  assert.equal(new Set(events.flatMap((e) => e.devices.map((d) => d.id))).size, DEVICES);
   assert.ok(events.every((e, i) => i === 0 || e.seq === events[i - 1]!.seq + 1), 'numbered in order');
   // Fewer events than frames: the page is told at most every EMIT_MS, not per packet.
   assert.ok(events.length < truth.packets, `${events.length} events for ${truth.packets} packets`);
@@ -160,7 +160,7 @@ test('Saving: what the ring buffer holds becomes a capture, with its devices, li
   assert.deepEqual(c.interfaces, ['wlan0']);
   assert.equal(c.packets, truth.packets);
   const v = (await (await fetch(`${app.base}/api/captures/${c.id}`)).json()) as HostsView;
-  assert.equal(v.devices.length, 7);
+  assert.equal(v.devices.length, DEVICES);
   assert.ok((await readdir(path.join(app.dataDir, 'captures'))).includes(`${c.id}.pcapng`));
   assert.equal((await fetch(`${app.base}/api/captures/${c.id}`, { method: 'DELETE' })).status, 200);
   assert.equal((await fetch(`${app.base}/api/captures/${c.id}`)).status, 404);
@@ -173,7 +173,7 @@ test('A restart (a release) picks up the session where it was, and listens again
   await first.app.stop();
   const second = await start({}, first.app.dataDir);
   const v = await until(second.app.base, (x) => x.session.packets === 2 * truth.packets);
-  assert.equal(v.devices.length, 7);
+  assert.equal(v.devices.length, DEVICES);
   assert.deepEqual(
     v.session.listening.map((l) => [l.id, l.on]),
     [['wlan0', true]],
@@ -190,7 +190,7 @@ test('With a recording brought in, the capture shows its devices; the live sessi
   assert.equal(list.length, 1);
   const v = (await (await fetch(`${app.base}/api/hosts?capture=${list[0]!.id}`)).json()) as HostsView;
   assert.equal(v.capture.packets, truth.packets);
-  assert.equal(v.devices.length, 7);
+  assert.equal(v.devices.length, DEVICES);
   const live = (await (await fetch(`${app.base}/api/hosts`)).json()) as { session: Session; devices: unknown[] };
   assert.equal(live.session.packets, 0);
   assert.equal(live.devices.length, 0);
@@ -199,7 +199,7 @@ test('With a recording brought in, the capture shows its devices; the live sessi
 test('MCP: get_hosts reads the live session (or a capture); get_device walks to who it talked to', async () => {
   const { app } = await start({ SEED_PCAP: FIXTURE });
   const list = await mcp(app.base, 'tools/list');
-  assert.deepEqual(list.result?.tools?.map((t) => t.name).sort(), ['get_device', 'get_hosts', 'list_captures']);
+  assert.deepEqual(list.result?.tools?.map((t) => t.name).sort(), ['get_day', 'get_device', 'get_hosts', 'list_captures', 'what_happened']);
   const idle = await mcp(app.base, 'tools/call', { name: 'get_hosts', arguments: {} });
   assert.equal(idle.result?.isError, true);
   assert.match(idle.result?.content?.[0]?.text ?? '', /Not listening/);
@@ -211,7 +211,7 @@ test('MCP: get_hosts reads the live session (or a capture); get_device walks to 
     devices: { name: string; vendor?: string; role?: string }[];
   };
   assert.deepEqual(body.live.listeningOn.map((l) => l.interface), ['wlan0']);
-  assert.equal(body.devices.length, 7);
+  assert.equal(body.devices.length, DEVICES);
   assert.ok(body.devices.some((d) => d.name === 'raspberrypi' && d.vendor === 'Raspberry Pi Foundation'));
   assert.ok(body.devices.some((d) => d.role?.startsWith('router')));
   // What the traffic was for, in plain words: by app, with its share; and each host with what it is.
@@ -233,7 +233,7 @@ test('MCP: get_hosts reads the live session (or a capture); get_device walks to 
   assert.match(call?.what?.knownBy ?? '', /^traffic pattern /);
   const captures = JSON.parse((await mcp(app.base, 'tools/call', { name: 'list_captures', arguments: {} })).result?.content?.[0]?.text ?? '[]');
   const saved = await mcp(app.base, 'tools/call', { name: 'get_hosts', arguments: { capture: captures[0].id } });
-  assert.equal(JSON.parse(saved.result?.content?.[0]?.text ?? '{}').devices.length, 7);
+  assert.equal(JSON.parse(saved.result?.content?.[0]?.text ?? '{}').devices.length, DEVICES);
   const none = await mcp(app.base, 'tools/call', { name: 'get_device', arguments: { device: 'toaster' } });
   assert.equal(none.result?.isError, true);
 });
@@ -353,4 +353,45 @@ test('The ring survives a restart, is cut to the ceiling, and a save after a res
   const inRing = (await readdir(ringDir)).flatMap((f) => times(path.join(ringDir, f))).filter((t) => t >= reset.started! - 1e-6);
   assert.equal(saved.length, inRing.length);
   assert.equal(c.packets, saved.length);
+});
+
+test('The day kept: a live session becomes the day (events for what went unencrypted), read by the page and the agent', async () => {
+  const { app } = await start({ HISTORY_MS: '300', GEO_FILE: path.join(ROOT, 'tests/fixtures/geo.tsv') });
+  await listen(app.base, 'wlan0');
+  await until(app.base, (v) => v.devices.length === DEVICES);
+  let day: DayView | undefined;
+  for (let i = 0; i < 60 && (day?.events.filter((e) => e.type === 'clear' && e.credentials).length !== 2 || !day.events.some((e) => e.type === 'old-tls')); i++) {
+    await new Promise((r) => setTimeout(r, 200));
+    day = (await (await fetch(`${app.base}/api/day`)).json()) as DayView;
+  }
+  assert.ok(day);
+  const clear = day.events.filter((e) => e.type === 'clear').map((e) => [e.with, e.proto, e.credentials ?? false]);
+  assert.deepEqual(clear.sort(), [
+    [`remote:${truth.hosts.upload.ip}`, 'HTTP', true],
+    [`remote:${truth.hosts.ftp.ip}`, 'FTP', true],
+  ].sort());
+  assert.ok(day.events.some((e) => e.type === 'old-tls' && e.with === `remote:${truth.hosts.legacy.ip}`));
+  assert.ok(day.bytes > 0);
+  // A device's day, and a day not kept.
+  const pi = (await (await fetch(`${app.base}/api/day?device=${encodeURIComponent(`device:${truth.hosts.pi.mac}`)}`)).json()) as DayView;
+  assert.deepEqual(pi.events.map((e) => e.proto), ['FTP']);
+  assert.equal((await fetch(`${app.base}/api/day?date=yesterday`)).status, 400);
+  // Where: the made-up table says where each documentation range is registered.
+  const v = await liveView(app.base);
+  assert.equal(v.remotes.find((r) => r.ip === truth.hosts.upload.ip)?.where?.country, 'United States');
+  // The agent: the day summed up, and what one device did.
+  const got = await mcp(app.base, 'tools/call', { name: 'get_day', arguments: {} });
+  const summary = JSON.parse(got.result?.content?.[0]?.text ?? '{}');
+  assert.ok(summary.events.some((e: { event: string }) => /FTP without encryption/.test(e.event)));
+  assert.ok(!JSON.stringify(summary).includes('ZXhhbXBsZTpleGFtcGxl'));
+  const did = await mcp(app.base, 'tools/call', {
+    name: 'what_happened',
+    arguments: { device: truth.hosts.pi.name, from: new Date(Date.now() - 3_600_000).toISOString() },
+  });
+  const pis = JSON.parse(did.result?.content?.[0]?.text ?? '{}');
+  assert.equal(pis.device, truth.hosts.pi.name);
+  assert.match(pis.events[0].event, /FTP without encryption.*login/);
+  const device = JSON.parse((await mcp(app.base, 'tools/call', { name: 'get_device', arguments: { device: truth.hosts.tablet.name } })).result?.content?.[0]?.text ?? '{}');
+  assert.equal(device.is.what, 'Galaxy Tab, Android');
+  assert.match(device.dns[0], /another resolver in the clear: Google DNS/);
 });

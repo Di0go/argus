@@ -1,7 +1,7 @@
 // pnpm pictures: the README's pictures (docs/images/*.webp), from the demo's made-up house and never from a real
 // network. It starts the demo on a free port, lets it listen for a while (ARGUS_PICTURES_WAIT seconds, 240: the chart
 // needs minutes to have a shape), and takes each page at 1600 × 1000 in a headless Chromium, light and dark: Now,
-// the busiest device's page at its conversations, and search over the devices. ImageMagick turns them into WebP.
+// the TV's page (what it is, what it is doing, its day), and search over the devices. ImageMagick turns them into WebP.
 //
 //   pnpm build && pnpm pictures
 
@@ -29,15 +29,12 @@ try {
     // The look is kept in this browser (the core's theme-boot.js reads it before the first paint).
     await p.addInitScript((mode) => localStorage.setItem('argus.look', JSON.stringify({ mode })), scheme);
     await p.goto(`${base}/#/`);
-    await p.locator('table tbody tr[data-device]').first().waitFor();
+    await p.locator('ul[aria-label="Who is using the network"] li').first().waitFor();
     await save(p, `now-${scheme}`);
     await p.goto(`${base}/#/devices`);
-    await p.locator('table tbody tr[data-device] a').first().click();
+    await p.locator('table tbody tr[data-device] a', { hasText: 'Living Room TV' }).click();
     await p.waitForURL(/#\/device\//);
-    // Its conversations near the top, under the end of its bandwidth chart.
-    const talks = p.getByRole('heading', { name: 'Conversations' });
-    await talks.waitFor();
-    await talks.evaluate((e) => window.scrollBy(0, e.getBoundingClientRect().top - 230));
+    await p.getByRole('heading', { name: 'Today' }).waitFor();
     await save(p, `device-${scheme}`);
     await p.goto(`${base}/#/devices`);
     await p.locator('table tbody tr[data-device]').first().waitFor();

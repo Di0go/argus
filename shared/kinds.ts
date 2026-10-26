@@ -1,9 +1,9 @@
 // What a device probably is, from what it says of itself (its name, its model) and its maker: for its icon and a
 // word. A guess, said as one: the facts are on its page.
 
-import type { Device } from '../../../shared/types.ts';
+import type { Device } from './types.ts';
 
-export type DeviceKind = 'router' | 'this' | 'phone' | 'computer' | 'tv' | 'speaker' | 'board' | 'printer' | 'console' | 'camera' | 'watch' | 'tablet' | 'other';
+export type DeviceKind = 'router' | 'this' | 'phone' | 'computer' | 'tv' | 'speaker' | 'board' | 'printer' | 'console' | 'camera' | 'watch' | 'tablet' | 'container' | 'other';
 
 const RULES: [RegExp, DeviceKind][] = [
   [/iphone|android|galaxy|pixel|redmi|xiaomi|oneplus|oppo|huawei|motorola|nokia|smartphone|phone/i, 'phone'],
@@ -21,6 +21,8 @@ const RULES: [RegExp, DeviceKind][] = [
 export function deviceKind(d: Device): DeviceKind {
   if (d.role === 'gateway') return 'router';
   if (d.role === 'self') return 'this';
+  // What shared/identify.ts judged, when it judged anything.
+  if (d.identity && d.identity.kind !== 'other') return d.identity.kind;
   const text = [d.model, ...d.names.map((n) => n.name), d.vendor].filter(Boolean).join(' ');
   return RULES.find(([re]) => re.test(text))?.[1] ?? 'other';
 }
@@ -38,12 +40,14 @@ export const KIND_WORD: Record<DeviceKind, string> = {
   camera: 'Camera',
   watch: 'Watch',
   tablet: 'Tablet',
+  container: 'Container',
   other: 'Device',
 };
 
 /** The line under a device's name: what it probably is, unless the name already says so ("This PC", "Router
  * Tp-Link"); for this PC, its maker. */
 export function subline(d: Device): string {
+  if (d.identity && d.role !== 'gateway') return d.identity.label;
   const word = KIND_WORD[deviceKind(d)];
   if (d.role === 'self') return d.names[0]?.name ? 'This PC' : (d.model ?? d.vendor ?? '');
   return d.name.toLowerCase().startsWith(word.toLowerCase()) ? (d.model ?? '') : word;

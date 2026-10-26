@@ -50,3 +50,64 @@ code {
 .mobile-bar .listening-m + .mobile-search {
   margin-left: 0;
 }
+
+/* The monitor's colours (docs/apresentacao.md). Data is neutral: the lines and areas of traffic say amounts, not
+   alarms. One warm colour, --clear, says "without encryption" and nothing else uses it (the brand's red stays on
+   links and places). The categories' four hues leave orange and yellow out, so --clear stays alone; checked for
+   colour blindness, light and dark (the dataviz validator). */
+:root {
+  --data: #5b6470;
+  --data-soft: color-mix(in srgb, var(--data) 16%, transparent);
+  --clear: #c2410c;
+  --clear-soft: color-mix(in srgb, var(--clear) 11%, transparent);
+  --clear-line: color-mix(in srgb, var(--clear) 45%, transparent);
+  --cat-1: #2a78d6;
+  --cat-2: #1baf7a;
+  --cat-3: #6250d6;
+  --cat-4: #e87ba4;
+  --cat-other: #a3a3a3;
+}
+
+:root[data-theme='dark'] {
+  --data: #aab2bd;
+  --data-soft: color-mix(in srgb, var(--data) 18%, transparent);
+  --clear: #fb923c;
+  --clear-soft: color-mix(in srgb, var(--clear) 13%, transparent);
+  --cat-1: #3987e5;
+  --cat-2: #199e70;
+  --cat-3: #9085e9;
+  --cat-4: #d55181;
+  --cat-other: #6f6f6f;
+}
+
+/* Without encryption: the colour, and always an open padlock beside it (never colour alone). */
+.clear-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--clear-soft);
+  color: var(--clear);
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.clear-tag.quiet {
+  background: none;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 0;
+}
+
+.clear-row {
+  box-shadow: inset 3px 0 0 var(--clear);
+  background: linear-gradient(90deg, var(--clear-soft), transparent 70%);
+}
+
+.sure-word {
+  font-size: 0.74rem;
+  color: var(--faint);
+}

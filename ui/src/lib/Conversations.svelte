@@ -10,6 +10,8 @@
   import { bytes, since, when } from './format.ts';
   import Seg from './Seg.svelte';
   import { serviceName, servicePort } from '../../../shared/services.ts';
+  import { subject } from '../../../shared/words.ts';
+  import ClearTag from './ClearTag.svelte';
 
   let {
     conversations,
@@ -87,7 +89,7 @@
           {@const s = side(c)}
           {@const there = source.graph.get(s.there)}
           {@const here = source.graph.get(s.here)}
-          <tr class:hot={hot(c)} data-conversation={c.id}>
+          <tr class:hot={hot(c)} class:clear-row={c.clear && !c.clear.harmless} data-conversation={c.id}>
             <td class="who">
               <span class="who-in">
                 <i class="dot" aria-hidden="true"></i>
@@ -96,9 +98,9 @@
                     class="end mono">{s.there.replace(/^[a-z]+:/, '')}</span
                   >{/if}
               </span>
-              <span class="sub show-s">{serviceName(c.service)}</span>
+              <span class="sub show-s">{subject(c.app) ?? serviceName(c.service)}{#if c.clear}<ClearTag clear={c.clear} />{/if}</span>
             </td>
-            <td class="hide-s svc">{serviceName(c.service)}{#if servicePort(c.service) && serviceName(c.service) !== servicePort(c.service).toUpperCase()}<span
+            <td class="hide-s svc">{#if subject(c.app)}<span class="app-name">{subject(c.app)}</span>{/if}{serviceName(c.service)}{#if c.clear}<ClearTag clear={c.clear} />{/if}{#if c.tls && /^(SSL|1\.[01])/.test(c.tls)}<span class="old" title="TLS {c.tls}: broken or deprecated">TLS {c.tls}</span>{/if}{#if servicePort(c.service) && serviceName(c.service) !== servicePort(c.service).toUpperCase()}<span
                   class="port mono">{servicePort(c.service)}</span
                 >{/if}</td>
             <td class="num hide-s">{bytes(s.sent)}</td>
@@ -118,6 +120,27 @@
 {/if}
 
 <style>
+  .app-name {
+    margin-right: 6px;
+    font-weight: 500;
+  }
+
+  .app-name::after {
+    content: ' ·';
+    color: var(--faint);
+  }
+
+  .svc :global(.clear-tag),
+  .sub :global(.clear-tag) {
+    margin-left: 6px;
+  }
+
+  .old {
+    margin-left: 6px;
+    font-size: 0.76rem;
+    color: var(--muted);
+  }
+
   .band-h {
     align-items: center;
   }

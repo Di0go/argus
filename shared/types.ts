@@ -6,11 +6,13 @@
 
 import type { EntityRef, Link } from '@organon/core/shared/entities';
 import type { Classification } from './classify.ts';
+import type { Identity } from './identify.ts';
+import type { DnsUse } from './security.ts';
 
 export type Kind = 'device' | 'remote' | 'site' | 'interface' | 'capture';
 
 /** Where a device's name came from, as he would say it. */
-export type NameSource = 'DHCP' | 'mDNS' | 'NetBIOS' | 'DNS' | 'TLS';
+export type NameSource = 'DHCP' | 'mDNS' | 'NetBIOS' | 'DNS' | 'TLS' | 'HTTP';
 
 export interface Traffic {
   packets: number;
@@ -40,6 +42,39 @@ export interface Device extends EntityRef, Traffic {
   interfaces: string[];
   /** Bytes a second, sent and received, over the last few seconds (the live session only). */
   rate?: { sent: number; received: number };
+  /** What it says of itself that tells what it is (shared/identify.ts reads them). Never a password, never content. */
+  clues?: Clues;
+  /** What it is, how sure, and why (shared/identify.ts). */
+  identity?: Identity;
+  /** How it looks up names: the house's resolver, another, or encrypted. */
+  dns?: DnsUse[];
+  /** What it is doing now, busiest first (the live session only: server/observer.ts). */
+  doing?: Doing[];
+}
+
+/** A device's own words about itself, as the network carried them. */
+export interface Clues {
+  /** DHCP option 60 ("android-dhcp-14", "MSFT 5.0"). */
+  dhcpClass?: string[];
+  /** DHCP option 55, the options it asks for, in its order ("1,3,6,15,119,252"). */
+  dhcpParams?: string;
+  /** mDNS service types it offers ("_googlecast._tcp", "_airplay._tcp"). */
+  services?: string[];
+  /** User-Agent headers it sent in the clear. */
+  userAgents?: string[];
+  /** Its TLS clients' JA4 fingerprints. */
+  ja4?: string[];
+  /** It answered NetBIOS (Windows, or Samba). */
+  netbios?: boolean;
+}
+
+/** One thing a device is doing: what (the dictionary's words) and how much in the last minute. */
+export interface Doing {
+  what: Classification;
+  /** Bytes, both ways, in the last minute. */
+  bytes: number;
+  /** Epoch seconds: since when, without a pause of more than a few minutes. */
+  since: number;
 }
 
 /** A host out on the internet, by address, named by what this network asked of DNS or said in TLS. */
@@ -49,6 +84,17 @@ export interface Remote extends EntityRef, Traffic {
   names: { name: string; source: NameSource }[];
   /** Who runs it and what it is for, as the dictionary says (shared/classify.ts); absent when it says nothing. */
   app?: Classification;
+  /** Where its network is registered (server/geo.ts), when the table is there. */
+  where?: Where;
+}
+
+/** The network an address belongs to (its AS) and the country it is registered in: not a street, not a proof. */
+export interface Where {
+  asn?: number;
+  org?: string;
+  /** ISO 3166 code, and the country as he would say it. */
+  cc?: string;
+  country?: string;
 }
 
 /** Who runs a set of hosts out on the internet: a company everyone meets (Google, Meta), or a site by its name. */
@@ -109,10 +155,15 @@ export interface Conversation {
   packets: number;
   /** Epoch seconds. */
   first: number;
-  last: number;  /** What tshark recognised it as, above TCP or UDP ("wg", "stun", "quic"), when it did. */
+  last: number;
+  /** What tshark recognised it as, above TCP or UDP ("wg", "stun", "quic"), when it did. */
   protocol?: string;
   /** What it is, in plain words: the app, the category, the activity (shared/classify.ts); absent when unknown. */
   app?: Classification;
+  /** What it carried in the clear (shared/security.ts): the protocol, and whether a password went with it. */
+  clear?: { proto: string; credentials?: boolean; harmless?: boolean };
+  /** The TLS version it agreed ("1.0" … "1.3"), when its handshake was seen. */
+  tls?: string;
 }
 
 export interface HostsView {
@@ -209,3 +260,59 @@ export interface ResetEvent {
 }
 
 export type ArgusEvent = LiveEvent | ResetEvent | { type: 'captures'; captures: Capture[] };
+
+/** One episode of the diary: a device doing one thing, from when it began to when it stopped, and how much. */
+export interface Episode {
+  /** Epoch seconds. */
+  start: number;
+  end: number;
+  device: string;
+  /** The device's name and what it is, as they were then (it may be forgotten since). */
+  deviceName: string;
+  deviceLabel?: string;
+  /** What, in the dictionary's words (absent: traffic nobody named). */
+  what?: Classification;
+  /** What else the device did at the same time, busiest first (one story, not five lines). */
+  also?: Classification[];
+  bytes: number;
+  /** Still going on (heard in the last minutes). */
+  ongoing?: boolean;
+}
+
+/** Something worth a line of its own: a device seen for the first time, traffic in the clear, old TLS. */
+export interface DayEvent {
+  t: number;
+  type: 'new' | 'clear' | 'old-tls';
+  device: string;
+  deviceName: string;
+  /** clear and old-tls: whom with (entity key), its name, the protocol or TLS version, and whether a login went by. */
+  with?: string;
+  withName?: string;
+  proto?: string;
+  credentials?: boolean;
+  /** clear: inside the house (device to device) rather than out to the internet. */
+  local?: boolean;
+}
+
+/** GET /api/day: a day as it was kept (server/history.ts): by hour, by device, the diary. */
+export interface DayView {
+  /** YYYY-MM-DD, local time. */
+  date: string;
+  /** Kept days, newest first. */
+  days: string[];
+  /** Bytes per hour (0–23) by category; "" is traffic nobody named. */
+  hours: Record<string, number>[];
+  /** The day's categories, busiest first, with their words. */
+  categories: { category: string; label: string; bytes: number }[];
+  devices: { id: string; name: string; label?: string; kind?: string; bytes: number; top: { what?: Classification; bytes: number }[] }[];
+  diary: Episode[];
+  events: DayEvent[];
+  /** Today: events not kept past the day's ceilings (a neighbour announcing hundreds of made-up devices). */
+  dropped?: number;
+  /** Today: the day's file reached its ceiling, and is no longer written. */
+  full?: boolean;
+  /** Total bytes the day kept, and from when to when it was listened to. */
+  bytes: number;
+  first?: number;
+  last?: number;
+}

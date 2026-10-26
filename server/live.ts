@@ -27,7 +27,7 @@ import type { Store } from '@organon/core/server/store';
 import { isObject } from '@organon/core/server/store';
 import type { Link } from '@organon/core/shared/entities';
 import type { Conversation, Device, LiveEvent, LiveView, Listening, Remote, Session } from '../shared/types.ts';
-import { fieldArgs, parseLine, Tally, type TallyData, type TallyOptions } from './tally.ts';
+import { type Dissected, fieldArgs, parseLine, Tally, type TallyData, type TallyOptions } from './tally.ts';
 
 export interface LiveOptions {
   tshark: string;
@@ -38,6 +38,11 @@ export interface LiveOptions {
   store: Store;
   events: EventHub;
   ownMacs: () => string[];
+  /**
+   * How the server reads the facts before they go to the page and the agent (server/index.ts: interpret.ts, and what
+   * each device is doing from the history). The sensor never interprets: this is where the line runs (docs/sensor.md).
+   */
+  read?: <V extends Dissected>(facts: V) => V;
   /** The ring buffer per interface: how many files, how big each may grow, how many seconds each covers at most. */
   ringFiles?: number;
   ringFileMB?: number;
@@ -87,7 +92,7 @@ export class Live {
   private stopping = false;
 
   constructor(options: LiveOptions) {
-    this.o = { editcap: 'editcap', ringFiles: 20, ringFileMB: 10, ringSeconds: 30, emitEvery: 1000, saveEvery: 60_000, tally: undefined, ...options };
+    this.o = { editcap: 'editcap', read: (v) => v, ringFiles: 20, ringFileMB: 10, ringSeconds: 30, emitEvery: 1000, saveEvery: 60_000, tally: undefined, ...options };
     this.tally = this.newTally();
   }
 
@@ -165,7 +170,7 @@ export class Live {
 
   view(): LiveView {
     this.tally.tick(Date.now() / 1000);
-    const v = this.tally.view();
+    const v = this.facts();
     return {
       seq: this.seq,
       session: this.session(),
@@ -179,9 +184,14 @@ export class Live {
     };
   }
 
+  /** What the tally adds up to, read (interpret.ts). */
+  private facts() {
+    return this.o.read(this.tally.view());
+  }
+
   /** What a capture view is for the agent: the session's devices and hosts. */
   hosts(): { devices: Device[]; remotes: Remote[]; links: Link[]; conversations: Conversation[] } {
-    const v = this.tally.view();
+    const v = this.facts();
     return { devices: this.withRates(v.devices), remotes: v.remotes, links: v.links, conversations: v.conversations };
   }
 
@@ -354,7 +364,7 @@ export class Live {
     this.lastPackets = this.tally.packets;
     this.tally.tick(now);
     if (!this.o.events.size) return;
-    const v = this.tally.view();
+    const v = this.facts();
     const changed = <T extends { id: string }>(list: T[], sent: Map<string, string>, mark: (x: T) => string) => {
       const out: T[] = [];
       const seen = new Set<string>();
@@ -373,7 +383,8 @@ export class Live {
     const devices = changed(
       this.withRates(v.devices),
       this.sentDevices,
-      (d) => `${d.bytesSent}:${d.bytesReceived}:${d.lastSeen}:${d.names.length}:${d.ips.length}:${d.role ?? ''}:${d.rate?.sent ?? 0}:${d.rate?.received ?? 0}`,
+      (d) =>
+        `${d.bytesSent}:${d.bytesReceived}:${d.lastSeen}:${d.names.length}:${d.ips.length}:${d.role ?? ''}:${d.rate?.sent ?? 0}:${d.rate?.received ?? 0}:${d.identity?.label ?? ''}:${d.identity?.confidence ?? ''}:${(d.doing ?? []).map((x) => `${x.what?.app ?? x.what?.category}${x.bytes}`).join(',')}:${d.dns?.length ?? 0}`,
     );
     const remotes = changed(v.remotes, this.sentRemotes, (r) => `${r.bytesSent + r.bytesReceived}:${r.lastSeen}:${r.names.length}`);
     const conversations = changed(v.conversations, this.sentConversations, (c) => `${c.sent}:${c.received}:${c.last}:${c.app?.app ?? ''}:${c.app?.activity ?? ''}`);

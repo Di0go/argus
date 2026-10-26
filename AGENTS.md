@@ -3,7 +3,8 @@
 A readable network spy for one person, on `tshark`, live: turn on one or more network interfaces and see, as it
 happens and in plain words, which devices are there (name, address, maker, how fast they move data now) and which
 hosts and companies out on the internet they talk to; save the last minutes as a capture. The agent asks the same
-over MCP (`get_hosts`, `get_device`, `list_captures`). The first app born on the saga's shared core, [Organon](../Organon) (`@organon/core`, pinned at an exact version in `package.json`).
+over MCP (`get_hosts`, `get_device`, `list_captures`, `get_day`, `what_happened`). Since 2026-10-25 it is a monitor read at a
+glance (docs/apresentacao.md: the questions in order, the one colour for unencrypted, what was turned down). The first app born on the saga's shared core, [Organon](../Organon) (`@organon/core`, pinned at an exact version in `package.json`).
 
 ## The rule of the core
 
@@ -11,7 +12,9 @@ What Argus needs that is mechanism (the server, MCP and its bridge, control, rel
 search, the hover card, the look) comes from `@organon/core`. A fix or a new piece is made in `~/Projects/Organon`,
 with tests, in a new version, through its own process (`pnpm gates`, `canary`, `pack:release`, `CHANGELOG.md`), and
 Argus moves its pin; it is never copied here. What is Argus's own stays here: listening (`server/live.ts`), adding
-up (`server/tally.ts`, `server/dissect.ts`), the dictionary that says what traffic is for (`shared/classify.ts`, `shared/dictionary/`, `server/dictionary.ts`, [docs/dicionario.md](docs/dicionario.md)), the interfaces and captures (`server/capture.ts`, `server/captures.ts`), the entity kinds (`shared/types.ts`), the MCP tools
+up (`server/tally.ts`, `server/dissect.ts`), the dictionary that says what traffic is for (`shared/classify.ts`, `shared/dictionary/`, `server/dictionary.ts`, [docs/dicionario.md](docs/dicionario.md)), the interfaces and captures (`server/capture.ts`, `server/captures.ts`), the reading of the facts (`server/interpret.ts`:
+identity in `shared/identify.ts`, safety in `shared/security.ts`, where in `server/geo.ts`), the day kept and its diary
+(`server/history.ts`, `shared/words.ts`), the entity kinds (`shared/types.ts`), the MCP tools
 (`server/tools.ts`), the pages (`ui/src`). `python3 ~/Projects/Organon/docs/inventario.py --against .` checks no
 file here is a copy of Aristotle's or Galen's infrastructure (exceptions, with the reason, in `organon-exceptions.tsv`).
 
@@ -26,6 +29,15 @@ second, over the core's event stream; the session is written to data/live/ every
 is listened on again after a restart. Saving merges the ring with `mergecap` into data/captures/. It only listens: no
 monitor mode, no ARP spoofing, nothing sent. What is encrypted is not read; on a switched network a PC sees mostly its
 own traffic and the broadcast and multicast of the others. The interface says both, once.
+
+## The sensor and the server
+
+`capture.ts`, `live.ts`, `tally.ts` and `dissect.ts` are the sensor: they touch packets and produce facts (cumulative
+counters, names, clues, flags), never interpretations. Everything that reads them is the server. Keep that line
+(docs/sensor.md): a new rule about what traffic means goes in `interpret.ts` or `shared/`, never in the tally. The
+history (`data/history/`, a JSONL a day) keeps aggregates only; a password that went by is a flag there, never its value. The ring buffer and saved captures
+are raw packets and do hold it: say so wherever the flag is shown, never claim otherwise.
+Colour: data is neutral, `--clear` (app.css) means without encryption and nothing else may use it.
 
 ## Working on it
 
@@ -48,6 +60,8 @@ own traffic and the broadcast and multicast of the others. The interface says bo
   addresses, names), his name, home and e-mail; or a private address outside the fixtures. It reads those from the
   machine each time and writes them nowhere. `--history` checks every commit of every branch (files, pictures by
   OCR, captures with tshark, messages, author e-mails); `--listen 30` also listens for the names the network announces.
+- `pnpm geo` downloads iptoasn.com's table into `~/.cache/argus` (shared by every instance; ARGUS_GEO_FILE
+  elsewhere). The demo and the tests use made-up tables (`scripts/demo-geo.tsv`, `tests/fixtures/geo.tsv`).
 - `pnpm release` ships what is committed (the core's release); `pnpm release --rollback` goes back.
 - Verify with what runs (tests, the dev instance, headless Chromium through `playwright-core`), never with the
   desktop's own browser.

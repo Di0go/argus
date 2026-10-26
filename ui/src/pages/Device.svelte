@@ -1,7 +1,8 @@
 <script lang="ts">
-  // One device: what it is and where each fact came from (its names and who said them, its addresses, its maker), how
-  // much it moved and how fast it moves now, its bandwidth over the last minutes and the day, the companies and hosts
-  // it talks to, the devices here it talks to, and the other devices that talk to the same companies.
+  // One device: what it is, how sure, and the clues (shared/identify.ts); what it is doing now, in words; its day by
+  // hour and its diary; its privacy (unencrypted, trackers, its DNS, old TLS); its conversations (the unencrypted
+  // marked); the companies and hosts it talks to, the devices here it talks to, and the other devices that talk to the
+  // same companies; and where each fact came from (its names and who said them, its addresses, its maker).
   import { getJson } from '@organon/core/ui/live';
   import { keyOf } from '@organon/core/shared/entities';
   import type { Device, SeriesData } from '../../../shared/types.ts';
@@ -11,12 +12,19 @@
   import EntityLink from '../lib/EntityLink.svelte';
   import { bytes, rate, since, when } from '../lib/format.ts';
   import HostList from '../lib/HostList.svelte';
-  import { KIND_WORD, deviceKind, subline } from '../lib/kinds.ts';
+  import { KIND_WORD, deviceKind, subline } from '../../../shared/kinds.ts';
   import NetTag from '../lib/NetTag.svelte';
   import RateChart from '../lib/RateChart.svelte';
   import { link } from '../lib/router.svelte.ts';
   import Seg from '../lib/Seg.svelte';
   import SourceHead from '../lib/SourceHead.svelte';
+  import DayColumns from '../lib/DayColumns.svelte';
+  import { days } from '../lib/day.svelte.ts';
+  import Diary from '../lib/Diary.svelte';
+  import { privacy } from '../lib/privacy.ts';
+  import PrivacyPanel from '../lib/PrivacyPanel.svelte';
+  import { BACKGROUND, doing } from '../../../shared/words.ts';
+  import { span } from '../lib/format.ts';
 
   let { id, capture }: { id: string; capture?: string } = $props();
 
@@ -37,6 +45,18 @@
     { id: 'day' as const, label: 'Today' },
   ];
   let coarse = $state<SeriesData | null>(null);
+  const day = $derived(live ? days.get(undefined, key) : undefined);
+  const p = $derived(source ? privacy(source, { device: key }) : undefined);
+  const recent = $derived(source && live ? privacy(source, { device: key, since: Date.now() / 1000 - 3600 }) : undefined);
+  const now = $derived.by(() => {
+    const all = (d?.doing ?? []).filter((x) => !BACKGROUND.has(x.what?.category ?? ''));
+    return (all.length ? all : (d?.doing ?? [])).slice(0, 3);
+  });
+  const CONFIDENCE = {
+    sure: 'Sure: the device said it itself, or clues of different kinds agree.',
+    likely: 'Likely: one strong clue (a default name), or two indirect ones that agree.',
+    possibly: 'Possibly: one indirect clue (the maker, or what it talks to).',
+  };
 
   $effect(() => {
     if (!live || period !== 'day') return;
@@ -58,8 +78,25 @@
           </p>
         </div>
       </div>
+      {#if live}
+        <p class="now-line">
+          {#if now.length}<b>{now.map((x, i) => (i ? doing(x.what).replace(/^./, (c) => c.toLowerCase()) : doing(x.what))).join(', ')}</b
+            >{#if Date.now() / 1000 - now[0]!.since > 60}<span class="muted">{' for '}{span(Date.now() / 1000 - now[0]!.since)}</span>{/if}
+            <span class="muted">· {rate(argus.meters[d.id])}</span>
+          {:else}<span class="muted">Quiet now{d.lastSeen ? `; last heard ${since(d.lastSeen)}` : ''}.</span>{/if}
+        </p>
+      {/if}
       {#if source}<SourceHead {source} />{/if}
       <dl class="props">
+        <dt>What it is</dt>
+        <dd>
+          {#if d.identity}
+            {d.identity.label} <span class="src" data-tip={CONFIDENCE[d.identity.confidence]}>{d.identity.confidence}</span>
+            <ul class="clues" aria-label="Clues">
+              {#each d.identity.clues as c (c.from)}<li>{c.says}: <span class="muted">{c.from}</span></li>{/each}
+            </ul>
+          {:else}<span class="muted">Not known: it said nothing that tells, and Argus does not guess.</span>{/if}
+        </dd>
         <dt>MAC</dt>
         <dd class="mono">
           {d.mac ?? 'none: seen by its address'}{#if d.randomMac}
@@ -108,6 +145,25 @@
         {/if}
       {/if}
     </section>
+
+    {#if live && day}
+      <div class="bands">
+        <section class="band">
+          <div class="band-h"><h2>Today</h2><span class="aside">{bytes(day.bytes)}</span></div>
+          {#if day.bytes}<DayColumns hours={day.hours} label="The day of {d.name} by hour" />{:else}<p class="empty">Nothing kept yet today.</p>{/if}
+        </section>
+        <section class="band">
+          <div class="band-h"><h2>What it did</h2><a href={link.diary()}>The diary</a></div>
+          <Diary episodes={day.diary} events={day.events} device={false} limit={10} />
+        </section>
+      </div>
+    {/if}
+
+    {#if source && p}
+      <section class="band">
+        <PrivacyPanel {p} {recent} {source} {capture} full />
+      </section>
+    {/if}
 
     {#if source}
       <section class="band">
@@ -172,6 +228,7 @@
     NetBIOS: 'The name a Windows PC announces on the local network (NetBIOS).',
     DNS: 'The name a DNS answer gave this address.',
     TLS: 'The server name asked for when opening the encrypted connection (TLS SNI).',
+    HTTP: 'The name asked for in plain HTTP (its Host header), sent without encryption.',
   };
 </script>
 
@@ -194,6 +251,26 @@
     margin-left: 10px;
     padding-left: 10px;
     border-left: 1px solid var(--rule-strong);
+  }
+
+  .now-line {
+    margin: 14px 0 0;
+    font-size: 1.05rem;
+  }
+
+  .now-line b {
+    font-weight: 600;
+  }
+
+  .clues {
+    margin: 4px 0 0;
+    padding-left: 18px;
+    font-size: 0.84rem;
+  }
+
+  .aside {
+    font-size: 0.84rem;
+    color: var(--muted);
   }
 
   .src {

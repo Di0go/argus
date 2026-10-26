@@ -5,6 +5,7 @@
 // A conversation is a device here and a host out on the internet (or another device here) by service, as the tally
 // adds them up (server/tally.ts); what the dictionary says of each is what the tally gave it.
 
+import { interpret } from '../server/interpret.ts';
 import { dissect } from '../server/dissect.ts';
 import { ownMacs } from '../server/capture.ts';
 import { loadHouse } from '../server/dictionary.ts';
@@ -22,7 +23,7 @@ const top = Number(args[args.indexOf('--top') + 1]) || 40;
 // --casa <file>: the house's own words on top (data/dicionario.json), measured apart from the dictionary's.
 const house = args.includes('--casa') ? args[args.indexOf('--casa') + 1] : undefined;
 if (house) console.log(`The house's words: ${JSON.stringify(loadHouse(house))}`);
-const r = await dissect(file, { tshark: process.env.TSHARK ?? 'tshark', ownMacs: ownMacs() });
+const r = interpret(await dissect(file, { tshark: process.env.TSHARK ?? 'tshark', ownMacs: ownMacs() }));
 const remotes = new Map<string, Remote>(r.remotes.map((h) => [`remote:${h.id}`, h]));
 
 interface Share {

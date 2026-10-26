@@ -22,7 +22,7 @@
   import Wifi from '@lucide/svelte/icons/wifi';
   import type { Component } from 'svelte';
   import type { ArgusEntity } from '../../../shared/types.ts';
-  import { type DeviceKind, deviceKind } from './kinds.ts';
+  import { type DeviceKind, deviceKind } from '../../../shared/kinds.ts';
 
   let { entity, size = 28 }: { entity: ArgusEntity; size?: number } = $props();
 
@@ -39,6 +39,7 @@
     camera: Camera,
     watch: Watch,
     tablet: Tablet,
+    container: Container,
     other: Network,
   };
   const IFACE: Record<string, Component> = { wifi: Wifi, cable: Cable, vpn: Shield, docker: Container, loopback: Laptop };

@@ -5,6 +5,8 @@
 //   #/internet            the hosts out there, by company        #/site/<name>  one company or site
 //   #/remote/<ip>         one host             #/interface/<id>  one interface
 //   #/captures            the captures saved   #/capture/<id>    one, as it was
+//   #/privacy             what went unencrypted, tracking, DNS, where the data goes
+//   #/diary[/<date>]      a day kept: by hour, by device, its episodes
 
 import { createRouter, hashParts, hashQuery } from '@organon/core/ui/router';
 import { createTabs } from '@organon/core/ui/tabs';
@@ -18,6 +20,8 @@ export type Route =
   | { page: 'remote'; id: string }
   | { page: 'interface'; id: string }
   | { page: 'captures' }
+  | { page: 'privacy' }
+  | { page: 'diary'; id?: string }
   | { page: 'capture'; id: string };
 
 export type Located = Route & { capture?: string };
@@ -29,7 +33,8 @@ function parse(hash: string): Located {
   const r = (route: Route): Located => ({ ...route, capture });
   if ((first === 'device' || first === 'remote' || first === 'site' || first === 'interface') && id) return r({ page: first, id });
   if (first === 'capture' && id) return { page: 'capture', id, capture: id };
-  if (first === 'devices' || first === 'internet' || first === 'captures') return r({ page: first });
+  if (first === 'devices' || first === 'internet' || first === 'captures' || first === 'privacy') return r({ page: first });
+  if (first === 'diary') return r({ page: 'diary', ...(id ? { id } : {}) });
   return r({ page: 'now' });
 }
 
@@ -49,6 +54,8 @@ export const link = {
   interface: (id: string) => `#/interface/${e(id)}`,
   captures: () => '#/captures',
   capture: (id: string) => `#/capture/${e(id)}`,
+  privacy: (c?: string) => `#/privacy${q(c)}`,
+  diary: (date?: string) => (date ? `#/diary/${e(date)}` : '#/diary'),
 };
 
 /** An entity's page, by its kind. */

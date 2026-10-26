@@ -22,8 +22,8 @@
 // The router is decided per interface: two uplinks (the Wi-Fi and a phone on USB) each have their own.
 
 import type { Link } from '@organon/core/shared/entities';
+import { CLEAR, tlsVersion } from '../shared/security.ts';
 import { serviceOf, serviceOfProtocol } from '../shared/services.ts';
-import { classify } from './dictionary.ts';
 import type { Conversation, Device, NameSource, Remote } from '../shared/types.ts';
 
 export const FIELDS = [
@@ -61,6 +61,21 @@ export const FIELDS = [
   'ip.proto',
   'ipv6.nxt',
   'frame.protocols',
+  // What a device says of what it is (shared/identify.ts), and how safe a conversation is (shared/security.ts).
+  'dhcp.option.vendor_class_id',
+  'dhcp.option.request_list_item',
+  'http.user_agent',
+  'http.host',
+  'http.authorization',
+  'ftp.request.command',
+  'pop.request.command',
+  'imap.request.command',
+  'smtp.req.command',
+  'tls.handshake.type',
+  'tls.handshake.version',
+  'tls.handshake.extensions.supported_version',
+  'tls.handshake.ja4',
+  'dns.ptr.domain_name',
 ] as const;
 type Field = (typeof FIELDS)[number];
 /** Between a field's repeats, in tshark's output (-E aggregator). */
@@ -72,13 +87,31 @@ const NAME_LENGTH = 100;
 const DNS_NAMES = 8;
 const SNI_NAMES = 4;
 const SSDP_ASKERS = 64;
+/** Per device: user agents, JA4 fingerprints, mDNS services, DHCP vendor classes kept. */
+const CLUES = 6;
+const SERVICES = 12;
+/** The commands that log in, on the mail and file protocols that carry them in the clear. */
+const LOGIN = /^(PASS|APOP|LOGIN|AUTHENTICATE|AUTH)$/i;
 /** Past this many MACs that carried another network's address, only the likeliest routers are kept. */
 const MAYBE_ROUTERS = 256;
+
+/**
+ * The fields asked for: all of FIELDS that this tshark knows. An older one without a field (JA4 came in Wireshark
+ * 4.2) refuses to start when asked for it, so what it does not know is left out (useFields) and reads as empty.
+ */
+let asked: readonly Field[] = FIELDS;
+
+/** Leaves out the fields this tshark does not know (`known`: the names `tshark -G fields` lists); returns those left out. */
+export function useFields(known: Set<string>): Field[] {
+  const missing = FIELDS.filter((f) => !known.has(f));
+  asked = known.size ? FIELDS.filter((f) => known.has(f)) : FIELDS;
+  return known.size ? missing : [];
+}
 
 /** tshark's arguments for the fields, one line per frame, tab between fields. */
 export function fieldArgs(): string[] {
   const args = ['-n', '-T', 'fields', '-E', 'separator=/t', '-E', 'occurrence=a', '-E', `aggregator=${SEP}`, '-E', 'quote=n'];
-  for (const f of FIELDS) args.push('-e', f);
+  for (const f of asked) args.push('-e', f);
   return args;
 }
 
@@ -88,7 +121,8 @@ export type Row = Record<Field, string[]>;
 export function parseLine(line: string): Row {
   const cols = line.split('\t');
   const row = {} as Row;
-  FIELDS.forEach((f, i) => {
+  for (const f of FIELDS) row[f] = [];
+  asked.forEach((f, i) => {
     const v = cols[i] ?? '';
     row[f] = v ? v.split(SEP).filter(Boolean) : [];
   });
@@ -121,10 +155,17 @@ interface Flow {
   bytes: number;
   first: number;
   last: number;
-  /** Server names TLS handshakes in it asked for. */
+  /** Server names TLS handshakes in it asked for, and plain HTTP's Host. */
   sni?: string[];
+  httpHost?: string[];
   /** What tshark recognised it as, above TCP or UDP ("wg", "stun", "quic"): what the port alone may not say. */
   protocol?: string;
+  /** A protocol that carries content in the clear (shared/security.ts: "HTTP"), and whether a login went by in it. */
+  clear?: string;
+  credentials?: boolean;
+  /** TLS was seen in it (STARTTLS turns a mail conversation safe), and the version the server agreed. */
+  tlsSeen?: boolean;
+  tls?: string;
 }
 
 /** A device as counted so far: everything but what depends on which MAC is the router. */
@@ -337,7 +378,13 @@ export class Tally {
       f.last = Math.max(f.last, time);
       for (const sni of r['tls.handshake.extensions_server_name'])
         if (!f.sni?.includes(sni) && (f.sni?.length ?? 0) < SNI_NAMES) (f.sni ??= []).push(clip(sni));
+      // The name plain HTTP asked for (its Host, without the port): what the connection was for, as SNI is for TLS.
+      for (const host of r['http.host']) {
+        const name = clip(host.replace(/:\d+$/, ''));
+        if (name && !/^[\d.]+$|^\[/.test(name) && !f.httpHost?.includes(name) && (f.httpHost?.length ?? 0) < SNI_NAMES) (f.httpHost ??= []).push(name);
+      }
       f.protocol ??= frameProtocol(r);
+      this.security(r, f, sender);
     }
 
     // ARP: a MAC saying which address is its own.
@@ -350,6 +397,13 @@ export class Tally {
     if (dhcpMac && isUnicastMac(dhcpMac)) {
       const d = this.device(dhcpMac, time);
       for (const n of r['dhcp.option.hostname']) addName(d.names, n, 'DHCP');
+      // What it asks with says what system it runs: option 60, and the list of options it wants (55), in its order.
+      // Only from the device's own requests (an answer carries the server's).
+      if (sender === d) {
+        const clues = (d.clues ??= {});
+        for (const c of r['dhcp.option.vendor_class_id']) if (!clues.dhcpClass?.includes(c) && (clues.dhcpClass?.length ?? 0) < CLUES) (clues.dhcpClass ??= []).push(clip(c));
+        if (r['dhcp.option.request_list_item'].length) clues.dhcpParams = r['dhcp.option.request_list_item'].slice(0, 40).join(',');
+      }
       const got = r['dhcp.ip.your'][0];
       if (got && got !== '0.0.0.0') addCapped(d.fixedIps, got);
       const asked = r['dhcp.option.requested_ip_address'][0];
@@ -382,7 +436,31 @@ export class Tally {
         const name = /^([^<]+)<00>/.exec(n)?.[1]?.trim();
         if (name && name !== '*' && !/^WORKGROUP$/i.test(name)) addName(sender.names, name, 'NetBIOS');
       }
+      (sender.clues ??= {}).netbios = true;
     }
+  }
+
+  /**
+   * What a frame says of how safe its conversation is: content in the clear, a login in it (that one went by, never
+   * what it was), the TLS version a server agreed; and what its sender says of itself (User-Agent, its TLS client's
+   * JA4). The values of Authorization and of the login commands' arguments are never kept.
+   */
+  private security(r: Row, f: Flow, sender: Counted | undefined) {
+    const layers = r['frame.protocols'][0]?.split(':') ?? [];
+    if (layers.includes('tls')) f.tlsSeen = true;
+    const clear = layers.map((l) => CLEAR[l]).find(Boolean);
+    if (clear && !f.clear) f.clear = clear;
+    if (
+      r['http.authorization'].length ||
+      [...r['ftp.request.command'], ...r['pop.request.command'], ...r['imap.request.command'], ...r['smtp.req.command']].some((c) => LOGIN.test(c))
+    )
+      f.credentials = true;
+    const types = r['tls.handshake.type'];
+    // A ServerHello (2): the version it chose, in supported_versions for TLS 1.3, else in the hello itself.
+    if (types.includes('2')) f.tls = tlsVersion(r['tls.handshake.extensions.supported_version'].at(-1) ?? r['tls.handshake.version'][0]) ?? f.tls;
+    if (!sender) return;
+    for (const ua of r['http.user_agent']) addClue(sender, 'userAgents', clip(ua));
+    if (types.includes('1')) for (const j of r['tls.handshake.ja4']) addClue(sender, 'ja4', clip(j));
   }
 
   /** The MAC that is the way out to the internet on each interface, as things stand. */
@@ -450,6 +528,9 @@ export class Tally {
         conversations.set(id, c);
       }
       if (f.protocol && !c.protocol) c.protocol = f.protocol;
+      // In the clear unless TLS was seen in it (a mail conversation that went on to STARTTLS).
+      if (f.clear && !f.tlsSeen) c.clear = { proto: f.clear, ...(f.credentials || c.clear?.credentials ? { credentials: true } : {}) };
+      if (f.tls) c.tls = f.tls;
       if (out) c.sent += f.bytes;
       else c.received += f.bytes;
       c.packets += f.packets;
@@ -502,6 +583,7 @@ export class Tally {
           talk(`device:${f.sender}`, `remote:${h.id}`, f, true);
         }
         for (const sni of f.sni ?? []) addName(h.names, sni, 'TLS');
+        for (const host of f.httpHost ?? []) addName(h.names, host, 'HTTP');
       }
       // Two local devices talking to each other (not through the way out to the internet).
       if (f.sender && f.receiver && f.ipSrc && f.ipDst && !srcOut && !dstOut) {
@@ -518,6 +600,7 @@ export class Tally {
     for (const c of this.devices.values()) {
       const { fixedIps, ...rest } = c;
       const d: Device = { ...rest, names: [...c.names], interfaces: [...c.interfaces], ips: [...(ips.get(c.id) ?? [])], name: '' };
+      if (c.clues) d.clues = structuredClone(c.clues);
       for (const ip of fixedIps) if (d.ips.length < ADDRESSES) addTo(d.ips, ip);
       if (d.mac && this.own.has(d.mac)) d.role = 'self';
       else if (d.mac && routers.has(d.mac)) d.role = 'gateway';
@@ -531,15 +614,6 @@ export class Tally {
       h.name = h.names[0]?.name ?? h.ip;
       h.aka = [h.ip, ...h.names.map((n) => n.name)];
       h.summary = h.names.length ? h.ip : 'No name seen';
-      // What it is, in plain words (server/dictionary.ts): by the names it was given, TLS's first, else its network.
-      const app = classify({ names: telling(h), ip: h.ip });
-      if (app) h.app = app;
-    }
-    // And each conversation, by its other end's names and its service: WhatsApp over UDP is a call, DNS is DNS.
-    for (const c of conversations.values()) {
-      const h = c.b.startsWith('remote:') ? remotes.get(c.b.slice('remote:'.length)) : undefined;
-      const app = classify({ names: h && telling(h), ip: h?.ip, service: c.service, protocol: c.protocol });
-      if (app) c.app = app;
     }
     const byTraffic = <T extends { bytesSent: number; bytesReceived: number }>(a: T, b: T) =>
       b.bytesSent + b.bytesReceived - (a.bytesSent + a.bytesReceived);
@@ -703,15 +777,6 @@ function flowKey(f: Pick<Flow, 'iface' | 'src' | 'dst' | 'ipSrc' | 'ipDst' | 'se
   return `${f.iface ?? ''}|${f.src ?? ''}|${f.dst ?? ''}|${f.ipSrc ?? ''}|${f.ipDst ?? ''}|${f.service ?? ''}`;
 }
 
-/**
- * The names that say what a host is: those TLS asked it for, which are what its connections were for; only when there
- * are none, those DNS answered with its address (the same address answers for many names, at other times).
- */
-function telling(h: Remote): string[] {
-  const tls = h.names.filter((n) => n.source === 'TLS');
-  return (tls.length ? tls : h.names).map((n) => n.name);
-}
-
 /** A frame's service: by its TCP or UDP ports, else by IP's protocol number (ICMP), else none. */
 function frameService(r: Row): string | undefined {
   const port = (f: Field) => Number(r[f][0] ?? Number.NaN);
@@ -740,7 +805,7 @@ function clip(name: string): string {
   return clean.length > NAME_LENGTH ? `${clean.slice(0, NAME_LENGTH - 1)}…` : clean;
 }
 
-/** Adds up a whole file's lines at once (a recording, a capture saved from the live one). */
+/** Adds up a whole file's lines at once (a recording, a capture saved from the live one): the facts, unread. */
 export function tally(text: string, ownMacs: string[]): Dissected {
   return new Tally({ ownMacs }).addText(text).view();
 }
@@ -755,7 +820,15 @@ function mdnsNames(d: Counted, r: Row) {
     const [k, ...v] = txt.split('=');
     const value = v.join('=').trim();
     if (k === 'fn' && value) addName(d.names, value, 'mDNS');
-    if (k === 'md' && value) d.model ??= value;
+    if ((k === 'md' || k === 'model') && value) d.model ??= clip(value);
+  }
+  // The services it offers: the PTR records' names that are service types (_googlecast._tcp.local), and the types
+  // its instances belong to (Living Room._googlecast._tcp.local).
+  for (const name of [...r['dns.resp.name'], ...r['dns.ptr.domain_name']]) {
+    const type = /(?:^|\.)(_[a-z0-9-]{1,30}\._(?:tcp|udp))\.local$/i.exec(name)?.[1]?.toLowerCase();
+    if (!type || type === '_services._dns-sd._udp' || type.startsWith('_sub')) continue;
+    const services = ((d.clues ??= {}).services ??= []);
+    if (!services.includes(type) && services.length < SERVICES) services.push(type);
   }
   r['dns.resp.name'].forEach((name, i) => {
     const type = r['dns.resp.type'][i];
@@ -768,7 +841,7 @@ function mdnsNames(d: Counted, r: Row) {
 
 /** The name he would give it: its own name first, else what it is. */
 function deviceName(d: Device): string {
-  if (d.role === 'self') return d.names[0]?.name ? `${d.names[0].name} (this PC)` : 'This PC';
+  if (d.role === 'self') return d.names[0]?.name ? `${d.names[0].name} (this PC)` : d.mac?.startsWith('02:42:') ? 'This PC (Docker bridge)' : 'This PC';
   // A device may call itself anything, "Router" or "This PC" too: then the end of its MAC says it is another one.
   if (d.names[0]) return /^(router|this pc)\b/i.test(d.names[0].name) ? `${d.names[0].name} ·${(d.mac ?? d.ips[0] ?? '').slice(-5)}` : d.names[0].name;
   if (d.role === 'gateway') return d.vendor ? `Router ${shortVendor(d.vendor)}` : 'Router';
@@ -797,6 +870,12 @@ export function shortVendor(v: string): string {
   );
 }
 
+/** A clue a device gave, at most CLUES of each kind. */
+function addClue(d: Counted, key: 'userAgents' | 'ja4', v: string) {
+  const list = ((d.clues ??= {})[key] ??= []);
+  if (v && !list.includes(v) && list.length < CLUES) list.push(v);
+}
+
 function addTo(list: string[], v: string) {
   if (!list.includes(v)) list.push(v);
 }
@@ -805,7 +884,7 @@ function addCapped(list: string[], v: string) {
   if (list.length < ADDRESSES) addTo(list, v);
 }
 
-const RANK: Record<NameSource, number> = { DHCP: 0, mDNS: 1, NetBIOS: 2, DNS: 3, TLS: 4 };
+const RANK: Record<NameSource, number> = { DHCP: 0, mDNS: 1, NetBIOS: 2, DNS: 3, TLS: 4, HTTP: 4 };
 
 /** A name, in the order trusted (DHCP, mDNS, NetBIOS, then DNS and TLS), at most NAMES of them. */
 function addName(names: { name: string; source: NameSource }[], name: string, source: NameSource) {

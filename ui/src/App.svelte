@@ -22,7 +22,9 @@
   import Devices from './pages/Devices.svelte';
   import Interface from './pages/Interface.svelte';
   import Internet from './pages/Internet.svelte';
+  import Diary from './pages/Diary.svelte';
   import Now from './pages/Now.svelte';
+  import Privacy from './pages/Privacy.svelte';
   import Remote from './pages/Remote.svelte';
   import Site from './pages/Site.svelte';
   import { theme } from './theme.svelte.ts';
@@ -35,6 +37,8 @@
     site: 'M5 16.5V4h7v12.5M12 8h3v8.5M3.5 16.5h13M7.5 7h2M7.5 10h2M7.5 13h2',
     captures: 'M3.5 5h13v3h-13zM4.5 8v7.5h11V8M8 11h4',
     interface: 'M3 8.2a10 10 0 0 1 14 0M5.6 11a6.3 6.3 0 0 1 8.8 0M8.2 13.8a2.6 2.6 0 0 1 3.6 0M10 16.2v.1',
+    privacy: 'M5.5 9V6.5a4.5 4.5 0 0 1 9 0V9M4 9h12v8H4zM10 12v2',
+    diary: 'M5 3.5h10v13H5zM7.5 7h5M7.5 10h5M7.5 13h3',
   };
   const PAGE_ICON: Record<Located['page'], string> = {
     now: ICON.now,
@@ -46,6 +50,8 @@
     interface: ICON.interface,
     captures: ICON.captures,
     capture: ICON.captures,
+    privacy: ICON.privacy,
+    diary: ICON.diary,
   };
 
   const route = $derived(router.route);
@@ -68,6 +74,8 @@
       icon: ICON.internet,
       on: route.page === 'internet' || route.page === 'remote' || route.page === 'site',
     },
+    { id: 'privacy', label: 'Privacy', href: link.privacy(), icon: ICON.privacy, on: route.page === 'privacy' },
+    { id: 'diary', label: 'Diary', href: link.diary(), icon: ICON.diary, on: route.page === 'diary' },
     { id: 'captures', label: 'Captures', href: link.captures(), icon: ICON.captures, on: route.page === 'captures' || route.page === 'capture' },
   ]);
   const on = $derived(argus.session?.listening.filter((l) => l.on) ?? []);
@@ -95,6 +103,10 @@
         return argus.interfaces.find((i) => i.id === r.id)?.name ?? r.id;
       case 'captures':
         return 'Captures';
+      case 'privacy':
+        return 'Privacy';
+      case 'diary':
+        return r.id ? `Diary, ${r.id}` : 'Diary';
       case 'capture': {
         const c = argus.captures.find((x) => x.id === r.id);
         return c ? `Capture of ${when(c.started)}` : 'Capture';
@@ -228,6 +240,10 @@
       <Remote id={route.id} capture={route.capture} />
     {:else if route.page === 'interface'}
       <Interface id={route.id} />
+    {:else if route.page === 'privacy'}
+      <Privacy capture={route.capture} />
+    {:else if route.page === 'diary'}
+      <Diary date={route.id} />
     {:else if route.page === 'captures'}
       <Captures />
     {:else if route.page === 'capture'}

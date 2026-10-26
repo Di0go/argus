@@ -52,6 +52,8 @@ class Argus {
   /** Why capturing can't be done yet (dumpcap missing or not allowed). */
   interfacesProblem = $state('');
   warnings = $state<string[]>([]);
+  /** Whether the server has the table of networks (server/geo.ts): where the data goes. */
+  geo = $state(false);
   /** Each device's rate as the meters show it: quick to rise, slow to fall (a level meter's ballistics). */
   meters = $state<Record<string, number>>({});
   /** The whole network's, the same way. */
@@ -65,12 +67,13 @@ class Argus {
   readonly live = new LiveStream<ArgusEvent>({
     reload: async () => {
       const [state, view, ifaces] = await Promise.all([
-        getJson<{ captures: Capture[]; warnings: string[]; build?: string }>('/api/state'),
+        getJson<{ captures: Capture[]; warnings: string[]; build?: string; geo?: boolean }>('/api/state'),
         getJson<LiveView>('/api/live'),
         getJson<{ interfaces: Interface[]; problem?: string }>('/api/interfaces').catch((e: Error) => ({ interfaces: [], problem: e.message })),
       ]);
       this.captures = state.captures;
       this.warnings = state.warnings;
+      this.geo = Boolean(state.geo);
       this.interfaces = ifaces.interfaces;
       this.interfacesProblem = ifaces.problem ?? '';
       this.session = view.session;

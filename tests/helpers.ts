@@ -2,12 +2,17 @@
 // capture flow runs here without root and without touching the network.
 
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 export const ROOT = path.resolve(import.meta.dirname, '..');
 export const FIXTURE = path.join(ROOT, 'tests/fixtures/lan.pcap');
+/** How many devices the fixture holds: every made-up host with a MAC (tests/fixtures/lan.truth.json). */
+export const DEVICES = Object.values(
+  (JSON.parse(readFileSync(path.join(ROOT, 'tests/fixtures/lan.truth.json'), 'utf8')) as { hosts: Record<string, { mac?: string }> }).hosts,
+).filter((h) => h.mac).length;
 /** tshark, from ARGUS_TSHARK (a copy not installed yet) or the system's. The tests need it: without it they fail. */
 export const TSHARK = process.env.ARGUS_TSHARK ?? 'tshark';
 try {

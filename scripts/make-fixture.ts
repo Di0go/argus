@@ -13,7 +13,13 @@
 // - one broadcast from a device that never says its name, from a locally administered (random) MAC;
 // - for the dictionary (shared/classify.ts): YouTube's video, named by DNS; a WireGuard tunnel on port 443 to a host
 //   with no name (a VPN, not the web); a WhatsApp call (STUN to a host DNS named); STUN to a host with no name; and
-//   the TV box answering this PC's SSDP question from a port of its own (SSDP, though neither port says so).
+//   the TV box answering this PC's SSDP question from a port of its own (SSDP, though neither port says so);
+// - for what a device is (shared/identify.ts) and how safe it is (shared/security.ts): an Android tablet asking DHCP
+//   with its vendor class and asking Google's DNS directly; the phone's connectivity check over HTTP with its
+//   User-Agent; the Windows PC fetching a certificate list over HTTP; a printer announcing printing over mDNS and
+//   posting to a server out there over HTTP with a password; the Pi logging in to FTP; this PC's TLS to a server that
+//   agrees TLS 1.0, and to an encrypted DNS resolver by name. Every password here is invented, and only that one went
+//   by is kept.
 
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -46,6 +52,15 @@ const HOSTS = {
   vpn: { ip: '198.51.100.7' },
   call: { ip: '157.240.212.60', name: 'e7.whatsapp.net' },
   turn: { ip: '203.0.113.5' },
+  tablet: { mac: '00:00:f0:65:43:21', ip: '192.168.50.45', name: 'Galaxy-Tab-S9', vendorClass: 'android-dhcp-14' },
+  printer: { mac: '00:01:e6:ab:cd:01', ip: '192.168.50.60', name: 'Office Printer' },
+  google: { ip: '8.8.8.8' },
+  captive: { ip: '203.0.113.30', name: 'captive.apple.com' },
+  crl: { ip: '203.0.113.80', name: 'crl3.digicert.com' },
+  upload: { ip: '198.51.100.77', name: 'print.example.net' },
+  ftp: { ip: '203.0.113.21', name: 'ftp.example.net' },
+  legacy: { ip: '203.0.113.90', name: 'legacy.example.net' },
+  doh: { ip: '198.51.100.53', name: 'cloudflare-dns.com' },
 };
 const BROADCAST = 'ff:ff:ff:ff:ff:ff';
 
@@ -53,6 +68,27 @@ const BROADCAST = 'ff:ff:ff:ff:ff:ff';
 const wireguard = (type: 1 | 2 | 4, length: number) => Buffer.concat([Buffer.from([type, 0, 0, 0]), Buffer.alloc(length - 4, 0x5a)]);
 /** A STUN binding request (RFC 5389): its type, no attributes, the magic cookie, a transaction id. */
 const stunRequest = (id: number) => Buffer.concat([u16(0x0001), u16(0), u32(0x2112a442), Buffer.alloc(8, 0), u32(id)]);
+
+/** A TLS record holding one handshake message. */
+const tlsRecord = (type: number, body: Buffer, version = 0x0301) =>
+  Buffer.concat([Buffer.from([0x16]), u16(version), u16(body.length + 4), Buffer.from([type]), Buffer.from([0, body.length >> 8, body.length & 255]), body]);
+/** A ClientHello asking for `name` (SNI) and TLS 1.3 or 1.2. */
+function clientHello(name: string) {
+  const sni = Buffer.concat([u16(name.length + 3), Buffer.from([0]), u16(name.length), Buffer.from(name)]);
+  const versions = Buffer.from([4, 0x03, 0x04, 0x03, 0x03]);
+  const ext = Buffer.concat([u16(0), u16(sni.length), sni, u16(0x2b), u16(versions.length), versions]);
+  const body = Buffer.concat([u16(0x0303), Buffer.alloc(32, 7), Buffer.from([0]), u16(4), u16(0x1301), u16(0x002f), Buffer.from([1, 0]), u16(ext.length), ext]);
+  return tlsRecord(1, body);
+}
+/** A ServerHello agreeing TLS 1.0, as an old server does. */
+const serverHello10 = () => tlsRecord(2, Buffer.concat([u16(0x0301), Buffer.alloc(32, 9), Buffer.from([0]), u16(0x002f), Buffer.from([0])]));
+const http = (lines: string[]) => Buffer.from(`${lines.join('\r\n')}\r\n\r\n`);
+
+/** An mDNS announcement of a printer: PTR from the IPP service type to its instance. */
+function printerAnnouncement(name: string): Buffer {
+  const instance = `${name}._ipp._tcp.local`;
+  return Buffer.concat([u16(0), u16(0x8400), u16(0), u16(1), u16(0), u16(0), qname('_ipp._tcp.local'), u16(12), u16(1), u32(120), u16(qname(instance).length), qname(instance)]);
+}
 
 function checksum(b: Buffer): number {
   let sum = 0;
@@ -183,7 +219,7 @@ function nbnsRegistration(name: string, ip: string): Buffer {
   ]);
 }
 
-const { router, phone, pi, windows, me, quiet, web, cast, me6, web6, video, vpn, call, turn } = HOSTS;
+const { router, phone, pi, windows, me, quiet, web, cast, me6, web6, video, vpn, call, turn, tablet, printer, google, captive, crl, upload, ftp, legacy, doh } = HOSTS;
 const packets: Buffer[] = [
   // DHCP: the phone asks, with its name (option 12) and the address it wants (50); the router acks.
   ether(
@@ -247,6 +283,59 @@ const packets: Buffer[] = [
   // SSDP: this PC asks who is there; the TV box answers it directly, from a port of its own to the one that asked.
   ether('01:00:5e:7f:ff:fa', me.mac, 0x0800, ipv4(me.ip, '239.255.255.250', 17, udp(50123, 1900, Buffer.from('M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: "ssdp:discover"\r\nMX: 1\r\nST: ssdp:all\r\n\r\n')), 1)),
   ether(me.mac, cast.mac, 0x0800, ipv4(cast.ip, me.ip, 17, udp(41234, 50123, Buffer.from('HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age=1800\r\nST: upnp:rootdevice\r\n\r\n')))),
+  // The tablet asks DHCP with its vendor class (60) and the options it wants (55), then asks Google's DNS directly.
+  ether(
+    BROADCAST,
+    tablet.mac,
+    0x0800,
+    ipv4(
+      '0.0.0.0',
+      '255.255.255.255',
+      17,
+      udp(
+        68,
+        67,
+        dhcp(1, 3, tablet.mac, '0.0.0.0', [
+          opt(50, ip4(tablet.ip)),
+          opt(12, Buffer.from(tablet.name)),
+          opt(60, Buffer.from(tablet.vendorClass)),
+          opt(55, Buffer.from([1, 3, 6, 15, 26, 28, 51, 58, 59, 43, 114, 108])),
+        ]),
+      ),
+    ),
+  ),
+  ether(router.mac, tablet.mac, 0x0800, ipv4(tablet.ip, google.ip, 17, udp(51003, 53, dns(0x1a2e, 0x0100, [web.name], [])))),
+  ether(tablet.mac, router.mac, 0x0800, ipv4(google.ip, tablet.ip, 17, udp(53, 51003, dns(0x1a2e, 0x8180, [web.name], [{ name: web.name, ip: web.ip }])), 118)),
+  // The phone checks for a captive portal over plain HTTP, as iPhones do, saying what it is.
+  ether(
+    router.mac,
+    phone.mac,
+    0x0800,
+    ipv4(phone.ip, captive.ip, 6, tcp(53000, 80, 1, 0x18, http(['GET /hotspot-detect.html HTTP/1.1', `Host: ${captive.name}`, 'User-Agent: CaptiveNetworkSupport-481.0.1 wispr', 'Accept: */*']))),
+  ),
+  ether(
+    router.mac,
+    phone.mac,
+    0x0800,
+    ipv4(phone.ip, captive.ip, 6, tcp(53001, 80, 1, 0x18, http(['GET /library/test/success.html HTTP/1.1', `Host: ${captive.name}`, 'User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148']))),
+  ),
+  // The Windows PC fetches a certificate list over HTTP (signed, so harmless in the clear).
+  ether(router.mac, windows.mac, 0x0800, ipv4(windows.ip, crl.ip, 6, tcp(53100, 80, 1, 0x18, http(['GET /pki/root.crl HTTP/1.1', 'User-Agent: Microsoft-CryptoAPI/10.0', `Host: ${crl.name}`])))),
+  // The printer announces printing over mDNS, and posts to a server out there over HTTP, with a (made-up) password.
+  ether('01:00:5e:00:00:fb', printer.mac, 0x0800, ipv4(printer.ip, '224.0.0.251', 17, udp(5353, 5353, printerAnnouncement(printer.name)), 255)),
+  ether(
+    router.mac,
+    printer.mac,
+    0x0800,
+    ipv4(printer.ip, upload.ip, 6, tcp(53200, 80, 1, 0x18, http(['POST /scan HTTP/1.1', `Host: ${upload.name}`, 'Authorization: Basic ZXhhbXBsZTpleGFtcGxl', 'Content-Length: 0']))),
+  ),
+  // The Pi logs in to FTP: its user and (made-up) password travel as they are.
+  ether(router.mac, pi.mac, 0x0800, ipv4(pi.ip, ftp.ip, 6, tcp(53300, 21, 1, 0x18, Buffer.from('USER example\r\n')))),
+  ether(router.mac, pi.mac, 0x0800, ipv4(pi.ip, ftp.ip, 6, tcp(53300, 21, 15, 0x18, Buffer.from('PASS example\r\n')))),
+  // This PC: TLS to an old server, which agrees TLS 1.0; and to an encrypted DNS resolver, by name.
+  ether(router.mac, me.mac, 0x0800, ipv4(me.ip, legacy.ip, 6, tcp(53400, 443, 1, 0x18, clientHello(legacy.name)))),
+  ether(me.mac, router.mac, 0x0800, ipv4(legacy.ip, me.ip, 6, tcp(443, 53400, 1, 0x18, serverHello10()), 118)),
+  ether(router.mac, me.mac, 0x0800, ipv4(me.ip, doh.ip, 6, tcp(53500, 443, 1, 0x18, clientHello(doh.name)))),
 ];
 
 // The classic libpcap format: a global header, then each packet with its time and length. Ethernet (link type 1).

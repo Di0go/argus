@@ -92,6 +92,23 @@ export function ownMacs(sysNet = '/sys/class/net'): string[] {
     .filter((m) => m && m !== '00:00:00:00:00:00');
 }
 
+/** The field names this tshark knows (`tshark -G fields`), or none if it cannot say. */
+export async function tsharkFields(tshark: string): Promise<Set<string>> {
+  try {
+    const out = await run(tshark, ['-G', 'fields'], 30_000);
+    return new Set(out.split('\n').map((l) => l.split('\t')[2]).filter((f): f is string => Boolean(f)));
+  } catch {
+    return new Set();
+  }
+}
+
+/** This PC's system as he would say it, and whether it runs on a battery (a laptop): what it is, said by itself. */
+export function selfSystem(): { os: string; laptop?: boolean } {
+  const os = { linux: 'Linux', darwin: 'macOS', win32: 'Windows', freebsd: 'FreeBSD' }[process.platform as string] ?? process.platform;
+  const laptop = safeReaddir('/sys/class/power_supply').some((n) => /^BAT/i.test(n));
+  return { os, ...(laptop ? { laptop } : {}) };
+}
+
 function run(cmd: string, args: string[], timeout = 15_000): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], timeout });

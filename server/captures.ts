@@ -2,6 +2,7 @@
 // saved it, or a recording brought in) and a record of when and where (<id>.json, through the core's store). What a capture shows (its devices and hosts) is worked out from the file
 // by tshark when first asked, and kept in memory: the file is the truth, the rest is a reading of it.
 
+import { interpret, type Reading } from './interpret.ts';
 import { copyFile, mkdir, readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { Store } from '@organon/core/server/store';
@@ -19,9 +20,9 @@ export class Captures {
 
   private readonly dir: string;
   private readonly store: Store;
-  private readonly tools: CaptureTools & { tshark: string };
+  private readonly tools: CaptureTools & { tshark: string; reading?: Reading };
 
-  constructor(dir: string, store: Store, tools: CaptureTools & { tshark: string }) {
+  constructor(dir: string, store: Store, tools: CaptureTools & { tshark: string; reading?: Reading }) {
     this.dir = dir;
     this.store = store;
     this.tools = tools;
@@ -104,7 +105,8 @@ export class Captures {
       this.readings.set(c.id, r);
       return r;
     }
-    r = dissect(this.file(c), { tshark: this.tools.tshark, ownMacs: ownMacs(this.tools.sysNet) });
+    // The sensor's facts, read by the server (interpret.ts).
+    r = dissect(this.file(c), { tshark: this.tools.tshark, ownMacs: ownMacs(this.tools.sysNet) }).then((v) => interpret(v, this.tools.reading));
     this.readings.set(c.id, r);
     r.catch(() => this.readings.delete(c.id));
     while (this.readings.size > 4) this.readings.delete(this.readings.keys().next().value!);

@@ -11,7 +11,7 @@
     series,
     label,
     seconds,
-    color = 'var(--acc)',
+    color = 'var(--data)',
     height = 200,
     since,
   }: {

@@ -9,7 +9,7 @@
   import EntityIcon from './EntityIcon.svelte';
   import EntityLink from './EntityLink.svelte';
   import { bytes, rate, since } from './format.ts';
-  import { subline } from './kinds.ts';
+  import { subline } from '../../../shared/kinds.ts';
   import NetTag from './NetTag.svelte';
   import { networks } from './networks.svelte.ts';
   import Spark from './Spark.svelte';

@@ -104,3 +104,24 @@ Captures.
 - **Device identity from JA3/JA4 alone**: Argus records each device's TLS client fingerprints, but there is no open
   database of them under a licence compatible with this repository, and a fingerprint names a TLS library, not a
   device. They are kept as clues ("the same software as …"), never as a name.
+
+## As built, and what changed on the way
+
+- **The status sentence** says how many devices are using the network and what the two busiest are doing; the router
+  is never counted as a user (it carries everyone's traffic). Beside it, either "N unencrypted in the last hour"
+  (the colour, a link to Privacy) or, in plain ink, "Nothing unencrypted in the last hour": the negative is said too,
+  so a glance can tell "fine" from "not shown".
+- **A call outranks a download** in "doing now", whatever the bytes: a call is light but it is what someone is doing.
+- **The diary merges** what one device did at the same time into one line ("This PC is on a Google Meet call, using
+  npm, using GitHub"): five lines for one person at one desk was a log, not a diary.
+- **Harmless in the clear** grew from connectivity checks and certificate lists to signed software updates: on a real
+  network, Chrome's updater over plain HTTP kept the colour on, and a colour always on stops meaning anything. They
+  are still listed, quietly, on Privacy. Never with a login.
+- **On a phone** the order is the questions' order: the sentence, who is using the network, privacy, the day, the
+  diary.
+- **The colours**, checked with the dataviz validator for colour blindness, light and dark: blue (video and music),
+  aqua (work and AI), violet (calls and messages), magenta (social, web and games), grey (the rest); orange and yellow
+  left out so `--clear` (orange) stays alone. Data marks (the bandwidth chart, the sparklines) are neutral grey.
+- **Beside Galen** (looked at, not changed): the same frame, ribbon and type; Galen's home leads with a one-line
+  verdict ("Rest, protected.") and a diary of the last days with the date on the left, as Argus now does. Galen puts
+  sections in panels; Argus keeps the core's bands, as its other pages do.

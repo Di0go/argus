@@ -21,6 +21,7 @@
     "tls": "bash node_modules/@organon/core/scripts/tls.sh .",
     "fixtures": "node scripts/make-fixture.ts",
     "dictionary": "node scripts/dictionary.ts",
+    "geo": "node scripts/geo.ts",
     "demo": "pnpm build && node scripts/demo.ts",
     "pictures": "pnpm build && node scripts/pictures.ts"
   },

@@ -1,17 +1,19 @@
 // The dissection, on the fixture: what it says is checked against tests/fixtures/lan.truth.json, which the fixture's
 // maker worked out from the packets it built, never from what tshark or this code say.
 
+import { interpret } from '../server/interpret.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { classify, parseDumpcapList } from '../server/capture.ts';
 import { dissect, isLocal, isRandomMac, isUnicastIp, shortVendor } from '../server/dissect.ts';
-import { FIXTURE, fakeCapture, ROOT, TSHARK } from './helpers.ts';
+import { DEVICES, FIXTURE, fakeCapture, ROOT, TSHARK } from './helpers.ts';
 
 const truth = JSON.parse(readFileSync(path.join(ROOT, 'tests/fixtures/lan.truth.json'), 'utf8'));
 const H = truth.hosts;
-const r = await dissect(FIXTURE, { tshark: TSHARK, ownMacs: [H.me.mac] });
+// The sensor's facts, read as the server reads them.
+const r = interpret(await dissect(FIXTURE, { tshark: TSHARK, ownMacs: [H.me.mac] }));
 const byMac = (mac: string) => r.devices.find((d) => d.mac === mac);
 
 test('Every packet and byte is counted, and each device sent exactly what the truth says', () => {
@@ -21,7 +23,7 @@ test('Every packet and byte is counted, and each device sent exactly what the tr
     assert.equal(byMac(mac)?.bytesSent, sent.bytes, mac);
   }
   // The broadcast and multicast addresses are not devices.
-  assert.equal(r.devices.length, 7);
+  assert.equal(r.devices.length, DEVICES);
   assert.ok(!r.devices.some((d) => d.mac?.startsWith('ff:') || d.mac?.startsWith('01:')));
 });
 
@@ -141,19 +143,21 @@ test('Interfaces named as he would: Wi-Fi, Cable, Docker, VPN, Loopback, All; du
 test('Frames one at a time add up to the same as the file read whole, and a saved session reads back the same', async () => {
   const { execFileSync } = await import('node:child_process');
   const { Tally, fieldArgs } = await import('../server/tally.ts');
+  const { interpret } = await import('../server/interpret.ts');
   const text = execFileSync(TSHARK, ['-r', FIXTURE, ...fieldArgs()], { encoding: 'utf8' });
   const t = new Tally({ ownMacs: [H.me.mac] });
   for (const line of text.split('\n').filter(Boolean)) t.addText(line);
-  assert.deepEqual(t.view(), r);
+  assert.deepEqual(interpret(t.view()), r);
   const back = Tally.load(JSON.parse(JSON.stringify(t.save())), { ownMacs: [H.me.mac] });
   // As JSON both: on disk a missing maker and an undefined one are the same.
-  assert.deepEqual(JSON.parse(JSON.stringify(back.view())), JSON.parse(JSON.stringify(r)));
+  assert.deepEqual(JSON.parse(JSON.stringify(interpret(back.view()))), JSON.parse(JSON.stringify(r)));
   assert.deepEqual(back.fine.tail(), t.fine.tail());
 });
 
 test('Bounded: past the ceilings the conversations and devices quiet longest are forgotten', async () => {
   const { execFileSync } = await import('node:child_process');
   const { Tally, fieldArgs } = await import('../server/tally.ts');
+  const { interpret } = await import('../server/interpret.ts');
   const text = execFileSync(TSHARK, ['-r', FIXTURE, ...fieldArgs()], { encoding: 'utf8' });
   const t = new Tally({ maxFlows: 4, maxDevices: 3 }).addText(text);
   const saved = t.save();
@@ -227,4 +231,79 @@ test('At the ceilings the session kept on disk stays small: 500 devices heard on
   const size = JSON.stringify(t.save()).length;
   // Before: 107 MB for 2000 devices; the coarse day per device is now 144 buckets, kept only where heard.
   assert.ok(size < 12_000_000, `${(size / 1e6).toFixed(1)} MB`);
+});
+
+test('What each device is, with how sure, from its own words; and nothing made up for one that says nothing', () => {
+  const by = (mac: string) => r.devices.find((d) => d.mac === mac)!;
+  const id = (mac: string) => by(mac).identity;
+  assert.equal(id(H.phone.mac)?.label, 'iPhone, iOS');
+  assert.equal(id(H.phone.mac)?.confidence, 'sure');
+  assert.ok(id(H.phone.mac)?.clues.some((c) => c.from.startsWith('User-Agent')));
+  assert.equal(id(H.tablet.mac)?.label, 'Galaxy Tab, Android');
+  assert.equal(id(H.tablet.mac)?.confidence, 'sure');
+  assert.deepEqual(by(H.tablet.mac).clues?.dhcpClass, ['android-dhcp-14']);
+  assert.equal(by(H.tablet.mac).clues?.dhcpParams, '1,3,6,15,26,28,51,58,59,43,114,108');
+  assert.equal(id(H.cast.mac)?.label, 'Chromecast');
+  assert.equal(id(H.printer.mac)?.kind, 'printer');
+  assert.deepEqual(by(H.printer.mac).clues?.services, ['_ipp._tcp']);
+  assert.equal(id(H.windows.mac)?.os, 'Windows');
+  assert.equal(id(H.pi.mac)?.label, 'Raspberry Pi, Linux');
+  assert.equal(id(H.router.mac)?.label, 'Router');
+  // A random MAC and one broadcast: no clue, so no identity.
+  assert.equal(id(H.quiet.mac), undefined);
+  // This PC's TLS client, by its fingerprint.
+  assert.equal(by(H.me.mac).clues?.ja4?.length, 1);
+});
+
+test('Without encryption: HTTP and FTP marked, a login seen (never kept), harmless checks not coloured; old TLS; DNS', () => {
+  const talk = (ip: string) => r.conversations.find((c) => c.b === `remote:${ip}`)!;
+  assert.deepEqual(talk(H.upload.ip).clear, { proto: 'HTTP', credentials: true });
+  assert.deepEqual(talk(H.ftp.ip).clear, { proto: 'FTP', credentials: true });
+  assert.deepEqual(talk(H.captive.ip).clear, { proto: 'HTTP', harmless: true });
+  assert.deepEqual(talk(H.crl.ip).clear, { proto: 'HTTP', harmless: true });
+  assert.equal(talk(H.web.ip).clear, undefined);
+  assert.equal(talk(H.legacy.ip).tls, '1.0');
+  // The password itself is nowhere in what Argus keeps.
+  assert.ok(!JSON.stringify(r).includes('ZXhhbXBsZTpleGFtcGxl'));
+  // HTTP's Host names the host, as SNI does for TLS.
+  assert.ok(r.remotes.find((h) => h.ip === H.upload.ip)?.names.some((n) => n.name === H.upload.name && n.source === 'HTTP'));
+  const dns = (mac: string) => r.devices.find((d) => d.mac === mac)!.dns;
+  assert.deepEqual(dns(H.tablet.mac)?.map((u) => [u.kind, u.server, u.name]), [['other', '8.8.8.8', 'Google DNS']]);
+  assert.deepEqual(
+    dns(H.me.mac)?.map((u) => [u.kind, u.name]),
+    [
+      ['house', 'the router'],
+      ['encrypted', 'Cloudflare DNS'],
+    ],
+  );
+});
+
+test('An older tshark without some fields: they are left out, the rest reads the same, and the session still adds up', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { FIELDS, fieldArgs, parseLine, Tally, useFields } = await import('../server/tally.ts');
+  try {
+    const missing = useFields(new Set(FIELDS.filter((f) => f !== 'tls.handshake.ja4' && f !== 'http.host')));
+    assert.deepEqual(missing.sort(), ['http.host', 'tls.handshake.ja4']);
+    assert.ok(!fieldArgs().includes('tls.handshake.ja4'));
+    const text = execFileSync(TSHARK, ['-r', FIXTURE, ...fieldArgs()], { encoding: 'utf8' });
+    const t = new Tally({ ownMacs: [H.me.mac] });
+    for (const line of text.split('\n').filter(Boolean)) t.add(parseLine(line));
+    const v = t.view();
+    assert.equal(v.devices.length, DEVICES);
+    assert.equal(v.bytes, truth.bytes);
+    assert.equal(v.devices.find((d) => d.mac === H.me.mac)?.clues?.ja4, undefined);
+  } finally {
+    useFields(new Set(FIELDS));
+  }
+});
+
+test('The sensor gives facts only: no reading in what it adds up, and none of its files imports one (docs/sensor.md)', async () => {
+  const raw = await dissect(FIXTURE, { tshark: TSHARK, ownMacs: [H.me.mac] });
+  assert.ok(raw.conversations.every((c) => !c.app && !c.clear?.harmless));
+  assert.ok(raw.devices.every((d) => !d.identity && !d.dns && !d.doing));
+  assert.ok(raw.remotes.every((h) => !h.app && !h.where));
+  for (const f of ['server/capture.ts', 'server/live.ts', 'server/tally.ts', 'server/dissect.ts']) {
+    const src = readFileSync(path.join(ROOT, f), 'utf8');
+    assert.doesNotMatch(src, /^import .*(\.\/(interpret|dictionary|history|geo|tools)\.ts|shared\/(identify|classify|words)\.ts)/m, f);
+  }
 });

@@ -9,6 +9,7 @@
   import { bytes, since, when } from '../lib/format.ts';
   import { link } from '../lib/router.svelte.ts';
   import SourceHead from '../lib/SourceHead.svelte';
+  import ClearTag from '../lib/ClearTag.svelte';
 
   let { id, capture }: { id: string; capture?: string } = $props();
   const source = $derived(argus.sourceFor(capture));
@@ -18,7 +19,9 @@
   const site = $derived(linked.find((n) => n.entity.kind === 'site')?.entity);
   const key = $derived(`remote:${id}`);
   const talks = $derived(source ? source.conversations.filter((c) => c.b === key || c.a === key) : []);
-  const WHO = { DNS: 'by the DNS answer', TLS: 'by the start of the encrypted connection (SNI)' } as Record<string, string>;
+  const WHO = { DNS: 'by the DNS answer', TLS: 'by the start of the encrypted connection (SNI)', HTTP: 'by plain HTTP (its Host)' } as Record<string, string>;
+  const clear = $derived(talks.find((c) => c.clear && !c.clear.harmless)?.clear ?? talks.find((c) => c.clear)?.clear);
+  const tls = $derived([...new Set(talks.map((c) => c.tls).filter(Boolean))]);
 </script>
 
 <div class="page">
@@ -45,6 +48,15 @@
         </dd>
         <dt>Whose</dt>
         <dd>{#if site}<EntityLink entity={site} {capture} />{:else}<span class="muted">Not known</span>{/if}</dd>
+        <dt>What it is</dt>
+        <dd>{#if r.app}{r.app.app ?? r.app.company ?? r.app.label} <span class="src">{r.app.label}{r.app.carrier ? ': it carries the bytes, whose they are is not known' : ''}</span>{:else}<span class="muted">Not known to the dictionary</span>{/if}</dd>
+        <dt>Where</dt>
+        <dd>{#if r.where}{r.where.country ?? 'Unknown country'}<span class="src"> · network AS{r.where.asn} {r.where.org ?? ''}, registered there</span>{:else}<span class="muted">{argus.geo ? 'Not in the table of networks' : 'Unknown (pnpm geo)'}</span>{/if}</dd>
+        <dt>Encryption</dt>
+        <dd>
+          {#if clear}<ClearTag {clear} long />{/if}
+          {#if tls.length}TLS {tls.join(', ')}{:else if !clear}<span class="muted">Not seen (the handshake did not pass here, or it is QUIC)</span>{/if}
+        </dd>
         <dt>Seen</dt>
         <dd>{when(r.firstSeen)} to {when(r.lastSeen)}{live ? ` (${since(r.lastSeen)})` : ''}</dd>
       </dl>

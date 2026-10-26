@@ -1,6 +1,6 @@
 {
-  "packets": 33,
-  "bytes": 10714,
+  "packets": 46,
+  "bytes": 12602,
   "hosts": {
     "router": {
       "mac": "50:c7:bf:12:34:56",
@@ -59,28 +59,66 @@
     },
     "turn": {
       "ip": "203.0.113.5"
+    },
+    "tablet": {
+      "mac": "00:00:f0:65:43:21",
+      "ip": "192.168.50.45",
+      "name": "Galaxy-Tab-S9",
+      "vendorClass": "android-dhcp-14"
+    },
+    "printer": {
+      "mac": "00:01:e6:ab:cd:01",
+      "ip": "192.168.50.60",
+      "name": "Office Printer"
+    },
+    "google": {
+      "ip": "8.8.8.8"
+    },
+    "captive": {
+      "ip": "203.0.113.30",
+      "name": "captive.apple.com"
+    },
+    "crl": {
+      "ip": "203.0.113.80",
+      "name": "crl3.digicert.com"
+    },
+    "upload": {
+      "ip": "198.51.100.77",
+      "name": "print.example.net"
+    },
+    "ftp": {
+      "ip": "203.0.113.21",
+      "name": "ftp.example.net"
+    },
+    "legacy": {
+      "ip": "203.0.113.90",
+      "name": "legacy.example.net"
+    },
+    "doh": {
+      "ip": "198.51.100.53",
+      "name": "cloudflare-dns.com"
     }
   },
   "sentByMac": {
     "3c:22:fb:ab:cd:ef": {
-      "packets": 1,
-      "bytes": 315
+      "packets": 3,
+      "bytes": 738
     },
     "50:c7:bf:12:34:56": {
-      "packets": 13,
-      "bytes": 7914
+      "packets": 15,
+      "bytes": 8119
     },
     "b8:27:eb:44:55:66": {
-      "packets": 2,
-      "bytes": 129
+      "packets": 4,
+      "bytes": 265
     },
     "00:1b:21:aa:bb:cc": {
-      "packets": 1,
-      "bytes": 110
+      "packets": 2,
+      "bytes": 257
     },
     "3c:a9:f4:10:20:30": {
-      "packets": 13,
-      "bytes": 1672
+      "packets": 15,
+      "bytes": 1960
     },
     "f4:f5:d8:c0:ff:ee": {
       "packets": 2,
@@ -89,6 +127,14 @@
     "9a:11:22:33:44:55": {
       "packets": 1,
       "bytes": 47
+    },
+    "00:00:f0:65:43:21": {
+      "packets": 2,
+      "bytes": 412
+    },
+    "00:01:e6:ab:cd:01": {
+      "packets": 2,
+      "bytes": 277
     }
   },
   "conversations": [
@@ -161,6 +207,62 @@
       "b": "192.168.50.10",
       "service": "udp/1900",
       "sent": 111,
+      "received": 0,
+      "packets": 1
+    },
+    {
+      "a": "192.168.50.45",
+      "b": "8.8.8.8",
+      "service": "udp/53",
+      "sent": 74,
+      "received": 104,
+      "packets": 2
+    },
+    {
+      "a": "192.168.50.23",
+      "b": "203.0.113.30",
+      "service": "tcp/80",
+      "sent": 423,
+      "received": 0,
+      "packets": 2
+    },
+    {
+      "a": "192.168.50.50",
+      "b": "203.0.113.80",
+      "service": "tcp/80",
+      "sent": 147,
+      "received": 0,
+      "packets": 1
+    },
+    {
+      "a": "192.168.50.60",
+      "b": "198.51.100.77",
+      "service": "tcp/80",
+      "sent": 164,
+      "received": 0,
+      "packets": 1
+    },
+    {
+      "a": "192.168.50.40",
+      "b": "203.0.113.21",
+      "service": "tcp/21",
+      "sent": 136,
+      "received": 0,
+      "packets": 2
+    },
+    {
+      "a": "192.168.50.10",
+      "b": "203.0.113.90",
+      "service": "tcp/443",
+      "sent": 144,
+      "received": 101,
+      "packets": 2
+    },
+    {
+      "a": "192.168.50.10",
+      "b": "198.51.100.53",
+      "service": "tcp/443",
+      "sent": 144,
       "received": 0,
       "packets": 1
     }

@@ -1,0 +1,4 @@
+203.0.113.0	203.0.113.255	64500	PT	EXAMPLE-NET - Example Networks
+198.51.100.0	198.51.100.255	64501	US	DOC-NET - Documentation Hosting
+2001:db8::	2001:db8:ffff:ffff:ffff:ffff:ffff:ffff	64502	IE	SIX-NET - Example IPv6
+8.8.8.0	8.8.8.255	15169	US	GOOGLE

@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { type Running, findChromium, startServer } from '@organon/core/testing';
 import { type Browser, chromium, type Page } from 'playwright-core';
-import { FIXTURE, fakeCapture, fakeTshark, ROOT } from './helpers.ts';
+import { DEVICES, FIXTURE, fakeCapture, fakeTshark, ROOT } from './helpers.ts';
 
 const CHROMIUM = findChromium(process.env.ARGUS_TEST_CHROMIUM, chromium.executablePath());
 const truth = JSON.parse(readFileSync(path.join(ROOT, 'tests/fixtures/lan.truth.json'), 'utf8'));
@@ -61,18 +61,37 @@ test('Turning the Wi-Fi on: the devices, the hosts and the bandwidth arrive live
   const { p, errors } = await page();
   await p.goto(app.base);
   await p.getByRole('switch', { name: /Wi-Fi/ }).click();
-  await p.waitForFunction((n) => document.querySelectorAll('table[aria-label="Devices"] tbody tr').length === n, 7, { timeout: 15_000 });
-  assert.equal(await p.getByRole('switch', { name: /Wi-Fi/ }).getAttribute('aria-checked'), 'true');
+  // The page turns into the monitor: the sentence first, who is using the network, privacy beside.
+  const verdict = p.getByRole('status').filter({ hasText: /devices/ });
+  await verdict.waitFor({ timeout: 15_000 });
   assert.match(await p.locator('.statusline').innerText(), /Listening on Wi-Fi/);
+  await p.getByRole('heading', { name: 'Who is using the network' }).waitFor();
+  // The fixture's printer posted over HTTP with a login: the one colour, in the sentence's pill and in the box.
+  const pill = p.getByRole('link', { name: /unencrypted in the last hour, \d+ with a login/ });
+  await pill.waitFor();
+  const colour = await pill.evaluate((e) => getComputedStyle(e).color);
+  const box = p.getByRole('region', { name: 'Without encryption' });
+  assert.match(await box.innerText(), new RegExp(truth.hosts.upload.name.replaceAll('.', '\\.')));
+  // The FTP login comes a few frames after the first of that conversation: the box says so when it does.
+  await box.getByText('FTP, a login in the clear').waitFor({ timeout: 15_000 });
+  // Nothing else on the page wears that colour: not the links, not the charts.
+  const others = await p.evaluate(
+    (c) => [...document.querySelectorAll('main *, .page *')].filter((e) => getComputedStyle(e).color === c && !e.closest('.clear-tag, [aria-label="Without encryption"], .pill, .clear-row, li.clear')).length,
+    colour,
+  );
+  assert.equal(others, 0);
+  assert.equal(await p.getByRole('img', { name: /Bandwidth, whole network/ }).count(), 1);
+  await p.getByRole('link', { name: 'All the devices' }).click();
+  await p.waitForFunction((n) => document.querySelectorAll('table[aria-label="Devices"] tbody tr').length === n, DEVICES, { timeout: 15_000 });
   const phone = p.locator('tr', { hasText: truth.hosts.phone.name });
   assert.match(await phone.innerText(), new RegExp(truth.hosts.phone.ip.replaceAll('.', '\\.')));
-  assert.match(await phone.innerText(), /Apple/);
+  assert.match(await phone.innerText(), /iPhone, iOS/);
   assert.match(await p.locator('tr', { hasText: 'Router' }).innerText(), /Router/);
-  assert.match(await p.getByRole('list', { name: 'Companies and sites' }).innerText(), /Google/);
-  assert.equal(await p.getByRole('img', { name: /Bandwidth, whole network/ }).count(), 1);
   // Reloaded, the session is the server's: the same devices, the switch still on.
   await p.reload();
-  await p.waitForFunction((n) => document.querySelectorAll('table[aria-label="Devices"] tbody tr').length === n, 7);
+  await p.waitForFunction((n) => document.querySelectorAll('table[aria-label="Devices"] tbody tr').length === n, DEVICES);
+  await p.goto(app.base);
+  await p.getByRole('button', { name: 'Change' }).click();
   assert.equal(await p.getByRole('switch', { name: /Wi-Fi/ }).getAttribute('aria-checked'), 'true');
   assert.deepEqual(errors, []);
   await p.close();
@@ -80,7 +99,7 @@ test('Turning the Wi-Fi on: the devices, the hosts and the bandwidth arrive live
 
 test('A device opens its page; from there the company it talks to, and back; each page gets its own tab', { skip: !CHROMIUM }, async () => {
   const { p, errors } = await page();
-  await p.goto(app.base);
+  await p.goto(`${app.base}/#/devices`);
   await devices(p).first().waitFor();
   await p.getByRole('table', { name: 'Devices' }).getByRole('link', { name: 'This PC' }).click();
   await p.getByRole('heading', { name: 'This PC' }).waitFor();
@@ -99,7 +118,7 @@ test('A device opens its page; from there the company it talks to, and back; eac
 
 test('Search finds a device by its maker; the hover card and the menu reach a device from its link', { skip: !CHROMIUM }, async () => {
   const { p, errors } = await page();
-  await p.goto(app.base);
+  await p.goto(`${app.base}/#/devices`);
   await devices(p).first().waitFor();
   await p.keyboard.press('Control+k');
   await p.getByRole('dialog', { name: 'Search' }).getByRole('textbox').fill('raspberry');
@@ -129,7 +148,7 @@ test('Saving the last minutes: a capture, listed, and opened as it was, its link
   await p.goto(`${app.base}/#/captures`);
   await p.getByRole('button', { name: 'Save the last minutes' }).click();
   await p.getByRole('heading', { name: /Capture of/ }).waitFor();
-  await p.waitForFunction((n) => document.querySelectorAll('table[aria-label="Devices"] tbody tr').length === n, 7);
+  await p.waitForFunction((n) => document.querySelectorAll('table[aria-label="Devices"] tbody tr').length === n, DEVICES);
   await p.getByRole('table', { name: 'Devices' }).getByRole('link', { name: 'raspberrypi' }).click();
   await p.getByRole('heading', { name: 'raspberrypi' }).waitFor();
   assert.match(p.url(), /\?c=/);
@@ -192,7 +211,6 @@ test('The devices and hosts tables show their Total column whole, on every page 
       for (const width of [1440, 390]) {
         const { p, errors } = await page({ width, height: 900 });
         for (const [hash, label] of [
-          ['#/', 'Devices'],
           ['#/devices', 'Devices'],
           ['#/internet', 'Hosts'],
         ] as const) {
@@ -284,9 +302,11 @@ test('Two networks: each device says its network; one chosen puts the others aft
     await p.waitForTimeout(500);
     assert.equal(await rows.count(), 4);
     assert.match(await p.getByRole('button', { name: /Network: Docker/ }).innerText(), /only this/);
-    // Now's table follows the same choice.
+    // Who is using the network, on Now, follows the same choice: only Docker's.
     await p.goto(`${demo.base}/#/`);
-    await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Devices"] tbody tr[data-device]').length === 4, null, { timeout: 15_000 });
+    const who = p.getByRole('list', { name: 'Who is using the network' }).locator('li[data-device]');
+    await who.first().waitFor({ timeout: 15_000 });
+    for (const id of await who.evaluateAll((els) => els.map((e) => e.getAttribute('data-device')))) assert.match(id ?? '', /^02:42:/);
 
     // Every network again: all fourteen.
     await p.goto(`${demo.base}/#/devices`);
@@ -310,4 +330,39 @@ test('Two networks: each device says its network; one chosen puts the others aft
   } finally {
     await demo.stop();
   }
+});
+
+test('Privacy and the diary: every unencrypted conversation listed with its device, DNS and old TLS; the day kept', { skip: !CHROMIUM }, async () => {
+  const { p, errors } = await page();
+  await p.goto(`${app.base}/#/privacy`);
+  await p.getByRole('heading', { name: 'Privacy' }).waitFor();
+  const box = p.getByRole('region', { name: 'Without encryption' });
+  await box.getByText(truth.hosts.upload.name).waitFor({ timeout: 15_000 });
+  assert.match(await box.innerText(), /Office|Hewlett|Printer/);
+  // The harmless ones are listed apart, quietly.
+  assert.match(await box.innerText(), /Harmless by design/);
+  const names = p.getByRole('region', { name: 'Names and encryption' });
+  assert.match(await names.innerText(), /Galaxy-Tab-S9\s+asks Google DNS directly/);
+  assert.match(await names.innerText(), new RegExp(truth.hosts.legacy.name.replaceAll('.', '\\.')));
+  await p.getByRole('navigation', { name: 'Places' }).getByRole('link', { name: 'Diary' }).click();
+  await p.getByRole('heading', { name: 'Diary' }).waitFor();
+  await p.getByRole('heading', { name: 'By hour' }).waitFor();
+  assert.deepEqual(errors, []);
+  await p.close();
+});
+
+test('A device says what it is, how sure, and why; its conversations mark the unencrypted', { skip: !CHROMIUM }, async () => {
+  const { p, errors } = await page();
+  await p.goto(`${app.base}/#/device/${encodeURIComponent(truth.hosts.phone.mac)}`);
+  await p.getByRole('heading', { name: truth.hosts.phone.name }).waitFor();
+  const clues = p.getByRole('list', { name: 'Clues' });
+  await clues.waitFor();
+  assert.match(await clues.innerText(), /User-Agent/);
+  assert.match(await p.locator('.props').innerText(), /iPhone, iOS\s+sure/);
+  await p.goto(`${app.base}/#/device/${encodeURIComponent(truth.hosts.pi.mac)}`);
+  const ftp = p.getByRole('table', { name: 'Conversations' }).locator('tr.clear-row');
+  await ftp.first().waitFor();
+  assert.match(await ftp.first().innerText(), /FTP, a login in the clear/);
+  assert.deepEqual(errors, []);
+  await p.close();
 });

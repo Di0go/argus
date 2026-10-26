@@ -30,6 +30,8 @@ const server = spawn(process.execPath, ['server/index.ts'], {
     ARGUS_TSHARK: tshark,
     ARGUS_DUMPCAP: fake.dumpcap,
     ARGUS_SYS_NET: fake.sysNet,
+    // Where the data goes, for the made-up hosts: a made-up table of networks (documentation ranges and AS numbers).
+    ARGUS_GEO_FILE: path.join(ROOT, 'scripts/demo-geo.tsv'),
   },
 });
 for (const iface of ['wlan0', 'docker0'])

@@ -5,7 +5,7 @@
   import { argus } from './argus.svelte.ts';
   import EntityIcon from './EntityIcon.svelte';
   import { bytes, rate, since } from './format.ts';
-  import { KIND_WORD, deviceKind } from './kinds.ts';
+  import { KIND_WORD, deviceKind } from '../../../shared/kinds.ts';
   import { router } from './router.svelte.ts';
 
   let { key }: { key: string } = $props();

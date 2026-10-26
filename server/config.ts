@@ -36,6 +36,9 @@ export const RING = {
   emitEvery: int('EMIT_MS', 1000),
   tally: { maxFlows: int('MAX_FLOWS', 20_000), maxDevices: int('MAX_DEVICES', 500) },
 };
+/** The day kept (server/history.ts): how many days (ARGUS_HISTORY_DAYS), at most how many MB (ARGUS_HISTORY_MB), and
+ * how often the session is looked at, in milliseconds (ARGUS_HISTORY_MS). */
+export const HISTORY = { days: int('HISTORY_DAYS', 31), mb: int('HISTORY_MB', 200), every: int('HISTORY_MS', 5000) };
 /** The captures saved, all together, at most this many MB (ARGUS_CAPTURES_MB): past it, saving is refused and said. */
 export const CAPTURES_MB = int('CAPTURES_MB', 2048);
 /** Where the kernel lists the interfaces; tests point it at a folder of their own. */

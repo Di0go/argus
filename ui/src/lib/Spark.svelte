@@ -39,7 +39,7 @@
   }
 
   path {
-    fill: var(--acc);
-    opacity: 0.55;
+    fill: var(--data);
+    opacity: 0.45;
   }
 </style>
