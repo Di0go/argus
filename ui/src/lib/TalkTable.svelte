@@ -1,12 +1,11 @@
 <script lang="ts">
   // Whom they are talking to now (talks.ts), a line each: the other end, what for (and from which device, when there
-  // are several), a bar on the scale of the busiest and how fast. Busiest first, re-sorted every few seconds and never
+  // are several), and how fast. Busiest first, re-sorted every few seconds and never
   // under the pointer; a conversation that has just begun lights up for a moment.
   import { flip } from 'svelte/animate';
   import ClearTag from './ClearTag.svelte';
   import { rate } from './format.ts';
   import { Ranked } from './ranked.svelte.ts';
-  import { link } from './router.svelte.ts';
   import type { Talk } from './talks.ts';
 
   let {
@@ -26,7 +25,6 @@
       .map((k) => talks.find((t) => t.key === k))
       .filter((t) => t !== undefined),
   );
-  const max = $derived(Math.max(1, ...shown.map((t) => t.rate)));
   const fresh = (since: number) => Date.now() / 1000 - since < 15;
 </script>
 
@@ -36,8 +34,8 @@
       {#each shown as t (t.key)}
         <tr animate:flip={{ duration: 400 }} class:fresh={fresh(t.since)}>
           <td class="with"><a href={t.href}>{t.name}</a>{#if t.clear}<ClearTag clear={t.clear} />{/if}</td>
-          <td class="what">{t.what}{#if from && t.device}<span class="from">{' · '}<a href={link.device(t.device.id)}>{t.device.name}</a></span>{/if}</td>
-          <td class="now"><span class="bar" style:width="{Math.max(2, 60 * Math.sqrt(t.rate / max))}px"></span><span class="rt">{rate(t.rate)}</span></td>
+          <td class="what">{from && t.device ? `${t.what} · ${t.device.name}` : t.what}</td>
+          <td class="now"><span class="rt">{rate(t.rate)}</span></td>
         </tr>
       {/each}
     </tbody>
@@ -80,27 +78,13 @@
     color: var(--muted);
   }
 
-  .from,
-  .from a {
-    color: var(--muted);
-  }
 
   .now {
-    width: 13em;
+    width: 8em;
     text-overflow: clip;
     text-align: right;
   }
 
-  .bar {
-    display: inline-block;
-    height: 6px;
-    margin-right: 10px;
-    border-radius: 3px;
-    background: var(--data);
-    opacity: 0.55;
-    vertical-align: middle;
-    transition: width 0.6s var(--ease);
-  }
 
   .rt {
     display: inline-block;
@@ -126,10 +110,6 @@
 
     .now {
       width: 6em;
-    }
-
-    .bar {
-      display: none;
     }
   }
 

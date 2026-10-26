@@ -1,9 +1,8 @@
 // Who in the house is using the network now: doing something that is not the network's own chatter, or moving at least
 // 2 KB/s in a conversation with someone (announcements to everyone, a printer's or a speaker's, are not someone using
-// it). Once in, a device stays ten seconds after it last was, so a line does not blink in and out. A call comes ahead
-// of anything else, whatever the bytes. The rest are quiet.
+// it). Once in, a device stays ten seconds after it last was, so a line does not blink in and out. The rest are quiet.
 
-import type { Conversation, Device, Interface } from '../../../shared/types.ts';
+import type { Conversation, Device, Interface, SeriesData } from '../../../shared/types.ts';
 import { BACKGROUND, doing } from '../../../shared/words.ts';
 import { house } from './house.ts';
 
@@ -25,8 +24,13 @@ export function talkers(conversations: Conversation[], seconds = 20, now = Date.
   return out;
 }
 
-export function score(d: Device, meter: number): number {
-  return meter + ((d.doing ?? []).some((x) => x.what?.category === 'calls') ? 5e6 : 0);
+/** Bytes a second over the last ten whole seconds (the one going on is not over): what a line says, and its place. */
+export function recent(s: SeriesData | undefined, fallback = 0): number {
+  if (!s?.sent.length) return fallback;
+  let sum = 0;
+  const end = s.sent.length - 1;
+  for (let i = Math.max(0, end - 10); i < end; i++) sum += (s.sent[i] ?? 0) + (s.received[i] ?? 0);
+  return sum / (10 * s.step);
 }
 
 export function split(

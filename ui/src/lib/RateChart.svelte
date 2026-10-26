@@ -32,6 +32,8 @@
       const bucket = series.end - (n - 1 - i);
       // A minute or so of the time before, at most, so a young session is not a flat line across the chart.
       if (since && (bucket + 1) * series.step < since - 60) continue;
+      // The bucket still filling is not a rate yet: a third of a second would read as a third of the speed.
+      if (series.step === 1 && bucket >= Math.floor(Date.now() / 1000)) continue;
       out.push({ x: bucket * series.step * 1000, value: ((series.sent[i] ?? 0) + (series.received[i] ?? 0)) / series.step });
     }
     return out;

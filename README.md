@@ -36,9 +36,10 @@ totals (never packets). An agent can ask it the same over MCP, the day before in
 
 ## What it shows
 
-**Now, at a glance.** Who is using the network and for what: a line per busy device, in a verb, with how fast now,
-busiest first; then whom they are talking to now (the app or company, what for, how fast). Both follow the network
-every second without a reload; the order holds still while the pointer is over it. The day by hour, the diary of
+**Now, at a glance.** Who is using the network and for what: a line per busy device, in a verb, with how fast over
+the last ten seconds, busiest first (five lines, the rest in one); then whom they are talking to now (the app or company, what for, how fast). Both follow the network
+every second without a reload; the order holds still while the pointer is over it. When nothing is
+listening, it says so rather than show what was. The day by hour, the diary of
 episodes ("22:14 the TV started Netflix, 2.3 GB in an hour") and privacy each have their own page. Why it is laid out
 that way, and what was turned down: [docs/apresentacao.md](docs/apresentacao.md).
 

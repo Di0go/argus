@@ -14,12 +14,13 @@ too, it's too much, just a small icon for it … and I can't see anything in rea
 section is kept as the record of what was tried; where it disagrees with this section, this section holds.
 
 **The home page answers one question: who is using the network now, and for what.** A line per device in use (its
-mark, its name, what it is doing in words, how fast now with a bar on the scale of the busiest), busiest over the last
-ten seconds first, a call ahead of anything else; the quiet ones are one link ("49 more devices, quiet now"). Under
-it, *Talking to now*: the four busiest other ends (the app, else the company, else the host), what for, and how fast,
-the device said only when there is more than one. Both move every second over the live stream, without a reload ("Live,
-every second" says so); the order is re-sorted at most every few seconds (two for the conversations) and never under
-the pointer, and a conversation that has just begun lights up for a moment. A line is a door: one click to the device.
+mark, its name, what it is doing in words, and how fast over the last ten whole seconds), in the order of that number;
+at most five lines, the rest and the quiet ones in one link ("And 3 more in use, 4 quiet"). Under it, *Talking to
+now*: the four busiest other ends (the app, else the company, else the host), what for, and how fast, the device said
+only when there is more than one. Both move every second over the live stream, without a reload ("Live, every second"
+says so); the order is re-sorted every two seconds and never under the pointer, and a conversation that has just begun
+lights up for a moment. With nothing listening, or listening stopped (dumpcap gone), the page says so ("Not listening
+now", "Listening stopped") and shows nothing of before as if it were now. A line is a door: one click to the device.
 The sentence on top, the day by hour, the diary, privacy and the bandwidth chart left the home page; they are each
 one click away in the ribbon (Diary, Privacy; the bandwidth of a network on its own page).
 
@@ -35,16 +36,21 @@ are gone.
 **A device's page** starts with what it is doing now, how fast, its last five minutes, and whom it is talking to now
 (live, the same table as the home page); what it is, the clues, its day, privacy and conversations come after.
 
-**Counted** (every visible text and icon above the fold at 1440 × 900, in headless Chromium, on the same real network
-with one device busy): the page area (the frame every page shares, ribbon, tabs and status line, left out: it is 22 of
-them) went from 59 on 8df7daa to 27, 46 %; the whole screen from 81 to 49. Each busy device adds four (its mark, name,
-words and rate). Two screenshots five seconds apart, no reload, show different rates on every line.
+**Counted** (every visible text and icon above the fold at 1440 × 900, in headless Chromium; the page area, without
+the frame every page shares, ribbon, tabs and status line, 22 of them): on a real network with one device busy, from
+59 on 8df7daa to 26 (44 %); on the demo's busy house, from 94 to 43 (46 %), the five lines holding it there. Two
+screenshots five seconds apart, no reload, show different rates on every line.
+
+**Turned down after the first review** (02c9feb): a call ahead of anything else (a 30 KB/s call sat above a 1.1 MB/s
+stream, and nothing on screen said why: the order now follows the number shown); a bar beside each rate (no scale, so
+a reader could not tell what it meant; the number says it); a line for every busy device (on a busy house the page
+grew back to two thirds of what it was).
 
 **The crew**, the trades the verbs asked for and their methods, applied here:
 - *The broadcast-graphics designer* (live scores, election night): figures in fixed-width columns that change in place,
   an order re-sorted on a slow clock and never under the eye, a newcomer marked for a moment, the refresh said on
-  screen. *Changed:* tabular figures with a fixed column, `Ranked` (re-sort every 3 s, 2 s for the conversations, hold
-  under the pointer, newcomers join at the end), the brief grey on a new conversation, "Live, every second".
+  screen. *Changed:* tabular figures with a fixed column, `Ranked` (re-sort every 2 s, hold under the pointer, a newcomer
+  takes its place, at the end while the pointer is over the list), the brief grey on a new conversation, "Live, every second".
 - *The wayfinding designer* (stations, hospitals): the same sign in the same place everywhere, saying where you are,
   every door labelled by what is behind it. *Changed:* the network pills sticky under the tabs on every page, their
   state (dot, rate) on the pill itself; every line of the home page is a link to its device.

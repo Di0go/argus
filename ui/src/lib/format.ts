@@ -22,9 +22,9 @@ export function rate(n: number | undefined): string {
   return `${bytes(n)}/s`;
 }
 
-/** An axis tick for a rate: short, no "/s" (the axis says it). */
+/** An axis tick for a rate: short, and said as a rate ("1 MB/s"), as the figures beside the chart are. */
 export function rateTick(n: number): string {
-  return n ? bytes(n).replace(/[.,]0 /, ' ') : '0';
+  return n ? `${bytes(n).replace(/[.,]0 /, ' ')}/s` : '0';
 }
 
 /** "5 s ago", "3 min ago", "2 h ago", from epoch seconds. */

@@ -430,10 +430,82 @@ test('Now: the lines and the quiet ones count the same house (the router in neit
   const v = (await (await fetch(`${app.base}/api/live`)).json()) as { devices: Parameters<typeof house>[0] };
   const ifaces = (await (await fetch(`${app.base}/api/interfaces`)).json()) as { interfaces: Parameters<typeof house>[1] };
   const total = house(v.devices, ifaces.interfaces).length;
-  const quietText = await p.locator('.quiet').innerText().catch(() => '0 more');
-  const quiet = Number(quietText.match(/(\d+) more/)?.[1] ?? 0);
-  assert.equal((await rows.count()) + quiet, total, `${await rows.count()} rows, ${quietText}`);
+  const quietText = await p.locator('.quiet, .more-busy').innerText().catch(() => '0 more');
+  // "12 more devices, quiet now", or "And 2 more in use, 12 quiet".
+  const quiet = Number(quietText.match(/(\d+) more devices?, quiet|(\d+) quiet$/)?.slice(1).find(Boolean) ?? 0);
+  const busy = Number(quietText.match(/And (\d+) more in use/)?.[1] ?? 0);
+  assert.equal((await rows.count()) + busy + quiet, total, `${await rows.count()} rows, ${busy} more busy, ${quietText}`);
   assert.doesNotMatch(await rows.allInnerTexts().then((t) => t.join(' ')), /Router/);
+  assert.deepEqual(errors, []);
+  await p.close();
+});
+
+/** "1.8 MB/s" → bytes a second; "—" → 0. */
+function perSecond(s: string): number {
+  const m = s.trim().match(/^([\d.,]+)\s*(B|KB|MB|GB)\/s$/);
+  if (!m) return 0;
+  return Number(m[1]!.replace(',', '')) * { B: 1, KB: 1024, MB: 1024 ** 2, GB: 1024 ** 3 }[m[2] as 'B'];
+}
+
+test('A busy network: the busiest few lines and how many more; the order follows the number shown; rates said as rates', { skip: !CHROMIUM }, async () => {
+  const fake = await fakeCapture();
+  const demo = await startServer(ROOT, {
+    env: { TSHARK: path.join(ROOT, 'scripts/demo-tshark.ts'), DUMPCAP: fake.dumpcap, SYS_NET: fake.sysNet, EMIT_MS: '250' },
+  });
+  try {
+    for (const i of ['wlan0', 'docker0'])
+      await fetch(`${demo.base}/api/live/${i}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"on":true}' });
+    const { p, errors } = await page();
+    await p.goto(`${demo.base}/#/`);
+    const rows = p.getByRole('list', { name: 'Who is using the network' }).locator(':scope > li');
+    await p.locator('.more-busy').waitFor({ timeout: 20_000 });
+    // The demo's house has nine or so in use: five lines, and the rest (and the quiet ones) in one.
+    assert.ok((await rows.count()) <= 5, `${await rows.count()} lines`);
+    assert.match(await p.locator('.more-busy').innerText(), /^And \d+ more in use, \d+ quiet$/);
+    // Thirty looks over fifteen seconds: no line moves more than twice as much as the one above it.
+    for (let k = 0; k < 30; k++) {
+      const rates = (await rows.locator('.rt').allInnerTexts()).map(perSecond);
+      for (let i = 1; i < rates.length; i++) assert.ok(rates[i]! <= 2 * rates[i - 1]! + 1024, `look ${k}: ${rates.join(' > ')}`);
+      await p.waitForTimeout(500);
+    }
+    // No bar without a scale on the lines; a name told apart by the end of its MAC says so.
+    assert.equal(await p.locator('ul[aria-label="Who is using the network"] .bar').count(), 0);
+    await p.goto(`${demo.base}/#/devices`);
+    const twin = p.getByRole('table', { name: 'Devices' }).getByRole('link', { name: /Docker container ·/ }).first();
+    await twin.waitFor({ timeout: 15_000 });
+    await p.goto(`${demo.base}/#/`);
+    const suffix = p.locator('ul[aria-label="Who is using the network"] .name [data-tip*="end of its MAC"]');
+    await suffix.first().waitFor({ timeout: 15_000 });
+    // A device's chart says rates, a second at a time, as rates.
+    await p.goto(`${demo.base}/#/device/${encodeURIComponent('f4:f5:d8:c0:ff:ee')}`);
+    const chart = p.getByRole('img', { name: /Bandwidth of .*, last minutes/ });
+    await chart.waitFor({ timeout: 15_000 });
+    const ticks = await chart.locator('text').allTextContents();
+    const amounts = ticks.filter((t) => /\d\s*(B|KB|MB)/.test(t));
+    assert.ok(amounts.length && amounts.every((t) => t.endsWith('/s')), amounts.join(' | '));
+    assert.deepEqual(errors, []);
+    await p.close();
+  } finally {
+    await demo.stop();
+  }
+});
+
+test('Listening stopped: the home page says so, and shows nothing of before as if it were now', { skip: !CHROMIUM }, async () => {
+  const { p, errors } = await page();
+  const put = (on: boolean) => fetch(`${app.base}/api/live/wlan0`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on }) });
+  await put(true);
+  await p.goto(app.base);
+  // Live first (whether anyone is busy by then depends on how far the recording has played).
+  await p.getByText('Live, every second').waitFor({ timeout: 15_000 });
+  await put(false);
+  try {
+    await p.getByRole('heading', { name: 'Not listening now' }).waitFor({ timeout: 10_000 });
+    assert.equal(await p.getByRole('list', { name: 'Who is using the network' }).count(), 0);
+    assert.equal(await p.getByRole('table', { name: 'Talking to now' }).count(), 0);
+    assert.equal(await p.getByText('Live, every second').count(), 0);
+  } finally {
+    await put(true);
+  }
   assert.deepEqual(errors, []);
   await p.close();
 });
