@@ -108,7 +108,14 @@ function readReal(): Real {
     ip(n.dst);
     mac(n.lladdr);
   }
-  const named = (n: string, why: string) => names(r, n, why);
+  const named = (n: string, why: string) => {
+    // A reverse lookup is an address written backwards: checked as the address.
+    const v4 = n.match(/^((?:\d{1,3}\.){4})in-addr\.arpa\.?$/i);
+    if (v4) return ip(v4[1]!.slice(0, -1).split('.').reverse().join('.'));
+    const v6 = n.match(/^((?:[0-9a-f]\.){32})ip6\.arpa\.?$/i);
+    if (v6) return ip(v6[1]!.replaceAll('.', '').split('').reverse().join('').replace(/(.{4})(?!$)/g, '$1:'));
+    names(r, n, why);
+  };
   const session = path.join(ROOT, 'data/live/session.json');
   if (existsSync(session)) {
     try {
@@ -148,6 +155,9 @@ const git = (a: string[]) => run('git', a)?.toString().trim() || undefined;
 function names(r: Real, name: string, why: string) {
   const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   if (words.length <= 1 && !/\d/.test(name)) return;
+  // A reverse lookup (…ip6.arpa, …in-addr.arpa) is an address, checked as one where it is read (`named`): as words it
+  // is a run of digits ("0 0 0") found in every lock file and picture.
+  if (/\.arpa\.?$/i.test(name)) return;
   const n = Math.min(3, words.length);
   for (let i = 0; i + n <= words.length; i++)
     r.names.push({ why, re: new RegExp(`(?<![\\p{L}\\p{N}])${words.slice(i, i + n).map(escape).join('[^\\p{L}\\p{N}]*')}(?![\\p{L}\\p{N}])`, 'iu') });

@@ -307,3 +307,86 @@ test('The sensor gives facts only: no reading in what it adds up, and none of it
     assert.doesNotMatch(src, /^import .*(\.\/(interpret|dictionary|history|geo|tools)\.ts|shared\/(identify|classify|words)\.ts)/m, f);
   }
 });
+
+test('Moved to another network: the new router is a way out too, not a device that talks to hosts with no name', async () => {
+  const { Tally, FIELDS } = await import('../server/tally.ts');
+  const row = (f: Record<string, string>) => FIELDS.map((k) => f[k] ?? '').join('\t');
+  const me = '3c:22:fb:00:00:01';
+  const home = '00:1d:aa:00:00:fe';
+  const office = '24:5a:4c:00:00:01';
+  // A frame each way between this PC and a host out there, through a router; a dozen hosts, as browsing goes.
+  const frames = (t0: number, n: number, router: string, mine: string, net: string) =>
+    Array.from({ length: n }, (_, i) => {
+      const out = `${net}.${10 + (Math.floor(i / 2) % 12)}`;
+      const back = i % 2 === 1;
+      return row({
+        'frame.time_epoch': String(t0 + i / 10),
+        'frame.len': '1200',
+        'frame.interface_name': 'wlan0',
+        'eth.src': back ? router : me,
+        'eth.dst': back ? me : router,
+        'ip.src': back ? out : mine,
+        'ip.dst': back ? mine : out,
+        'ip.proto': '6',
+        'tcp.srcport': back ? '443' : '50000',
+        'tcp.dstport': back ? '50000' : '443',
+      });
+    });
+  // Hours at home first (the old router far the busiest), then a few minutes at the office.
+  const text = [...frames(1000, 6000, home, '192.168.50.20', '203.0.113'), ...frames(2000, 600, office, '172.16.9.20', '198.51.100')].join('\n');
+  const v = new Tally({ ownMacs: [me] }).addText(text).view();
+  const role = (mac: string) => v.devices.find((d) => d.mac === mac)?.role;
+  assert.equal(role(home), 'gateway');
+  assert.equal(role(office), 'gateway');
+  assert.ok(v.remotes.some((r) => r.ip === '198.51.100.10'), 'the office’s hosts are out on the internet');
+  assert.ok(!v.devices.find((d) => d.mac === office)?.ips.includes('198.51.100.10'), 'and not addresses of the office router');
+  assert.ok(v.conversations.some((c) => c.a === `device:${me}` && c.b === 'remote:198.51.100.10'));
+});
+
+test('A way out is where frames for many hosts go: not a host with a public address, nor a device that makes them up', async () => {
+  const { Tally, FIELDS } = await import('../server/tally.ts');
+  const row = (f: Record<string, string>) => FIELDS.map((k) => f[k] ?? '').join('\t');
+  const me = '3c:22:fb:00:00:02';
+  const router = '00:1d:aa:00:00:01';
+  const other = '3c:22:fb:00:00:03';
+  const liar = '9a:11:22:33:44:88';
+  const lines: string[] = [];
+  const frame = (t: number, src: string, dst: string, ipSrc: string, ipDst: string) =>
+    lines.push(row({ 'frame.time_epoch': String(t), 'frame.len': '800', 'frame.interface_name': 'eth0', 'eth.src': src, 'eth.dst': dst, 'ip.src': ipSrc, 'ip.dst': ipDst, 'ip.proto': '17', 'udp.srcport': '40000', 'udp.dstport': '443' }));
+  // A network of public addresses (a university's): this PC and another, each with its own, and the router.
+  for (let i = 0; i < 600; i++) {
+    const host = `203.0.113.${10 + (i % 20)}`;
+    frame(1000 + i, me, router, '198.51.100.20', host);
+    frame(1000 + i, router, me, host, '198.51.100.20');
+    frame(1000 + i, other, router, '198.51.100.21', host);
+    frame(1000 + i, router, other, host, '198.51.100.21');
+  }
+  // A device that sends 400 frames from made-up public addresses to this PC.
+  for (let i = 0; i < 400; i++) frame(2000 + i / 100, liar, me, `203.0.113.${100 + (i % 50)}`, '198.51.100.20');
+  const v = new Tally({ ownMacs: [me] }).addText(lines.join('\n')).view();
+  const role = (mac: string) => v.devices.find((d) => d.mac === mac)?.role;
+  assert.equal(role(router), 'gateway');
+  assert.equal(role(me), 'self');
+  assert.equal(role(other), undefined, 'the other PC is a device');
+  assert.equal(role(liar), undefined, 'the one that makes addresses up is a device');
+  assert.ok(!v.remotes.some((r) => r.ip === '198.51.100.21'), 'the other PC’s address is its own, not a host out there');
+});
+
+test('A session kept before the way-out rule keeps its router a way out, when a new one gets busier', async () => {
+  const { Tally, FIELDS } = await import('../server/tally.ts');
+  const row = (f: Record<string, string>) => FIELDS.map((k) => f[k] ?? '').join('\t');
+  const me = '3c:22:fb:00:00:04';
+  const old = '00:1d:aa:00:00:44';
+  const now = '24:5a:4c:00:00:44';
+  const frames = (t0: number, n: number, router: string, net: string) =>
+    Array.from({ length: n }, (_, i) =>
+      row({ 'frame.time_epoch': String(t0 + i / 10), 'frame.len': '900', 'frame.interface_name': 'wlan0', 'eth.src': me, 'eth.dst': router, 'ip.src': '192.168.50.4', 'ip.dst': `${net}.${10 + (i % 12)}`, 'ip.proto': '6', 'tcp.srcport': '50000', 'tcp.dstport': '443' }),
+    );
+  const before = new Tally({ ownMacs: [me] }).addText(frames(1000, 300, old, '203.0.113').join('\n')).save();
+  delete (before as { sentThrough?: unknown }).sentThrough;
+  const t = Tally.load(JSON.parse(JSON.stringify(before)), { ownMacs: [me] }).addText(frames(2000, 900, now, '198.51.100').join('\n'));
+  const v = t.view();
+  assert.equal(v.devices.find((d) => d.mac === old)?.role, 'gateway');
+  assert.equal(v.devices.find((d) => d.mac === now)?.role, 'gateway');
+  assert.deepEqual(v.devices.find((d) => d.mac === old)?.ips, []);
+});

@@ -94,6 +94,14 @@ const SERVICES = 12;
 const LOGIN = /^(PASS|APOP|LOGIN|AUTHENTICATE|AUTH)$/i;
 /** Past this many MACs that carried another network's address, only the likeliest routers are kept. */
 const MAYBE_ROUTERS = 256;
+/**
+ * A way out is not only the busiest: after a move to another network (a laptop between home and office) the old router
+ * stays the busiest of the session for hours, and the new one would read as a device talking to "hosts with no name".
+ * So a MAC that frames were sent through to this many other networks' addresses is a way out too: a router is sent
+ * frames for the whole internet, a host with a public address of its own only for that one address, and a device that
+ * makes up addresses can make up what it sends, not where the others send theirs. This PC is never one.
+ */
+const WAY_OUT_HOSTS = 8;
 
 /**
  * The fields asked for: all of FIELDS that this tshark knows. An older one without a field (JA4 came in Wireshark
@@ -280,6 +288,8 @@ export class Tally {
   private readonly flows = new Map<string, Flow>();
   /** Per MAC, how many frames carried IPv4 addresses of other networks: the router carries the most. */
   private readonly carriesRemote = new Map<string, number>();
+  /** Per interface and MAC, a few of the other networks' addresses frames were sent to through it (WAY_OUT_HOSTS). */
+  private readonly sentThrough = new Map<string, Set<string>>();
   /** Names remote addresses got from DNS answers. */
   private readonly dnsNames = new Map<string, string[]>();
   /**
@@ -336,7 +346,10 @@ export class Tally {
     const s4 = r['ip.src'][0];
     const d4 = r['ip.dst'][0];
     if (src && s4 && !isLocal(s4) && isUnicastIp(s4)) this.maybeRouter(iface, src);
-    if (dst && d4 && !isLocal(d4) && isUnicastIp(d4)) this.maybeRouter(iface, dst);
+    if (dst && d4 && !isLocal(d4) && isUnicastIp(d4)) {
+      this.maybeRouter(iface, dst);
+      this.through(iface, dst, d4);
+    }
 
     // Who sent it and who it was for, on the local network.
     let sender: Counted | undefined;
@@ -463,15 +476,18 @@ export class Tally {
     if (types.includes('1')) for (const j of r['tls.handshake.ja4']) addClue(sender, 'ja4', clip(j));
   }
 
-  /** The MAC that is the way out to the internet on each interface, as things stand. */
-  gateways(): Map<string, string> {
+  /** The MACs that are the way out to the internet on each interface: the busiest, and any other sent frames for many addresses. */
+  gateways(): Map<string, Set<string>> {
     const best = new Map<string, [string, number]>();
+    const out = new Map<string, Set<string>>();
     for (const [key, count] of this.carriesRemote) {
       const [iface = '', mac = ''] = key.split('|');
       const b = best.get(iface);
       if (!b || count > b[1]) best.set(iface, [mac, count]);
+      if ((this.sentThrough.get(key)?.size ?? 0) >= WAY_OUT_HOSTS && !this.own.has(mac)) out.set(iface, (out.get(iface) ?? new Set()).add(mac));
     }
-    return new Map([...best].map(([iface, [mac]]) => [iface, mac]));
+    for (const [iface, [mac]] of best) out.set(iface, (out.get(iface) ?? new Set()).add(mac));
+    return out;
   }
 
   /** "udp/1900" for an SSDP question, and for an answer to one; else nothing. */
@@ -488,6 +504,22 @@ export class Tally {
     return ipDst && this.ssdpAskers.has(`${ipDst}|${dp}`) ? 'udp/1900' : undefined;
   }
 
+  /** Notes an address of another network a frame was sent to through a MAC, up to as many as tell a way out. */
+  private through(iface: string, mac: string, ip: string) {
+    const key = `${iface}|${mac}`;
+    const s = this.sentThrough.get(key);
+    if (s) {
+      if (s.size < WAY_OUT_HOSTS) s.add(ip);
+      return;
+    }
+    this.sentThrough.set(key, new Set([ip]));
+    // Bounded like the routers: the MACs with the most addresses stay.
+    if (this.sentThrough.size <= MAYBE_ROUTERS) return;
+    const keep = [...this.sentThrough].sort((a, b) => b[1].size - a[1].size).slice(0, MAYBE_ROUTERS / 8);
+    this.sentThrough.clear();
+    for (const [k, v] of keep) this.sentThrough.set(k, v);
+  }
+
   /** Counts a MAC that carried another network's address, on an interface; prunes to the likeliest past the ceiling. */
   private maybeRouter(iface: string, mac: string) {
     const key = `${iface}|${mac}`;
@@ -501,7 +533,7 @@ export class Tally {
   /** What it all adds up to so far. */
   view(): Dissected {
     const gateways = this.gateways();
-    const routers = new Set(gateways.values());
+    const routers = new Set([...gateways.values()].flatMap((g) => [...g]));
     /**
      * Whether `ip`, on the side of the frame whose MAC is `mac`, is a host out on the internet: an address of another
      * network that came through the way out. The same address behind another MAC is that device's own (this PC's
@@ -509,7 +541,7 @@ export class Tally {
      */
     const outside = (ip: string | undefined, mac: string | undefined, iface: string | undefined) => {
       const gateway = gateways.get(iface ?? '');
-      return Boolean(ip && isUnicastIp(ip) && !isLocal(ip) && (!mac || !gateway || mac === gateway));
+      return Boolean(ip && isUnicastIp(ip) && !isLocal(ip) && (!mac || !gateway || gateway.has(mac)));
     };
     const ips = new Map<string, string[]>();
     const remotes = new Map<string, Remote>();
@@ -666,6 +698,7 @@ export class Tally {
       devices: [...this.devices.values()],
       flows: [...this.flows.values()],
       carriesRemote: [...this.carriesRemote],
+      sentThrough: [...this.sentThrough].map(([k, v]) => [k, [...v]]),
       dnsNames: [...this.dnsNames],
       fine: this.fine.sparse(),
       coarse: this.coarse.sparse(),
@@ -683,6 +716,9 @@ export class Tally {
     for (const f of d.flows) t.flows.set(flowKey(f), f);
     // A session from before routers were per interface: its MACs were keyed alone.
     for (const [k, v] of d.carriesRemote) t.carriesRemote.set(k.includes('|') ? k : `${d.flows[0]?.iface ?? ''}|${k}`, v);
+    for (const [k, v] of d.sentThrough ?? []) t.sentThrough.set(k, new Set(v.slice(0, WAY_OUT_HOSTS)));
+    // A session kept before the hosts sent through were: the router it had stays a way out, whoever is busiest later.
+    if (!d.sentThrough) for (const [iface, macs] of t.gateways()) for (const mac of macs) t.sentThrough.set(`${iface}|${mac}`, new Set(Array.from({ length: WAY_OUT_HOSTS }, (_, i) => `kept ${i}`)));
     for (const [k, v] of d.dnsNames) t.dnsNames.set(k, v);
     const fine = t.options.fine.count;
     const coarse = t.options.coarse.count;
@@ -766,6 +802,8 @@ export interface TallyData {
   devices: Counted[];
   flows: Flow[];
   carriesRemote: [string, number][];
+  /** Absent in a session kept before it was: then only the busiest is a way out, as it was. */
+  sentThrough?: [string, string[]][];
   dnsNames: [string, string[]][];
   fine: SeriesData | SparseSeries;
   coarse: SeriesData | SparseSeries;
