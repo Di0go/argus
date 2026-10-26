@@ -1,11 +1,12 @@
 // pnpm demo: Argus with a made-up house instead of a capture (scripts/demo-tshark.ts), for a look without the
 // capture permissions, and for the README's pictures. Its own data in .demo/, its own port (4950), the Wi-Fi and
-// Docker's bridge turned on at start; nothing touches the network.
+// Docker's bridge turned on at start; on the Wi-Fi a café first, then the house (two networks, each its own, named by
+// a made-up SSID that scripts/demo-iw.ts says); nothing touches the network.
 //
 //   pnpm demo          then http://localhost:4950
 
 import { spawn } from 'node:child_process';
-import { chmodSync, mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fakeCapture } from '../tests/helpers.ts';
 
@@ -13,7 +14,11 @@ const ROOT = path.resolve(import.meta.dirname, '..');
 const PORT = process.env.ARGUS_DEMO_PORT ?? '4950';
 const DEMO = path.join(ROOT, '.demo');
 const tshark = path.join(ROOT, 'scripts/demo-tshark.ts');
+const iw = path.join(ROOT, 'scripts/demo-iw.ts');
 chmodSync(tshark, 0o755);
+chmodSync(iw, 0o755);
+const ssidFile = path.join(DEMO, 'ssid');
+rmSync(ssidFile, { force: true });
 mkdirSync(path.join(DEMO, 'data'), { recursive: true });
 mkdirSync(path.join(DEMO, 'state'), { recursive: true });
 const fake = await fakeCapture();
@@ -32,6 +37,9 @@ const server = spawn(process.execPath, ['server/index.ts'], {
     ARGUS_SYS_NET: fake.sysNet,
     // Where the data goes, for the made-up hosts: a made-up table of networks (documentation ranges and AS numbers).
     ARGUS_GEO_FILE: path.join(ROOT, 'scripts/demo-geo.tsv'),
+    // The Wi-Fi's name, made up: the café's, then the house's (never the real one's).
+    ARGUS_IW: iw,
+    ARGUS_DEMO_SSID_FILE: ssidFile,
   },
 });
 for (const iface of ['wlan0', 'docker0'])

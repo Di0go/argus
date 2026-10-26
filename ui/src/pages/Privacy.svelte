@@ -10,7 +10,7 @@
 
   let { capture }: { capture?: string } = $props();
 
-  const source = $derived(argus.sourceFor(capture));
+  const source = $derived(argus.sourceFor(capture, true));
   const p = $derived(source ? privacy(source) : undefined);
   const recent = $derived(source?.kind === 'live' ? privacy(source, { since: Date.now() / 1000 - 3600 }) : undefined);
 </script>

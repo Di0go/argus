@@ -34,6 +34,8 @@ export const RING = {
   ringFileMB: int('RING_MB', 10),
   ringSeconds: int('RING_SECONDS', 30),
   emitEvery: int('EMIT_MS', 1000),
+  /** How often the system is asked which SSID each Wi-Fi is on, and this machine's MACs (ARGUS_POLL_MS). */
+  pollEvery: int('POLL_MS', 5000),
   tally: { maxFlows: int('MAX_FLOWS', 20_000), maxDevices: int('MAX_DEVICES', 500) },
 };
 /** The day kept (server/history.ts): how many days (ARGUS_HISTORY_DAYS), at most how many MB (ARGUS_HISTORY_MB), and
@@ -43,5 +45,10 @@ export const HISTORY = { days: int('HISTORY_DAYS', 31), mb: int('HISTORY_MB', 20
 export const CAPTURES_MB = int('CAPTURES_MB', 2048);
 /** Where the kernel lists the interfaces; tests point it at a folder of their own. */
 export const SYS_NET = app.env('SYS_NET') ?? '/sys/class/net';
+/**
+ * iw says which SSID a Wi-Fi is on (server/capture.ts ssidOf): ARGUS_IW, else the system's, but only on the real
+ * /sys/class/net. Where the interfaces are made up (the tests, the demo) the real Wi-Fi's name must never be asked.
+ */
+export const IW = app.env('IW') ?? (SYS_NET === '/sys/class/net' ? 'iw' : undefined);
 /** A recording brought in as a capture when there is none yet (pnpm dev uses the fixture). */
 export const SEED_PCAP = app.env('SEED_PCAP');

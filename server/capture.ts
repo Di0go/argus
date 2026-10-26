@@ -79,17 +79,51 @@ export async function listInterfaces(tools: CaptureTools): Promise<{ interfaces:
   return { interfaces, problem };
 }
 
-/** This machine's own MAC addresses, so the capture can say which device is this PC. */
+/**
+ * This machine's own MAC addresses, so the capture can say which device is this PC: each interface's now, and each
+ * Wi-Fi card's own (/sys/class/ieee80211/<phy>/macaddress), which it goes back to on a network after making one up.
+ */
 export function ownMacs(sysNet = '/sys/class/net'): string[] {
-  return safeReaddir(sysNet)
-    .map((n) => {
-      try {
-        return readFileSync(path.join(sysNet, n, 'address'), 'utf8').trim().toLowerCase();
-      } catch {
-        return '';
-      }
-    })
-    .filter((m) => m && m !== '00:00:00:00:00:00');
+  const read = (f: string) => {
+    try {
+      return readFileSync(f, 'utf8').trim().toLowerCase();
+    } catch {
+      return '';
+    }
+  };
+  const phys = path.join(sysNet, '..', 'ieee80211');
+  return [...safeReaddir(sysNet).map((n) => read(path.join(sysNet, n, 'address'))), ...safeReaddir(phys).map((p) => read(path.join(phys, p, 'macaddress')))].filter(
+    (m) => m && m !== '00:00:00:00:00:00',
+  );
+}
+
+/**
+ * The SSID `iw dev <iface> link` says the Wi-Fi is associated with ("\tSSID: Casa"), nothing when it is not. iw writes
+ * a byte it would not print as \xNN: read back into the name's own bytes (UTF-8).
+ */
+export function parseIwLink(text: string): string | undefined {
+  const m = /^\s*SSID: (.*)$/m.exec(text);
+  if (!m?.[1]) return undefined;
+  const bytes: number[] = [];
+  const raw = m[1];
+  for (let i = 0; i < raw.length; i++) {
+    const hex = raw[i] === '\\' && raw[i + 1] === 'x' ? raw.slice(i + 2, i + 4) : '';
+    if (/^[0-9a-f]{2}$/i.test(hex)) {
+      bytes.push(Number.parseInt(hex, 16));
+      i += 3;
+    } else bytes.push(...Buffer.from(raw[i]!));
+  }
+  return Buffer.from(bytes).toString('utf8').slice(0, 64) || undefined;
+}
+
+/** The SSID a Wi-Fi interface is on now (iw), or nothing: not a Wi-Fi, not associated, or no `iw` to ask. */
+export async function ssidOf(iw: string | undefined, iface: string, sysNet = '/sys/class/net'): Promise<string | undefined> {
+  if (!iw || classify(iface, sysNet).type !== 'wifi') return undefined;
+  try {
+    return parseIwLink(await run(iw, ['dev', iface, 'link'], 5000));
+  } catch {
+    return undefined;
+  }
 }
 
 /** The field names this tshark knows (`tshark -G fields`), or none if it cannot say. */

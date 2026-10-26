@@ -7,7 +7,8 @@ import { EntityGraph, keyOf } from '@organon/core/shared/entities';
 import type { Link } from '@organon/core/shared/entities';
 import type { Classification } from '../shared/classify.ts';
 import { serviceName } from '../shared/services.ts';
-import type { Capture, Conversation, Device, Remote, Session } from '../shared/types.ts';
+import { findNetwork, nowOf, within } from '../shared/networks.ts';
+import type { Capture, Conversation, Device, Network, Remote, Session } from '../shared/types.ts';
 import type { Captures } from './captures.ts';
 import { dateOf, type History } from './history.ts';
 import type { Live } from './live.ts';
@@ -23,6 +24,12 @@ const LIMITS =
   'What is encrypted is not read: only who talked to whom, when and how much. On a PC on a switched network, the capture sees ' +
   "mostly this PC's own traffic and the broadcast and multicast of the others, not what other devices send to each other.";
 
+/** Networks are kept apart: the agent asks for one, or for all. */
+const NETWORKS =
+  'Each network this PC was on (home, the office, a café) is kept apart: a network is its router, named by its Wi-Fi ' +
+  "(SSID) when there is one. get_hosts and get_day answer for the network it is on now unless `network` says another (an " +
+  "id or a name from get_hosts' `networks`) or `all`. ";
+
 /** The dictionary's reading is a reading: names, networks and ports say what the traffic usually is, not a proof. */
 const READING =
   'What each host and conversation is (`what`: company, app, category, activity, whether it is advertising, tracking or ' +
@@ -37,6 +44,7 @@ export function instructions(): string {
     'talk to. He turns listening on and saves captures on the page (https://argus.test); you read. ' +
     `Start with get_hosts: its \`apps\` say, in plain words, what the traffic was for. For what happened earlier, get_day (a ` +
     'day summed up, with its diary) and what_happened (one device between two times) read the history Argus keeps. ' +
+    `${NETWORKS}` +
     `${READING}${UNTRUSTED}${LIMITS}`
   );
 }
@@ -67,6 +75,23 @@ export function deviceLine(d: Device) {
       : {}),
     lastSeen: new Date(d.lastSeen * 1000).toISOString(),
     interfaces: d.interfaces,
+    ...(d.networks?.length ? { networks: d.networks } : {}),
+  };
+}
+
+/** A network, as the agent reads it. */
+function networkLine(n: Network) {
+  return {
+    id: n.id,
+    name: n.name,
+    ...(n.ssid ? { ssid: n.ssid } : {}),
+    ...(n.now ? { now: true } : {}),
+    ...(n.pending ? { joining: 'just joined: which network it is will be known once its router is seen' } : {}),
+    interfaces: n.interfaces,
+    ...(n.routers.length ? { routers: n.routers } : { routers: 'none seen (a VPN, Docker, or a network without internet)' }),
+    from: new Date(n.first * 1000).toISOString(),
+    to: new Date(n.last * 1000).toISOString(),
+    bytes: n.bytes,
   };
 }
 
@@ -149,7 +174,25 @@ function sessionLine(s: Session) {
   };
 }
 
-type View = { devices: Device[]; remotes: Remote[]; links: Link[]; conversations: Conversation[]; capture?: Capture; session?: Session };
+type View = { devices: Device[]; remotes: Remote[]; links: Link[]; conversations: Conversation[]; networks?: Network[]; capture?: Capture; session?: Session };
+
+const NETWORK = z
+  .string()
+  .optional()
+  .describe('A network from get_hosts\' `networks` (its id or name), or `all`; by default the one it is on now (a capture: all)');
+
+/** The view of the network asked for: by default, the live session's now and a capture's all. */
+function scoped(v: View, asked?: string): { view: View; networks?: Network[]; showing: string } | string {
+  const nets = v.networks ?? [];
+  if (!nets.length || asked === 'all' || (!asked && v.capture)) return { view: v, networks: nets, showing: 'all networks' };
+  if (asked) {
+    const n = findNetwork(nets, asked);
+    if (!n) return `No network "${asked}". These are: ${nets.map((x) => `${x.name} (${x.id})`).join(', ')}; or \`all\`.`;
+    return { view: within(v, new Set([n.id])), networks: nets, showing: n.name };
+  }
+  const now = nowOf(nets);
+  return { view: within(v, now), networks: nets, showing: nets.filter((n) => now.has(n.id)).map((n) => n.name).join(' and ') };
+}
 
 export function argusTools(captures: Captures, live: Live, history?: History) {
   /** The capture asked for, or the live session. */
@@ -181,6 +224,8 @@ export function argusTools(captures: Captures, live: Live, history?: History) {
           'the internet, named by DNS answers or TLS SNI when seen, with what each is (`what`). `apps`: the traffic added up by ' +
           'what it was for (Google · YouTube · watching video), busiest first, with its share of the bytes. Without `capture`, the ' +
           'live session: what is being listened on now, since it began, with how fast each device is sending right now. ' +
+          '`networks`: every network the session (or capture) was on; the answer is for the one it is on now unless `network` ' +
+          'says another, or `all`. ' +
           READING +
           UNTRUSTED +
           LIMITS,
@@ -189,13 +234,18 @@ export function argusTools(captures: Captures, live: Live, history?: History) {
           devices: z.number().int().min(1).max(500).optional().describe('How many devices to include, busiest first (default 100)'),
           remotes: z.number().int().min(0).max(500).optional().describe('How many internet hosts to include, busiest first (default 20)'),
           apps: z.number().int().min(0).max(200).optional().describe('How many lines of the traffic by app to include, busiest first (default 20)'),
+          network: NETWORK,
         },
       },
-      async ({ capture, remotes, devices, apps }) => {
-        const v = await view(capture);
-        if (typeof v === 'string') return error(v);
+      async ({ capture, remotes, devices, apps, network }) => {
+        const all = await view(capture);
+        if (typeof all === 'string') return error(all);
+        const s = scoped(all, network);
+        if (typeof s === 'string') return error(s);
+        const v = s.view;
         return json({
           ...where(v),
+          ...(s.networks?.length ? { showing: s.showing, networks: s.networks.map(networkLine) } : {}),
           devices: v.devices.slice(0, devices ?? 100).map(deviceLine),
           devicesTotal: v.devices.length,
           apps: appsLine(v.conversations, apps ?? 20),
@@ -296,12 +346,20 @@ export function argusTools(captures: Captures, live: Live, history?: History) {
           inputSchema: {
             date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('YYYY-MM-DD, local time (default today)'),
             device: z.string().optional().describe('Only this device: a name, MAC or id as get_hosts gives it'),
+            network: z.string().optional().describe('Only this network: an id or name from `networks` in the answer (or get_hosts); all by default'),
           },
         },
-        async ({ date, device }) => {
+        async ({ date, device, network }) => {
           const key = device ? history.find(device)?.key : undefined;
           if (device && !key) return error(`No device "${device}" in the history. get_hosts lists the devices now.`);
-          return json(daySummary(await history.dayView(date, key)));
+          if (!network || network === 'all') return json(daySummary(await history.dayView(date, key)));
+          const whole = await history.dayView(date, key);
+          const n = findNetwork(
+            whole.networks.map((x) => ({ id: x.id, name: x.name, ssid: history.network(x.id)?.ssid, routers: [], interfaces: [], first: 0, last: 0, bytes: x.bytes })),
+            network,
+          );
+          if (!n) return error(`No network "${network}" on ${whole.date}. That day was on: ${whole.networks.map((x) => `${x.name} (${x.id})`).join(', ') || 'none told apart'}.`);
+          return json({ network: n.name, ...daySummary(await history.dayView(date, key, new Set([n.id]))) });
         },
       );
 
@@ -314,7 +372,7 @@ export function argusTools(captures: Captures, live: Live, history?: History) {
             'What one device did between two times ("what did the laptop do last night?"), from the history: its episodes in ' +
             'words with when and how much, its traffic in that window by what it was for, and the events (traffic without ' +
             'encryption, old TLS, first seen). Give `from` and `to` as ISO 8601 local times (2026-10-24T20:00); the window may ' +
-            'span days that are kept. ' +
+            'span days that are kept. All the networks it was on. ' +
             READING +
             UNTRUSTED,
           inputSchema: {
@@ -381,6 +439,8 @@ function daySummary(v: DayView) {
   return {
     date: v.date,
     daysKept: v.days,
+    networks: v.networks.map((n) => ({ id: n.id, name: n.name, bytes: n.bytes })),
+    ...(v.untold ? { notToldApart: { bytes: v.untold.bytes, until: localTime(v.untold.until), why: 'kept before Argus told networks apart: in the whole day, never in one network’s' } } : {}),
     bytes: v.bytes,
     ...(v.first ? { heardFrom: localTime(v.first), heardTo: localTime(v.last ?? v.first) } : {}),
     byCategory: v.categories.slice(0, 10).map((c) => ({ category: c.label, bytes: c.bytes })),

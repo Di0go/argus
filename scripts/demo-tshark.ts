@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // A tshark for the demo (pnpm demo): asked to listen (-i), it makes up a house at work instead of capturing, and
-// prints each made-up frame's fields as the real one does (-T fields, server/tally.ts's list), as they "arrive". It
+// prints each made-up frame's fields as the real one does (-T fields, server/tally.ts's list), as they "arrive". On the
+// Wi-Fi it is at a café first (ARGUS_DEMO_CAFE seconds, 15; 0 for none: its own router, the same addresses as many a
+// network, a till paying, a guest's phone, a speaker), then this PC goes home and joins the house's Wi-Fi as a laptop
+// does (DHCP from nothing); each Wi-Fi's name is written to ARGUS_DEMO_SSID_FILE for the demo's iw (scripts/demo-iw.ts). It
 // hears the house as a sensor on the router would (a mirror port): the TV on Netflix, a phone on Instagram and then
 // on a WhatsApp call, a tablet on YouTube asking Google's DNS directly, the office PC updating Windows, a speaker on
 // Spotify, a printer posting scans over plain HTTP with a password, and this PC on a call and a build; on docker0, a
@@ -11,7 +14,7 @@
 // capture works too.
 
 import { spawn } from 'node:child_process';
-import { copyFileSync } from 'node:fs';
+import { copyFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { FIELDS, SEP } from '../server/tally.ts';
 
@@ -78,8 +81,79 @@ function line(f: Frame): string {
 const tcp = (src: number, dst: number): Frame => ({ 'tcp.srcport': String(src), 'tcp.dstport': String(dst), 'ip.proto': '6' });
 const udp = (src: number, dst: number): Frame => ({ 'udp.srcport': String(src), 'udp.dstport': String(dst), 'ip.proto': '17' });
 
+/**
+ * The café: its router (another maker) hands out the house's own addresses, as so many do (the router at .1, a phone
+ * at the TV's .31, a speaker at the Pi's .40): only the routers tell the two networks apart. And who is there.
+ */
+const CAFE = { mac: 'f0:9f:c2:5e:a1:01', vendor: 'Ubiquiti Inc', ip: '192.168.50.1', me: '192.168.50.57', ssid: 'Harbour Café' };
+const AT_CAFE: (Home & { to: string; bulk: number; udp?: boolean })[] = [
+  { mac: '00:1b:21:5e:a1:20', vendor: 'Intel Corporate', ip: '192.168.50.20', netbios: 'CAFE-TILL', to: '203.0.113.52', bulk: 4_000 },
+  { mac: 'da:7e:11:5e:a1:31', ip: '192.168.50.31', dhcp: 'Pixel-8', vendorClass: 'android-dhcp-14', to: '203.0.113.120', bulk: 300_000 },
+  { mac: '00:04:3c:5e:a1:40', vendor: 'SONOS Co., Ltd.', ip: '192.168.50.40', mdns: { fn: 'Café Speaker', md: 'Sonos Era 100', service: '_sonos._tcp' }, to: '203.0.113.17', bulk: 50_000 },
+];
+const CAFE_FOR = Number(process.env.ARGUS_DEMO_CAFE ?? 15);
+const HOME_SSID = 'Willow House';
+const ssid = (name: string) => {
+  if (process.env.ARGUS_DEMO_SSID_FILE) writeFileSync(process.env.ARGUS_DEMO_SSID_FILE, name);
+};
+
 function play(iface: string) {
   if (iface === 'docker0') return containers(iface);
+  if (CAFE_FOR > 0) return cafe(iface, () => house(iface));
+  ssid(HOME_SSID);
+  house(iface);
+}
+
+/** This PC at the café for CAFE_FOR seconds: the till, a guest's phone and a speaker; this PC on GitHub and Claude. */
+function cafe(iface: string, then: () => void) {
+  ssid(CAFE.ssid);
+  const out = (f: Frame) => process.stdout.write(`${line({ 'frame.time_epoch': String(Date.now() / 1000), 'frame.interface_name': iface, ...f })}\n`);
+  const eth = (src: { mac: string; vendor?: string }, dst: { mac: string; vendor?: string }): Frame => ({
+    'eth.src': src.mac,
+    'eth.dst': dst.mac,
+    'eth.src.oui_resolved': src.vendor ?? '',
+    'eth.dst.oui_resolved': dst.vendor ?? '',
+  });
+  const me = { mac: ME.mac, vendor: ME.vendor };
+  out({ ...eth(me, { mac: 'ff:ff:ff:ff:ff:ff' }), 'frame.len': '342', 'ip.src': '0.0.0.0', 'ip.dst': '255.255.255.255', ...udp(68, 67), 'dhcp.hw.mac_addr': ME.mac });
+  out({ ...eth(CAFE, me), 'frame.len': '342', 'ip.src': CAFE.ip, 'ip.dst': CAFE.me, ...udp(67, 68), 'dhcp.hw.mac_addr': ME.mac, 'dhcp.ip.your': CAFE.me });
+  for (const d of AT_CAFE) {
+    const b = { ...eth(d, { mac: 'ff:ff:ff:ff:ff:ff' }), 'frame.len': '110' };
+    out({ ...b, 'arp.src.hw_mac': d.mac, 'arp.src.proto_ipv4': d.ip });
+    if (d.netbios) out({ ...b, 'ip.src': d.ip, 'ip.dst': '192.168.50.255', ...udp(137, 137), 'nbns.name': `${d.netbios}<00>` });
+    if (d.dhcp) out({ ...b, 'frame.len': '342', 'dhcp.hw.mac_addr': d.mac, 'dhcp.option.hostname': d.dhcp, 'dhcp.option.requested_ip_address': d.ip, 'dhcp.option.vendor_class_id': d.vendorClass ?? '' });
+    if (d.mdns)
+      out({ ...eth(d, { mac: '01:00:5e:00:00:fb' }), 'frame.len': '420', 'ip.src': d.ip, 'ip.dst': '224.0.0.251', ...udp(5353, 5353), 'dns.flags.response': '1', 'dns.resp.name': [`${d.mdns.service}.local`], 'dns.resp.type': ['12'], 'dns.txt': [`fn=${d.mdns.fn}`, `md=${d.mdns.md}`] });
+  }
+  // This PC's own: GitHub and Claude, named as TLS says them.
+  const mine = [REMOTES[13]!, REMOTES[12]!];
+  for (const r of mine) {
+    out({ ...eth(me, CAFE), 'frame.len': '583', 'ip.src': CAFE.me, 'ip.dst': r.ip, ...tcp(50100, 443), 'frame.protocols': 'eth:ethertype:ip:tcp:tls', 'tls.handshake.extensions_server_name': r.name, 'tls.handshake.type': '1' });
+  }
+  const tick = setInterval(() => {
+    for (const r of mine) {
+      out({ ...eth(CAFE, me), 'frame.len': String(800 + Math.round(Math.random() * 700)), 'ip.src': r.ip, 'ip.dst': CAFE.me, ...tcp(443, 50100) });
+      out({ ...eth(me, CAFE), 'frame.len': '66', 'ip.src': CAFE.me, 'ip.dst': r.ip, ...tcp(50100, 443) });
+    }
+    for (const d of AT_CAFE) {
+      out({ ...eth(CAFE, d), 'frame.len': String(Math.min(1514, Math.round((d.bulk / 10) * Math.random()) + 66)), 'ip.src': d.to, 'ip.dst': d.ip, ...tcp(443, 51000) });
+      out({ ...eth(d, CAFE), 'frame.len': '66', 'ip.src': d.ip, 'ip.dst': d.to, ...tcp(51000, 443) });
+    }
+  }, 100);
+  setTimeout(() => {
+    clearInterval(tick);
+    // Home: the house's Wi-Fi, joined as a laptop does, asking DHCP for an address from nothing.
+    ssid(HOME_SSID);
+    out({ ...eth(me, { mac: 'ff:ff:ff:ff:ff:ff' }), 'frame.len': '342', 'ip.src': '0.0.0.0', 'ip.dst': '255.255.255.255', ...udp(68, 67), 'dhcp.hw.mac_addr': ME.mac });
+    out({ ...eth(ROUTER, me), 'frame.len': '342', 'ip.src': ROUTER.ip, 'ip.dst': ME.ip, ...udp(67, 68), 'dhcp.hw.mac_addr': ME.mac, 'dhcp.ip.your': ME.ip });
+    then();
+  }, CAFE_FOR * 1000);
+  process.on('SIGTERM', () => process.exit(0));
+  process.on('SIGINT', () => process.exit(0));
+}
+
+/** The house, on its Wi-Fi. */
+function house(iface: string) {
   const out = (f: Frame) => process.stdout.write(`${line({ 'frame.time_epoch': String(Date.now() / 1000), 'frame.interface_name': iface, ...f })}\n`);
   const who = (r: Talk) => r.by ?? { ...ME, vendor: ME.vendor };
   const fromRouter = (d: Home) => ({ 'eth.src': ROUTER.mac, 'eth.dst': d.mac, 'eth.src.oui_resolved': ROUTER.vendor, 'eth.dst.oui_resolved': d.vendor ?? '' });

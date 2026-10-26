@@ -1,11 +1,13 @@
 <script lang="ts">
-  // Where Argus listens, on every page, under the tabs: one pill per network that usually matters (Wi-Fi, cable, VPN,
-  // up), each a switch, with how fast it moves now when on; the rest (Docker's bridges, what is down, loopback, all at
-  // once) behind "More". At the end, saving the last minutes. Why a network cannot be listened on, or stopped, is said
-  // in a line under it.
+  // Where Argus listens, on every page, under the tabs: one pill per interface that usually matters (Wi-Fi, cable, VPN,
+  // up), each a switch, with the network it is on now (its Wi-Fi's name, else its router's) and how fast it moves when
+  // on; the rest (Docker's bridges, what is down, loopback, all at once) behind "More". At the end, which network the
+  // pages show (NetFilter) and saving the last minutes. Why an interface cannot be listened on, or stopped, is said in a
+  // line under it.
   import type { Interface } from '../../../shared/types.ts';
   import { argus } from './argus.svelte.ts';
   import { rate, since, span } from './format.ts';
+  import NetFilter from './NetFilter.svelte';
   import { link } from './router.svelte.ts';
 
   let problem = $state('');
@@ -16,6 +18,8 @@
   let root = $state<HTMLElement>();
 
   const stateOf = (id: string) => argus.session?.listening.find((l) => l.id === id);
+  /** The network an interface is on now. */
+  const netOf = (id: string) => argus.networks.find((n) => n.nowOn?.includes(id));
   const minor = (i: Interface) => i.up === false || i.type === 'docker' || i.type === 'loopback' || i.type === 'any' || i.type === 'other';
   const main = $derived(argus.interfaces.filter((i) => !minor(i) || stateOf(i.id)?.on));
   const rest = $derived(argus.interfaces.filter((i) => minor(i) && !stateOf(i.id)?.on));
@@ -56,7 +60,9 @@
     if (!s?.on) return `${i.id}: ${i.up === false ? 'down' : 'not listening'}. Click to listen.`;
     if (s.status === 'failed') return `${i.id}: stopped ${s.since ? since(s.since) : ''}: ${s.error ?? ''}`;
     if (s.status === 'starting') return `${i.id}: opening…`;
-    return `${i.id}: listening for ${span(Date.now() / 1000 - (s.since ?? Date.now() / 1000))}. Click to stop.`;
+    const n = netOf(i.id);
+    const on = n ? (n.pending ? ', just joined a network' : `, on ${n.name}${n.ssid || !n.routers[0] ? '' : ` (router ${n.routers[0]})`}`) : '';
+    return `${i.id}${on}: listening for ${span(Date.now() / 1000 - (s.since ?? Date.now() / 1000))}. Click to stop.`;
   }
 
   function outside(e: PointerEvent) {
@@ -68,6 +74,8 @@
 
 {#snippet pill(i: Interface)}
   {@const s = stateOf(i.id)}
+  {@const found = s?.on && s.status !== 'failed' ? netOf(i.id) : undefined}
+  {@const net = found && found.name !== i.label && found.name !== i.name ? found : undefined}
   <button
     class="pill"
     class:on={s?.on}
@@ -81,6 +89,7 @@
   >
     <i class="dot" aria-hidden="true"></i>
     <span class="nm">{i.name}</span>
+    {#if net}<span class="ssid">{net.pending ? 'joining…' : net.name}</span>{/if}
     {#if s?.on && s.status !== 'failed'}<span class="rt">{rate(argus.ifaceMeters[i.id])}</span>{/if}
   </button>
 {/snippet}
@@ -100,6 +109,7 @@
     {/if}
   </div>
   <span class="end">
+    <NetFilter />
     {#if saved}<a href={link.capture(saved)}>Saved: open it</a>{/if}
     <button class="ghost small save" disabled={saving || !on.length} onclick={save} title="Keep what the ring buffer holds (the last minutes, as packets) as a capture"
       >{saving ? 'Saving…' : 'Save last minutes'}</button
@@ -202,6 +212,20 @@
     }
   }
 
+  .ssid {
+    max-width: 14em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--fg-2);
+    font-weight: 400;
+  }
+
+  .ssid::before {
+    content: '·';
+    margin-right: 6px;
+    color: var(--faint);
+  }
+
   .rt {
     min-width: 4.6em;
     text-align: right;
@@ -260,7 +284,8 @@
   }
 
   @media (max-width: 760px) {
-    .save {
+    .save,
+    .ssid {
       display: none;
     }
 

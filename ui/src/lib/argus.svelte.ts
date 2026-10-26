@@ -1,12 +1,16 @@
 // What the pages share: the live session, kept current over the core's live stream (loaded whole on every connect,
-// then each second's changes laid over it), the captures saved, the interfaces, and a view of either as an entity
-// graph (the core's) so any page can find a device, walk to whom it talked, or search them all.
+// then each second's changes laid over it), the captures saved, the interfaces, the networks, and a view of either as
+// an entity graph (the core's) so any page can find a device, walk to whom it talked, or search them all. The lists
+// show the network chosen (networks.svelte.ts: the one it is on now, by default); a device's or a host's own page, the
+// search and the cards reach everything the session saw.
 //
 // The page never sees a packet: only what the server added up (server/live.ts).
 
 import { EntityGraph, keyOf, type Link } from '@organon/core/shared/entities';
 import { getJson, LiveStream, sendJson } from '@organon/core/ui/live';
+import { within } from '../../../shared/networks.ts';
 import { companyOf, siteOf } from '../../../shared/sites.ts';
+import { networks } from './networks.svelte.ts';
 import type {
   ArgusEntity,
   ArgusEvent,
@@ -16,6 +20,7 @@ import type {
   HostsView,
   Interface,
   LiveView,
+  Network,
   Remote,
   SeriesData,
   Session,
@@ -35,6 +40,16 @@ export interface Source {
   graph: EntityGraph<ArgusEntity>;
 }
 
+/** A network the history remembers (server/history.ts), by its name as last seen. */
+export interface KnownNetwork {
+  id: string;
+  name: string;
+  ssid?: string;
+  interfaces: string[];
+  first: number;
+  last: number;
+}
+
 const EMPTY_SERIES: SeriesData = { step: 1, end: 0, sent: [], received: [] };
 
 class Argus {
@@ -49,6 +64,9 @@ class Argus {
   byInterface = $state<Record<string, SeriesData>>({});
   captures = $state<Capture[]>([]);
   interfaces = $state<Interface[]>([]);
+  /** The networks the session was on (with which is now), and those the history remembers from before it. */
+  networks = $state<Network[]>([]);
+  known = $state<KnownNetwork[]>([]);
   /** Why capturing can't be done yet (dumpcap missing or not allowed). */
   interfacesProblem = $state('');
   warnings = $state<string[]>([]);
@@ -74,13 +92,15 @@ class Argus {
   readonly live = new LiveStream<ArgusEvent>({
     reload: async () => {
       const [state, view, ifaces] = await Promise.all([
-        getJson<{ captures: Capture[]; warnings: string[]; build?: string; geo?: boolean }>('/api/state'),
+        getJson<{ captures: Capture[]; warnings: string[]; build?: string; geo?: boolean; networks?: KnownNetwork[] }>('/api/state'),
         getJson<LiveView>('/api/live'),
         getJson<{ interfaces: Interface[]; problem?: string }>('/api/interfaces').catch((e: Error) => ({ interfaces: [], problem: e.message })),
       ]);
       this.captures = state.captures;
       this.warnings = state.warnings;
       this.geo = Boolean(state.geo);
+      this.known = state.networks ?? [];
+      this.networks = view.networks ?? [];
       this.interfaces = ifaces.interfaces;
       this.interfacesProblem = ifaces.problem ?? '';
       this.session = view.session;
@@ -99,18 +119,39 @@ class Argus {
     seq: (e) => (e.type === 'live' ? e.seq : undefined),
   });
 
-  /** The live session as entities. */
-  liveSource = $derived.by(
+  /** The live session as entities, every network of it. */
+  allSource = $derived.by(
     (): Source => this.source('live', this.devices, Object.values(this.remotes), Object.values(this.links), Object.values(this.conversations)),
   );
+
+  /** The networks to choose from: the session's, the latest first, then those remembered from before it. */
+  netList = $derived.by((): Network[] => {
+    const have = new Set(this.networks.map((n) => n.id));
+    const before = this.known.filter((k) => !have.has(k.id)).map((k): Network => ({ ...k, routers: [], bytes: 0 }));
+    return [...this.networks, ...before.sort((a, b) => b.last - a.last)];
+  });
+
+  /** The networks shown (networks.svelte.ts), or null for all of them. */
+  shown = $derived(networks.ids(this.networks));
+
+  /** The live session as entities, of the networks shown. */
+  liveSource = $derived.by((): Source => {
+    const ids = this.shown;
+    if (!ids) return this.allSource;
+    const v = within({ devices: this.devices, remotes: Object.values(this.remotes), links: Object.values(this.links), conversations: Object.values(this.conversations) }, ids);
+    return this.source('live', v.devices, v.remotes, v.links, v.conversations);
+  });
 
   start() {
     this.live.start();
   }
 
-  /** The source a page shows: a capture when the address names one, else the live session. */
-  sourceFor(capture?: string): Source | undefined {
-    if (!capture) return this.liveSource;
+  /**
+   * The source a page shows: a capture when the address names one, else the live session; `scoped`, of the networks
+   * shown (the lists), else all of it (a device's or a host's page, search, the cards: a link never leads to nothing).
+   */
+  sourceFor(capture?: string, scoped = false): Source | undefined {
+    if (!capture) return scoped ? this.liveSource : this.allSource;
     const v = this.views[capture];
     if (!v) {
       void this.loadCapture(capture);
@@ -171,6 +212,7 @@ class Argus {
       return;
     }
     this.session = e.session;
+    if (e.networks) this.networks = e.networks;
     // Only what changed comes: laid over what the page has, in the order it had (the table keeps its own order).
     if (e.devices.length || e.goneDevices.length) {
       const by = new Map(this.devices.map((d) => [d.id, d]));

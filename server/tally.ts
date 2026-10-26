@@ -20,11 +20,18 @@
 // likeliest. The bandwidth over time is kept only for the seconds and minutes that had traffic.
 //
 // The router is decided per interface: two uplinks (the Wi-Fi and a phone on USB) each have their own.
+//
+// Which network each frame was on is a fact kept here and read by the server (shared/networks.ts): the interface's
+// stays (`Segment`). A stay begins where this PC joined a network afresh: it asked DHCP for an address from nothing
+// (0.0.0.0, as on every join and return), the system said another SSID (`ssid`), or its frames for the internet went
+// through another MAC while the one before had been quiet for VIA_GAP seconds (a move with a fixed address). Each stay
+// keeps the MACs this PC's internet frames went through (its way out) and the SSIDs said during it; every flow and
+// every device's presence (`heard`) says which stay it was in. What makes two stays one network is the server's to say.
 
 import type { Link } from '@organon/core/shared/entities';
 import { CLEAR, tlsVersion } from '../shared/security.ts';
 import { serviceOf, serviceOfProtocol } from '../shared/services.ts';
-import type { Conversation, Device, NameSource, Remote } from '../shared/types.ts';
+import type { Conversation, Device, Heard, NameSource, Network, Remote, Segment } from '../shared/types.ts';
 
 export const FIELDS = [
   'frame.time_epoch',
@@ -102,6 +109,15 @@ const MAYBE_ROUTERS = 256;
  * makes up addresses can make up what it sends, not where the others send theirs. This PC is never one.
  */
 const WAY_OUT_HOSTS = 8;
+/**
+ * Seconds without this PC's internet frames through its way out after which frames through another MAC begin another
+ * stay (a move with a fixed address); within them, the other MAC is a second way out of the same stay (IPv4 through one
+ * router and IPv6 through another).
+ */
+const VIA_GAP = 30;
+/** Stays kept, the oldest forgotten past it (a year of nights asleep), and per device the stays it is said in. */
+const SEGMENTS = 1000;
+const HEARD = 12;
 
 /**
  * The fields asked for: all of FIELDS that this tshark knows. An older one without a field (JA4 came in Wireshark
@@ -144,12 +160,20 @@ export interface Dissected {
   remotes: Remote[];
   links: Link[];
   conversations: Conversation[];
+  /** The stays on each interface, oldest first: which network each frame was on is read from them (shared/networks.ts). */
+  segments?: Segment[];
+  /** The interfaces being listened on now (the live session only). */
+  listening?: string[];
+  /** The server's reading of the stays (shared/networks.ts): never the sensor's. */
+  networks?: Network[];
 }
 
 /** One way of a conversation: from a MAC and address to a MAC and address. */
 interface Flow {
   /** The interface it was heard on: each has its own way out. */
   iface?: string;
+  /** The stay on that interface it was heard in (Segment.id). */
+  segment?: string;
   src?: string;
   dst?: string;
   ipSrc?: string;
@@ -178,6 +202,7 @@ interface Flow {
 
 /** A device as counted so far: everything but what depends on which MAC is the router. */
 type Counted = Omit<Device, 'ips' | 'name' | 'summary' | 'aka' | 'role'> & { fixedIps: string[] };
+
 
 export interface TallyOptions {
   /** This machine's own MAC addresses: the device with one of them is "this PC". */
@@ -285,6 +310,11 @@ export class Tally {
   last = 0;
   private readonly own: Set<string>;
   private readonly devices = new Map<string, Counted>();
+  /** The stays, oldest first, and each interface's current one. */
+  private segments: Segment[] = [];
+  private readonly current = new Map<string, Segment>();
+  /** How many stays each interface has had: the next one's number. */
+  private readonly counts = new Map<string, number>();
   private readonly flows = new Map<string, Flow>();
   /** Per MAC, how many frames carried IPv4 addresses of other networks: the router carries the most. */
   private readonly carriesRemote = new Map<string, number>();
@@ -319,6 +349,28 @@ export class Tally {
     this.coarse = new Series(this.options.coarse.step, this.options.coarse.count);
   }
 
+  /** This machine's MACs, every one it had while this tally counted. */
+  ownMacs(): string[] {
+    return [...this.own];
+  }
+
+  /** MACs that are this machine's too (a Wi-Fi that makes one up per network, a dock plugged in): kept from then on. */
+  addOwn(macs: string[]) {
+    for (const m of macs) if (m) this.own.add(m.toLowerCase());
+  }
+
+  /**
+   * What the system says the Wi-Fi on `iface` is associated with now (nothing: not associated). Another SSID than the
+   * current stay's begins another stay.
+   */
+  ssid(iface: string, name: string | undefined, time: number) {
+    if (!name) return;
+    let seg = this.current.get(iface);
+    if (seg?.ssids && !(name in seg.ssids)) seg = this.newSegment(iface, time, 'ssid');
+    seg ??= this.newSegment(iface, time);
+    (seg.ssids ??= {})[name] = (seg.ssids[name] ?? 0) + 1;
+  }
+
   /** Adds tshark's lines (a whole file's output). */
   addText(text: string): this {
     for (const line of text.split('\n')) if (line.trim()) this.add(parseLine(line));
@@ -350,6 +402,7 @@ export class Tally {
       this.maybeRouter(iface, dst);
       this.through(iface, dst, d4);
     }
+    const seg = this.stay(r, iface, time, len, src, dst, ipSrc, ipDst);
 
     // Who sent it and who it was for, on the local network.
     let sender: Counted | undefined;
@@ -363,21 +416,23 @@ export class Tally {
       sender.bytesSent += len;
       if (iface && !sender.interfaces.includes(iface)) sender.interfaces.push(iface);
       this.series(sender.id, time, len, 0);
+      this.heard(sender, seg, time, len, 0);
     }
     if (receiver) {
       receiver.packets++;
       receiver.bytesReceived += len;
       if (iface && !receiver.interfaces.includes(iface)) receiver.interfaces.push(iface);
       this.series(receiver.id, time, 0, len);
+      this.heard(receiver, seg, time, 0, len);
     }
 
     // The conversation, for what depends on the router: hosts out on the internet, addresses, links.
     if (ipSrc || ipDst) {
       const service = this.ssdp(r, ipSrc, ipDst) ?? frameService(r);
-      const key = flowKey({ iface, src, dst, ipSrc, ipDst, service });
+      const key = flowKey({ iface, segment: seg.id, src, dst, ipSrc, ipDst, service });
       let f = this.flows.get(key);
       if (!f) {
-        f = { iface, src, dst, ipSrc, ipDst, service, sender: sender?.id, receiver: receiver?.id, packets: 0, bytes: 0, first: time, last: time };
+        f = { iface, segment: seg.id, src, dst, ipSrc, ipDst, service, sender: sender?.id, receiver: receiver?.id, packets: 0, bytes: 0, first: time, last: time };
         this.flows.set(key, f);
         if (this.flows.size > this.options.maxFlows) this.forgetFlows();
       } else {
@@ -476,7 +531,89 @@ export class Tally {
     if (types.includes('1')) for (const j of r['tls.handshake.ja4']) addClue(sender, 'ja4', clip(j));
   }
 
-  /** The MACs that are the way out to the internet on each interface: the busiest, and any other sent frames for many addresses. */
+  /**
+   * The stay a frame on `iface` belongs to, begun afresh where this PC joined a network (the header says when), with the
+   * way out its internet frames went through noted.
+   */
+  private stay(r: Row, iface: string, time: number, len: number, src?: string, dst?: string, ipSrc?: string, ipDst?: string): Segment {
+    let seg = this.current.get(iface) ?? this.newSegment(iface, time);
+    const mine = (m?: string) => Boolean(m && this.own.has(m));
+    // This PC asking for an address from nothing: it is joining a network (a new one, or this one again after a sleep).
+    if (mine(src) && ipSrc === '0.0.0.0' && r['udp.dstport'][0] === '67' && (seg.vias.length || seg.ssids)) seg = this.newSegment(iface, time, 'dhcp');
+    // Its way out: the MAC it sent frames for the internet to (where this PC sends is its own doing: no one else on the
+    // network can make it up). One host's frames may go to a neighbour with a public address of its own; a way out is
+    // sent frames for two hosts or more.
+    const via = mine(src) && dst && isUnicastMac(dst) && !mine(dst) && ipDst && isUnicastIp(ipDst) && !isLocal(ipDst) ? dst : undefined;
+    let v = via ? seg.vias.find((x) => x.mac === via) : undefined;
+    if (via && !v) {
+      const one = (seg.once ??= {})[via];
+      if (!one) seg.once[via] = ipDst!;
+      else if (one !== ipDst) {
+        if (seg.vias.length && Math.max(...seg.vias.map((x) => x.last)) < time - VIA_GAP) seg = this.newSegment(iface, time, 'via');
+        delete seg.once?.[via];
+        seg.vias.push((v = { mac: via, frames: 1, last: time }));
+      }
+    }
+    if (v) {
+      v.frames++;
+      v.last = Math.max(v.last, time);
+    }
+    seg.packets++;
+    seg.bytes += len;
+    seg.first = Math.min(seg.first, time);
+    seg.last = Math.max(seg.last, time);
+    return seg;
+  }
+
+  private newSegment(iface: string, time: number, began?: Segment['began']): Segment {
+    const n = (this.counts.get(iface) ?? 0) + 1;
+    this.counts.set(iface, n);
+    const seg: Segment = { id: `${iface}#${n}`, iface, first: time, last: time, packets: 0, bytes: 0, vias: [], ...(began ? { began } : {}) };
+    this.segments.push(seg);
+    this.current.set(iface, seg);
+    if (this.segments.length > SEGMENTS) this.segments.shift();
+    return seg;
+  }
+
+  /** A device heard in a stay; past HEARD stays, those of the same way out become one (the newest), else the oldest goes. */
+  private heard(d: Counted, seg: Segment, time: number, sent: number, received: number) {
+    const list = (d.heard ??= []);
+    let h = list.find((x) => x.segment === seg.id);
+    if (!h) {
+      h = { segment: seg.id, first: time, last: time, packets: 0, sent: 0, received: 0 };
+      list.push(h);
+      if (list.length > HEARD) this.fold(list);
+    }
+    h.packets++;
+    h.sent += sent;
+    h.received += received;
+    h.first = Math.min(h.first, time);
+    h.last = Math.max(h.last, time);
+  }
+
+  private fold(list: Heard[]) {
+    const byId = new Map(this.segments.map((s) => [s.id, s]));
+    const way = (h: Heard) => byId.get(h.segment)?.vias[0]?.mac;
+    for (let i = 0; i < list.length - 1; i++) {
+      const w = way(list[i]!);
+      const j = w ? list.findIndex((x, k) => k > i && way(x) === w) : -1;
+      if (j < 0) continue;
+      const [a, b] = [list[i]!, list[j]!];
+      b.first = Math.min(a.first, b.first);
+      b.last = Math.max(a.last, b.last);
+      b.packets += a.packets;
+      b.sent += a.sent;
+      b.received += a.received;
+      list.splice(i, 1);
+      return;
+    }
+    list.splice(list.reduce((o, x, k) => (x.last < list[o]!.last ? k : o), 0), 1);
+  }
+
+  /**
+   * The MACs that are the way out to the internet on each interface: where this PC sent its frames for it, and any
+   * other sent frames for many addresses; on an interface where this PC sent none, the busiest carrier too.
+   */
   gateways(): Map<string, Set<string>> {
     const best = new Map<string, [string, number]>();
     const out = new Map<string, Set<string>>();
@@ -486,7 +623,16 @@ export class Tally {
       if (!b || count > b[1]) best.set(iface, [mac, count]);
       if ((this.sentThrough.get(key)?.size ?? 0) >= WAY_OUT_HOSTS && !this.own.has(mac)) out.set(iface, (out.get(iface) ?? new Set()).add(mac));
     }
-    for (const [iface, [mac]] of best) out.set(iface, (out.get(iface) ?? new Set()).add(mac));
+    // Each stay's: where this PC sent its frames for the internet. Where it did, that is the way out, and the busiest
+    // carrier is not (a neighbour with a public address it talks to a lot would be); where it never did (a mirror
+    // port, this PC's Docker bridge), the busiest is.
+    const known = new Set<string>();
+    for (const g of this.segments)
+      for (const v of g.vias) {
+        out.set(g.iface, (out.get(g.iface) ?? new Set()).add(v.mac));
+        known.add(g.iface);
+      }
+    for (const [iface, [mac]] of best) if (!known.has(iface)) out.set(iface, (out.get(iface) ?? new Set()).add(mac));
     return out;
   }
 
@@ -548,15 +694,17 @@ export class Tally {
     const links = new Map<string, Link>();
     const conversations = new Map<string, Conversation>();
     /** A flow's share of the conversation between a device here and `b`: `out` when the device is the one sending. */
+    // One per pair, service and stay (the server joins the stays of one network: shared/networks.ts).
     const talk = (a: string, b: string, f: Flow, out: boolean) => {
       const service = f.service ?? '';
+      const stay = f.segment ? ` ${f.segment}` : '';
       // Between two devices here, one conversation whichever way: under the pair as it was first met.
-      const back = conversations.get(`${b} ${a} ${service}`);
+      const back = conversations.get(`${b} ${a} ${service}${stay}`);
       if (back && b.startsWith('device:')) [a, b, out] = [b, a, !out];
-      const id = `${a} ${b} ${service}`;
+      const id = `${a} ${b} ${service}${stay}`;
       let c = conversations.get(id);
       if (!c) {
-        c = { id, a, b, service, interfaces: [], sent: 0, received: 0, packets: 0, first: f.first, last: f.last };
+        c = { id, a, b, service, interfaces: [], sent: 0, received: 0, packets: 0, first: f.first, last: f.last, ...(f.segment ? { segment: f.segment } : {}) };
         conversations.set(id, c);
       }
       if (f.protocol && !c.protocol) c.protocol = f.protocol;
@@ -632,6 +780,7 @@ export class Tally {
     for (const c of this.devices.values()) {
       const { fixedIps, ...rest } = c;
       const d: Device = { ...rest, names: [...c.names], interfaces: [...c.interfaces], ips: [...(ips.get(c.id) ?? [])], name: '' };
+      if (c.heard) d.heard = c.heard.map((h) => ({ ...h }));
       if (c.clues) d.clues = structuredClone(c.clues);
       for (const ip of fixedIps) if (d.ips.length < ADDRESSES) addTo(d.ips, ip);
       if (d.mac && this.own.has(d.mac)) d.role = 'self';
@@ -656,6 +805,7 @@ export class Tally {
       remotes: [...remotes.values()].sort(byTraffic),
       links: [...links.values()],
       conversations: [...conversations.values()],
+      segments: this.segments.map((g) => ({ ...g, vias: g.vias.map((v) => ({ ...v })), ...(g.ssids ? { ssids: { ...g.ssids } } : {}) })),
     };
   }
 
@@ -704,6 +854,10 @@ export class Tally {
       coarse: this.coarse.sparse(),
       fineByDevice: [...this.fineByDevice].map(([id, s]) => [id, s.sparse()]),
       coarseByDevice: [...this.coarseByDevice].map(([id, s]) => [id, s.sparse()]),
+      segments: this.segments,
+      current: Object.fromEntries([...this.current].map(([iface, g]) => [iface, g.id])),
+      counts: Object.fromEntries(this.counts),
+      own: [...this.own],
     };
   }
 
@@ -720,6 +874,15 @@ export class Tally {
     // A session kept before the hosts sent through were: the router it had stays a way out, whoever is busiest later.
     if (!d.sentThrough) for (const [iface, macs] of t.gateways()) for (const mac of macs) t.sentThrough.set(`${iface}|${mac}`, new Set(Array.from({ length: WAY_OUT_HOSTS }, (_, i) => `kept ${i}`)));
     for (const [k, v] of d.dnsNames) t.dnsNames.set(k, v);
+    t.addOwn(d.own ?? []);
+    if (d.segments) {
+      t.segments = d.segments;
+      for (const [iface, n] of Object.entries(d.counts ?? {})) t.counts.set(iface, n);
+      for (const [iface, id] of Object.entries(d.current ?? {})) {
+        const g = t.segments.find((x) => x.id === id);
+        if (g) t.current.set(iface, g);
+      }
+    } else t.stays();
     const fine = t.options.fine.count;
     const coarse = t.options.coarse.count;
     Object.assign(t, { fine: Series.from(d.fine, fine), coarse: Series.from(d.coarse, coarse) });
@@ -727,6 +890,89 @@ export class Tally {
     // A day kept at the network's step (before devices had their own) is read at its own step, and moves on to the new one.
     for (const [id, s] of d.coarseByDevice) t.coarseByDevice.set(id, Series.from(s, s.step === t.options.deviceCoarse.step ? t.options.deviceCoarse.count : coarse));
     return t;
+  }
+
+  /**
+   * A session kept before stays were: each told from its routers. A flow through a way out was in the stay of that
+   * router, on its interface, over the times its flows ran (joined where less than STAY_GAP apart); any other flow, and
+   * each device, in the stay that holds its time (else the nearest) on its interface. Where no router was seen (a VPN),
+   * the interface is one stay. What was said in which stay is so read from where the frames went, never guessed.
+   */
+  private stays() {
+    const STAY_GAP = 1800;
+    const gateways = this.gateways();
+    const out = (ip?: string) => Boolean(ip && isUnicastIp(ip) && !isLocal(ip));
+    const viaOf = (f: Flow) => {
+      const g = gateways.get(f.iface ?? '');
+      return g && f.dst && g.has(f.dst) && out(f.ipDst) ? f.dst : g && f.src && g.has(f.src) && out(f.ipSrc) ? f.src : undefined;
+    };
+    const spans = new Map<string, { iface: string; mac?: string; first: number; last: number; frames: number }[]>();
+    const flows = [...this.flows.values()].sort((a, b) => a.first - b.first);
+    for (const f of flows) {
+      const mac = viaOf(f);
+      if (!mac) continue;
+      const k = `${f.iface ?? ''}|${mac}`;
+      const list = spans.get(k) ?? spans.set(k, []).get(k)!;
+      const s = list.at(-1);
+      if (s && f.first <= s.last + STAY_GAP) {
+        s.last = Math.max(s.last, f.last);
+        s.frames += f.packets;
+      } else list.push({ iface: f.iface ?? '', mac, first: f.first, last: f.last, frames: f.packets });
+    }
+    // An interface with flows but no router: one stay.
+    for (const f of flows) {
+      const iface = f.iface ?? '';
+      if ([...spans.keys()].some((k) => k.startsWith(`${iface}|`))) continue;
+      const k = `${iface}|`;
+      const list = spans.get(k) ?? spans.set(k, [{ iface, first: f.first, last: f.last, frames: 0 }]).get(k)!;
+      list[0]!.first = Math.min(list[0]!.first, f.first);
+      list[0]!.last = Math.max(list[0]!.last, f.last);
+    }
+    for (const s of [...spans.values()].flat().sort((a, b) => a.first - b.first)) {
+      const g = this.newSegment(s.iface, s.first);
+      g.last = s.last;
+      if (s.mac) g.vias.push({ mac: s.mac, frames: s.frames, last: s.last });
+    }
+    const on = (iface: string, mac: string | undefined, t: number) => {
+      const list = this.segments.filter((g) => g.iface === iface && (!mac || g.vias.some((v) => v.mac === mac)));
+      const gap = (g: Segment) => (t < g.first ? g.first - t : t > g.last ? t - g.last : 0);
+      return list.sort((a, b) => gap(a) - gap(b))[0];
+    };
+    for (const g of this.segments) {
+      g.packets = 0;
+      g.bytes = 0;
+    }
+    for (const d of this.devices.values()) d.heard = [];
+    for (const f of flows) {
+      const g = on(f.iface ?? '', viaOf(f), f.first) ?? on(f.iface ?? '', undefined, f.first);
+      if (!g) continue;
+      const key = flowKey(f);
+      this.flows.delete(key);
+      f.segment = g.id;
+      this.flows.set(flowKey(f), f);
+      g.packets += f.packets;
+      g.bytes += f.bytes;
+      for (const [id, sent] of [
+        [f.sender, true],
+        [f.receiver, false],
+      ] as const) {
+        const d = id ? this.devices.get(id) : undefined;
+        if (!d) continue;
+        const h = d.heard!.find((x) => x.segment === g.id) ?? (d.heard!.push({ segment: g.id, first: f.first, last: f.last, packets: 0, sent: 0, received: 0 }), d.heard!.at(-1)!);
+        h.first = Math.min(h.first, f.first);
+        h.last = Math.max(h.last, f.last);
+        h.packets += f.packets;
+        if (sent) h.sent += f.bytes;
+        else h.received += f.bytes;
+      }
+    }
+    for (const d of this.devices.values()) {
+      if (d.heard?.length) continue;
+      const g = on(d.interfaces[0] ?? '', undefined, d.lastSeen);
+      d.heard = g ? [{ segment: g.id, first: d.firstSeen, last: d.lastSeen, packets: d.packets, sent: d.bytesSent, received: d.bytesReceived }] : [];
+      if (!g) delete d.heard;
+    }
+    for (const d of this.devices.values()) while ((d.heard?.length ?? 0) > HEARD) this.fold(d.heard!);
   }
 
   private device(mac: string, time: number, vendor?: string): Counted {
@@ -809,10 +1055,16 @@ export interface TallyData {
   coarse: SeriesData | SparseSeries;
   fineByDevice: [string, SeriesData | SparseSeries][];
   coarseByDevice: [string, SeriesData | SparseSeries][];
+  /** Absent in a session kept before stays were: then they are told from its routers (Tally.stays). */
+  segments?: Segment[];
+  current?: Record<string, string>;
+  counts?: Record<string, number>;
+  /** The MACs that were this machine's (a Wi-Fi's made-up one stays its own after it changes). */
+  own?: string[];
 }
 
-function flowKey(f: Pick<Flow, 'iface' | 'src' | 'dst' | 'ipSrc' | 'ipDst' | 'service'>): string {
-  return `${f.iface ?? ''}|${f.src ?? ''}|${f.dst ?? ''}|${f.ipSrc ?? ''}|${f.ipDst ?? ''}|${f.service ?? ''}`;
+function flowKey(f: Pick<Flow, 'iface' | 'segment' | 'src' | 'dst' | 'ipSrc' | 'ipDst' | 'service'>): string {
+  return `${f.iface ?? ''}|${f.segment ?? ''}|${f.src ?? ''}|${f.dst ?? ''}|${f.ipSrc ?? ''}|${f.ipDst ?? ''}|${f.service ?? ''}`;
 }
 
 /** A frame's service: by its TCP or UDP ports, else by IP's protocol number (ICMP), else none. */

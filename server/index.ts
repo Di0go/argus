@@ -8,7 +8,8 @@
 //   POST   /api/live/reset             begins the session again
 //   POST   /api/live/save              { interfaces? } saves what the ring buffer holds as a capture
 //   GET    /api/live/devices/<id>      one device's bandwidth over time, fine and coarse
-//   GET    /api/day[?date=&device=]    a day kept (server/history.ts): by hour and category, by device, the diary
+//   GET    /api/day[?date=&device=&network=…]  a day kept (server/history.ts): by hour and category, by device, the
+//                                      diary; of the networks given (each `network=` one), or of all
 //   GET    /api/captures               every capture saved, newest first
 //   GET    /api/captures/<id>          one, with its devices, internet hosts and links
 //   DELETE /api/captures/<id>          removes it and its file
@@ -25,12 +26,12 @@ import { createMcpHandler } from '@organon/core/server/mcp';
 import { createSettings } from '@organon/core/server/settings';
 import { createStore } from '@organon/core/server/store';
 import { Warnings } from '@organon/core/server/warnings';
-import { listInterfaces, ownMacs, selfSystem, tsharkFields } from './capture.ts';
+import { classify, listInterfaces, ownMacs, selfSystem, ssidOf, tsharkFields } from './capture.ts';
 import { useFields } from './tally.ts';
 import { Captures } from './captures.ts';
 import { DissectError } from './dissect.ts';
 import { loadHouse } from './dictionary.ts';
-import { app, CAPTURES_DIR, CAPTURES_MB, DUMPCAP, EDITCAP, HISTORY, LIVE_DIR, MERGECAP, RING, SEED_PCAP, SYS_NET, TSHARK } from './config.ts';
+import { app, CAPTURES_DIR, CAPTURES_MB, DUMPCAP, EDITCAP, HISTORY, IW, LIVE_DIR, MERGECAP, RING, SEED_PCAP, SYS_NET, TSHARK } from './config.ts';
 import { Geo, geoFile } from './geo.ts';
 import { interpret, type Reading } from './interpret.ts';
 import { History } from './history.ts';
@@ -48,8 +49,10 @@ const events = new EventHub();
 const house = loadHouse(path.join(app.dataDir, 'dicionario.json'));
 if (house.problems.length) warnings.set('dicionario', `Some entries of the house's dictionary were not read: ${house.problems.slice(0, 5).join('; ')}`);
 // How the facts are read (server/interpret.ts): this PC's system, and the geo table, loaded once the server is up.
-const reading: Reading = { self: selfSystem() };
-const tools = { dumpcap: DUMPCAP, tshark: TSHARK, sysNet: SYS_NET, reading };
+const reading: Reading = { self: selfSystem(), label: (id) => classify(id, SYS_NET).label };
+// A capture saved from the session is read knowing every MAC this PC had in it (the live session, below, keeps them).
+const own = { macs: (): string[] => [] };
+const tools = { dumpcap: DUMPCAP, tshark: TSHARK, sysNet: SYS_NET, reading, own: () => own.macs() };
 const captures = await new Captures(CAPTURES_DIR, store, tools).load();
 if (!captures.all().length && SEED_PCAP) {
   try {
@@ -61,6 +64,7 @@ if (!captures.all().length && SEED_PCAP) {
 // The day, kept as aggregates (server/history.ts): what each device did, minute by minute, and the diary.
 const history = await new History({ dir: path.join(app.dataDir, 'history'), store, days: HISTORY.days, mb: HISTORY.mb }).load();
 const live = await new Live({ tshark: TSHARK, editcap: EDITCAP, dir: LIVE_DIR, store, events, ownMacs: () => ownMacs(SYS_NET),
+  ssid: (id) => ssidOf(IW, id, SYS_NET),
   // The server reads the sensor's facts: the dictionary, identity, DNS, where (interpret.ts), and what each device is
   // doing now (the history). The line between the two (docs/sensor.md).
   read: (v) => {
@@ -70,6 +74,7 @@ const live = await new Live({ tshark: TSHARK, editcap: EDITCAP, dir: LIVE_DIR, s
   },
   ...RING,
 }).load();
+own.macs = () => live.ownMacs();
 
 // Every few seconds, a look at what the session adds up to: what grew is now's traffic, kept by the minute.
 let observing = false;
@@ -88,7 +93,7 @@ const looking = setInterval(() => {
 await serve(app, {
   warnings,
   accent: () => settings.accent,
-  state: () => ({ captures: captures.all(), session: live.session(), geo: reading.geo?.ready ?? false }),
+  state: () => ({ captures: captures.all(), session: live.session(), geo: reading.geo?.ready ?? false, networks: history.networks() }),
   mcp: createMcpHandler(app, { instructions, tools: () => argusTools(captures, live, history), core: ['get_hosts'] }),
   stop: async () => {
     clearInterval(looking);
@@ -115,7 +120,8 @@ async function routes(...[req, res, route, params]: Parameters<Route>): Promise<
   if (req.method === 'GET' && route === '/api/day') {
     const date = params.get('date') ?? undefined;
     if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new ApiError(400, 'A day is YYYY-MM-DD');
-    return json(res, 200, await history.dayView(date, params.get('device') ?? undefined));
+    const nets = params.getAll('network').filter(Boolean);
+    return json(res, 200, await history.dayView(date, params.get('device') ?? undefined, nets.length ? new Set(nets) : undefined));
   }
   if (req.method === 'POST' && route === '/api/live/reset') {
     await live.reset();

@@ -24,6 +24,64 @@ export interface Traffic {
   lastSeen: number;
 }
 
+/**
+ * A stay on an interface: from where this PC joined a network on it to where it joined another (the header says when
+ * one begins). What makes it a network (the way out, the SSID) is in it; which stays are one network, the server says.
+ */
+export interface Segment {
+  /** `${iface}#${n}`, n counting up per interface. */
+  id: string;
+  iface: string;
+  /** Epoch seconds: its first and last frame. */
+  first: number;
+  last: number;
+  packets: number;
+  bytes: number;
+  /** The MACs this PC sent its frames for the internet to (for two hosts or more): how many frames, and when last. */
+  vias: { mac: string; frames: number; last: number }[];
+  /** A MAC it sent frames for only one host out there so far, and that host: a way out once a second goes. */
+  once?: Record<string, string>;
+  /** The SSIDs the system said while it lasted, and how many times (once each poll). */
+  ssids?: Record<string, number>;
+  /** What began it: this PC asking DHCP from nothing, another SSID, another way out after a quiet one; none for the first. */
+  began?: 'dhcp' | 'ssid' | 'via';
+}
+
+/** Where a device was heard: in which stay, from when to when, how much each way. */
+export interface Heard {
+  segment: string;
+  first: number;
+  last: number;
+  packets: number;
+  sent: number;
+  received: number;
+}
+
+/**
+ * A network, as the server tells it from the stays (shared/networks.ts): a way out (a router's MAC) and every stay that
+ * went through it, by cable or Wi-Fi, named by its SSID when the system said one. Without a way out, an interface's
+ * stays of one SSID (or of none) are one.
+ */
+export interface Network {
+  /** `net:<the router's MAC>` (the first seen, when it has two), or `if:<interface>[:<SSID>]` without one. */
+  id: string;
+  name: string;
+  ssid?: string;
+  /** The routers' MACs, the busiest first. */
+  routers: string[];
+  interfaces: string[];
+  /** Epoch seconds. */
+  first: number;
+  last: number;
+  bytes: number;
+  /** Being listened on now: the latest stay of an interface that is on. */
+  now?: boolean;
+  /** The interfaces it is the network of now. */
+  nowOn?: string[];
+  /** Just joined: no way out seen yet, so which network it is will be known in a moment. */
+  pending?: boolean;
+}
+
 /** A device on the local network, by its MAC address (or by its address, on an interface with no Ethernet). */
 export interface Device extends EntityRef, Traffic {
   kind: 'device';
@@ -50,6 +108,12 @@ export interface Device extends EntityRef, Traffic {
   dns?: DnsUse[];
   /** What it is doing now, busiest first (the live session only: server/observer.ts). */
   doing?: Doing[];
+  /** The sensor's fact: the stays it was heard in (the server reads them into `networks`, and drops them). */
+  heard?: Heard[];
+  /** The networks it was heard on, the latest first (shared/networks.ts). */
+  networks?: string[];
+  /** On more than one: its traffic on each, so a network's view says its share (this PC's, above all). */
+  perNetwork?: Record<string, { packets: number; bytesSent: number; bytesReceived: number; firstSeen: number; lastSeen: number }>;
 }
 
 /** A device's own words about itself, as the network carried them. */
@@ -166,6 +230,12 @@ export interface Conversation {
   clear?: { proto: string; credentials?: boolean; harmless?: boolean };
   /** The TLS version it agreed ("1.0" … "1.3"), when its handshake was seen. */
   tls?: string;
+  /** The sensor's fact: the stay it was in (the server joins a network's stays into one, and drops it). */
+  segment?: string;
+  /** The network it was on (shared/networks.ts). */
+  network?: string;
+  /** Its stay was just joined: which network it is on is not known yet (the history waits for it). */
+  pending?: boolean;
 }
 
 export interface HostsView {
@@ -174,6 +244,7 @@ export interface HostsView {
   remotes: Remote[];
   links: Link[];
   conversations: Conversation[];
+  networks?: Network[];
 }
 
 export type ArgusEntity = Device | Remote | Site | Interface;
@@ -224,6 +295,8 @@ export interface LiveView {
   remotes: Remote[];
   links: Link[];
   conversations: Conversation[];
+  /** The networks the session was on, the latest first. */
+  networks: Network[];
   /** The whole network: fine (a second per bucket, the last minutes) and coarse (a minute per bucket, the day). */
   total: { fine: SeriesData; coarse: SeriesData };
   /** The fine series of each device heard in the last ten minutes. */
@@ -251,6 +324,8 @@ export interface LiveEvent {
   /** The conversations that changed, and those forgotten with their flows. */
   conversations: Conversation[];
   goneConversations: string[];
+  /** The networks, whole (a few): which is now, and their names. */
+  networks: Network[];
   total: { fine: SeriesData; coarse: SeriesData };
   byDevice: Record<string, SeriesData>;
   byInterface: Record<string, SeriesData>;
@@ -294,6 +369,8 @@ export interface DayEvent {
   credentials?: boolean;
   /** clear: inside the house (device to device) rather than out to the internet. */
   local?: boolean;
+  /** The network it happened on (absent: kept before networks were told apart). */
+  network?: string;
 }
 
 /** GET /api/day: a day as it was kept (server/history.ts): by hour, by device, the diary. */
@@ -313,6 +390,10 @@ export interface DayView {
   dropped?: number;
   /** Today: the day's file reached its ceiling, and is no longer written. */
   full?: boolean;
+  /** The networks the day was kept on (whatever was asked), busiest first, with their names as last seen. */
+  networks: { id: string; name: string; bytes: number }[];
+  /** Kept before networks were told apart (whatever was asked): how much, and until when; left out of a network's view. */
+  untold?: { bytes: number; until: number };
   /** Total bytes the day kept, and from when to when it was listened to. */
   bytes: number;
   first?: number;

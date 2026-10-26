@@ -20,6 +20,12 @@
 //   posting to a server out there over HTTP with a password; the Pi logging in to FTP; this PC's TLS to a server that
 //   agrees TLS 1.0, and to an encrypted DNS resolver by name. Every password here is invented, and only that one went
 //   by is kept.
+//
+// And tests/fixtures/move.pcapng (its truth in move.truth.json): this PC on three stays, as a laptop's day goes. At home
+// on the Wi-Fi, then at a café on its Wi-Fi, then home again by cable. Both networks are 192.168.88.0/24 with the router
+// at .1 and a device at .20 (the TV at home, the till at the café), so only the routers' MACs tell them apart; the
+// laptop's Wi-Fi makes up a MAC at the café, as Wi-Fi does per network; the cable has a MAC of its own. Each stay
+// begins as a join does: this PC asks DHCP for an address from 0.0.0.0. Two interfaces, so pcapng (it names them).
 
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -417,3 +423,137 @@ writeFileSync(
   )}\n`,
 );
 console.log(`${packets.length} packets in tests/fixtures/lan.pcap`);
+
+// ---- The move: home by Wi-Fi, a café by Wi-Fi, home by cable.
+
+const MOVE = {
+  homeRouter: { mac: '50:c7:bf:aa:00:01', ip: '192.168.88.1' },
+  cafeRouter: { mac: 'f0:9f:c2:bb:00:01', ip: '192.168.88.1' },
+  meHome: { mac: '3c:a9:f4:aa:00:10', ip: '192.168.88.10' },
+  meCafe: { mac: '9e:5a:11:bb:00:10', ip: '192.168.88.57' },
+  meCable: { mac: '3c:a9:f4:aa:00:11', ip: '192.168.88.11' },
+  tv: { mac: 'f4:f5:d8:aa:00:20', ip: '192.168.88.20', name: 'Lounge TV', model: 'Chromecast', host: 'c0ffee00-0000-4000-8000-0000000a0020.local' },
+  phone: { mac: '3c:22:fb:aa:00:30', ip: '192.168.88.30', name: 'Sams-iPhone' },
+  till: { mac: '00:1b:21:bb:00:20', ip: '192.168.88.20', name: 'TILL-01' },
+  guest: { mac: 'ba:11:22:bb:00:31', ip: '192.168.88.31', name: 'Guest-Laptop' },
+  web: { ip: '203.0.113.14', name: 'www.example.com' },
+  fonts: { ip: '198.51.100.44' },
+  shop: { ip: '203.0.113.50', name: 'pay.example.net' },
+  photos: { ip: '198.51.100.30', name: 'photos.example.org' },
+};
+type Place = 'home' | 'cafe';
+const moves: { iface: 0 | 1; place: Place; t: number; frame: Buffer }[] = [];
+const MOVE_START = Date.UTC(2026, 9, 25, 8, 0, 0) / 1000;
+/** Frames from `t` seconds after the start, a second apart, on wlan0 (0) or eth0 (1). */
+const at = (iface: 0 | 1, place: Place, t: number, frames: Buffer[]) => frames.forEach((frame, i) => moves.push({ iface, place, t: MOVE_START + t + i, frame }));
+const join = (me: { mac: string; ip: string }, router: { mac: string; ip: string }, name: string) => [
+  // This PC asks for an address from nothing, as on every join; the router acks.
+  ether(BROADCAST, me.mac, 0x0800, ipv4('0.0.0.0', '255.255.255.255', 17, udp(68, 67, dhcp(1, 3, me.mac, '0.0.0.0', [opt(50, ip4(me.ip)), opt(12, Buffer.from(name))])))),
+  ether(me.mac, router.mac, 0x0800, ipv4(router.ip, me.ip, 17, udp(67, 68, dhcp(2, 5, me.mac, me.ip, [opt(54, ip4(router.ip)), opt(51, u32(86400)), opt(1, ip4('255.255.255.0'))])))),
+];
+/** This PC asks the router's DNS for a host, and talks HTTPS to it through the router: a handshake and data back. */
+const browse = (me: { mac: string; ip: string }, router: { mac: string; ip: string }, host: { ip: string; name: string }, id: number) => [
+  ether(router.mac, me.mac, 0x0800, ipv4(me.ip, router.ip, 17, udp(51000 + id, 53, dns(id, 0x0100, [host.name], [])))),
+  ether(me.mac, router.mac, 0x0800, ipv4(router.ip, me.ip, 17, udp(53, 51000 + id, dns(id, 0x8180, [host.name], [{ name: host.name, ip: host.ip }])))),
+  ether(router.mac, me.mac, 0x0800, ipv4(me.ip, host.ip, 6, tcp(52000 + id, 443, 1, 0x02))),
+  ether(me.mac, router.mac, 0x0800, ipv4(host.ip, me.ip, 6, tcp(443, 52000 + id, 1, 0x12), 118)),
+  ether(me.mac, router.mac, 0x0800, ipv4(host.ip, me.ip, 6, tcp(443, 52000 + id, 2, 0x18, Buffer.alloc(1200 + id, 0x17)), 118)),
+  // And QUIC to a second host, as a page fetches its fonts: a way out is sent frames for more than one host.
+  ether(router.mac, me.mac, 0x0800, ipv4(me.ip, MOVE.fonts.ip, 17, udp(53000 + id, 443, Buffer.alloc(300, 0x40)))),
+];
+const { homeRouter, cafeRouter, meHome, meCafe, meCable, tv, phone: homePhone, till, guest, web: site, shop, photos } = MOVE;
+// Home, on the Wi-Fi: this PC joins; the TV announces itself, the phone asks for an address and uploads photos.
+at(0, 'home', 0, [
+  ...join(meHome, homeRouter, 'laptop'),
+  ether('01:00:5e:00:00:fb', tv.mac, 0x0800, ipv4(tv.ip, '224.0.0.251', 17, udp(5353, 5353, castAnnouncement(tv)), 255)),
+  ether(BROADCAST, homePhone.mac, 0x0800, ipv4('0.0.0.0', '255.255.255.255', 17, udp(68, 67, dhcp(1, 3, homePhone.mac, '0.0.0.0', [opt(50, ip4(homePhone.ip)), opt(12, Buffer.from(homePhone.name))])))),
+  ...browse(meHome, homeRouter, site, 1),
+  ether(homeRouter.mac, homePhone.mac, 0x0800, ipv4(homePhone.ip, photos.ip, 6, tcp(53000, 443, 1, 0x18, Buffer.alloc(900, 0x17)))),
+  ether(homePhone.mac, homeRouter.mac, 0x0800, ipv4(photos.ip, homePhone.ip, 6, tcp(443, 53000, 1, 0x18, Buffer.alloc(100, 0x17)), 118)),
+  // The TV asks this PC something on the network here.
+  ether(meHome.mac, tv.mac, 0x0800, ipv4(tv.ip, meHome.ip, 6, tcp(41000, 8008, 1, 0x18, Buffer.alloc(300, 0x41)))),
+]);
+// The café, ten minutes later, on its Wi-Fi: the same addresses, other machines. The till pays, a guest asks for one.
+at(0, 'cafe', 600, [
+  ...join(meCafe, cafeRouter, 'laptop'),
+  ether(BROADCAST, till.mac, 0x0800, ipv4(till.ip, '192.168.88.255', 17, udp(137, 137, nbnsRegistration(till.name, till.ip)))),
+  ether(BROADCAST, guest.mac, 0x0800, ipv4('0.0.0.0', '255.255.255.255', 17, udp(68, 67, dhcp(1, 3, guest.mac, '0.0.0.0', [opt(50, ip4(guest.ip)), opt(12, Buffer.from(guest.name))])))),
+  ...browse(meCafe, cafeRouter, site, 2),
+  ether(cafeRouter.mac, till.mac, 0x0800, ipv4(till.ip, shop.ip, 6, tcp(53100, 443, 1, 0x18, Buffer.alloc(700, 0x17)))),
+  ether(till.mac, cafeRouter.mac, 0x0800, ipv4(shop.ip, till.ip, 6, tcp(443, 53100, 1, 0x18, Buffer.alloc(200, 0x17)), 118)),
+]);
+// Home again, by cable: the same router, the TV again.
+at(1, 'home', 1200, [
+  ...join(meCable, homeRouter, 'laptop'),
+  ether('01:00:5e:00:00:fb', tv.mac, 0x0800, ipv4(tv.ip, '224.0.0.251', 17, udp(5353, 5353, castAnnouncement(tv)), 255)),
+  ...browse(meCable, homeRouter, site, 3),
+]);
+
+/** pcapng: a section, an interface per name (Ethernet), then each frame in an enhanced packet block with its time. */
+const pad4 = (b: Buffer) => Buffer.concat([b, Buffer.alloc((4 - (b.length % 4)) % 4)]);
+const block = (type: number, body: Buffer) => {
+  const len = 12 + body.length;
+  const head = Buffer.alloc(8);
+  head.writeUInt32LE(type, 0);
+  head.writeUInt32LE(len, 4);
+  const tail = Buffer.alloc(4);
+  tail.writeUInt32LE(len, 0);
+  return Buffer.concat([head, body, tail]);
+};
+const option = (code: number, value: Buffer) => {
+  const h = Buffer.alloc(4);
+  h.writeUInt16LE(code, 0);
+  h.writeUInt16LE(value.length, 2);
+  return Buffer.concat([h, pad4(value)]);
+};
+const shb = Buffer.alloc(16);
+shb.writeUInt32LE(0x1a2b3c4d, 0);
+shb.writeUInt16LE(1, 4);
+shb.writeInt32LE(-1, 8);
+shb.writeInt32LE(-1, 12);
+const idb = (name: string) => {
+  const b = Buffer.alloc(8);
+  b.writeUInt16LE(1, 0);
+  b.writeUInt32LE(65535, 4);
+  return block(1, Buffer.concat([b, option(2, Buffer.from(name)), Buffer.alloc(4)]));
+};
+const epb = (iface: number, t: number, frame: Buffer) => {
+  const b = Buffer.alloc(20);
+  const us = BigInt(Math.round(t * 1e6));
+  b.writeUInt32LE(iface, 0);
+  b.writeUInt32LE(Number(us >> 32n), 4);
+  b.writeUInt32LE(Number(us & 0xffffffffn), 8);
+  b.writeUInt32LE(frame.length, 12);
+  b.writeUInt32LE(frame.length, 16);
+  return block(6, Buffer.concat([b, pad4(frame)]));
+};
+moves.sort((a, b) => a.t - b.t);
+writeFileSync(
+  path.join(OUT, 'move.pcapng'),
+  Buffer.concat([block(0x0a0d0d0a, shb), idb('wlan0'), idb('eth0'), ...moves.map((m) => epb(m.iface, m.t, m.frame))]),
+);
+
+// What each place holds, worked out from the frames built for it: the unicast MACs that sent or were sent a frame there,
+// the bytes this PC's MACs sent and received there, and its conversation with the web server (the same host from both).
+const macOf = (b: Buffer) => [...b].map((x) => x.toString(16).padStart(2, '0')).join(':');
+const MINE = new Set([meHome.mac, meCafe.mac, meCable.mac]);
+const places: Record<Place, { macs: string[]; me: { sent: number; received: number }; web: { sent: number; received: number } }> = {
+  home: { macs: [], me: { sent: 0, received: 0 }, web: { sent: 0, received: 0 } },
+  cafe: { macs: [], me: { sent: 0, received: 0 }, web: { sent: 0, received: 0 } },
+};
+for (const m of moves) {
+  const p = places[m.place];
+  const [dst, src] = [macOf(m.frame.subarray(0, 6)), macOf(m.frame.subarray(6, 12))];
+  for (const x of [src, dst]) if ((Number.parseInt(x.slice(0, 2), 16) & 1) === 0 && !p.macs.includes(x)) p.macs.push(x);
+  if (MINE.has(src)) p.me.sent += m.frame.length;
+  if (MINE.has(dst)) p.me.received += m.frame.length;
+  const ip = m.frame.subarray(14);
+  if (m.frame.readUInt16BE(12) === 0x0800 && ip[9] === 6) {
+    const [s4, d4] = [[...ip.subarray(12, 16)].join('.'), [...ip.subarray(16, 20)].join('.')];
+    if (d4 === site.ip) p.web.sent += m.frame.length;
+    if (s4 === site.ip) p.web.received += m.frame.length;
+  }
+}
+for (const p of Object.values(places)) p.macs.sort();
+writeFileSync(path.join(OUT, 'move.truth.json'), `${JSON.stringify({ packets: moves.length, hosts: MOVE, own: [...MINE], places }, null, 2)}\n`);
+console.log(`${moves.length} packets in tests/fixtures/move.pcapng`);

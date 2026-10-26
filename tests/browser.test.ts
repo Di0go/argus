@@ -2,13 +2,15 @@
 // it were coming in now): turning the Wi-Fi on fills the page live, without a reload; a device opens its page and
 // walks to the company it talks to and back; its conversations say with whom, by what service and how much, and lead
 // to the other end; search, the hover card and the menu reach the entities; a reload loses nothing; a saved capture
-// opens as it was; on a phone the ribbon slides in. With the demo's two networks (the house on Wi-Fi, containers on
-// Docker): each device says its network, and one network can be chosen, the others' devices put after or left out,
-// remembered across a reload.
+// opens as it was; on a phone the ribbon slides in. With the demo's networks (a café on the Wi-Fi, then the house on
+// it, and containers on Docker): each device says its networks, the one of now is said by its Wi-Fi's name, and one
+// chosen shows only its own devices, remembered across a reload.
 
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { type Running, findChromium, startServer } from '@organon/core/testing';
 import { type Browser, chromium, type Page } from 'playwright-core';
@@ -305,54 +307,68 @@ test("A device's conversations: with whom, by what service, how much each way, a
   await p.close();
 });
 
-test('Two networks: each device says its network; one chosen puts the others after, or leaves them out, remembered; conversations move live', { skip: !CHROMIUM }, async () => {
+test('Two Wi-Fi networks, a café and the house: each shows only its own devices, the one of now said; remembered; conversations move live', { skip: !CHROMIUM }, async () => {
   const fake = await fakeCapture();
+  const ssid = path.join(await mkdtemp(path.join(tmpdir(), 'argus-ssid-')), 'ssid');
   const demo = await startServer(ROOT, {
-    env: { TSHARK: path.join(ROOT, 'scripts/demo-tshark.ts'), DUMPCAP: fake.dumpcap, SYS_NET: fake.sysNet, EMIT_MS: '250' },
+    env: {
+      TSHARK: path.join(ROOT, 'scripts/demo-tshark.ts'),
+      DUMPCAP: fake.dumpcap,
+      SYS_NET: fake.sysNet,
+      EMIT_MS: '250',
+      POLL_MS: '300',
+      IW: path.join(ROOT, 'scripts/demo-iw.ts'),
+      DEMO_SSID_FILE: ssid,
+      DEMO_CAFE: '4',
+    },
   });
   try {
     for (const i of ['wlan0', 'docker0'])
       await fetch(`${demo.base}/api/live/${i}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"on":true}' });
     const { p, errors } = await page();
     await p.goto(`${demo.base}/#/devices`);
-    const rows = devices(p);
-    // The house (the router, this PC, eight others) on Wi-Fi; on Docker, this PC's bridge and three containers.
+    const shown = () => devices(p).evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-device')).sort());
+    const choose = async (name: RegExp) => {
+      await p.getByRole('button', { name: /^Network:/ }).click();
+      await p.getByRole('menuitemradio', { name }).click();
+    };
+    // The café first (four seconds), then home: the network of now is the house's Wi-Fi, by its name, and Docker.
+    await p.getByRole('button', { name: /^Network: Docker and Willow House/ }).waitFor({ timeout: 20_000 });
+    assert.match(await p.getByRole('switch', { name: /Wi-Fi/ }).innerText(), /Willow House/);
+    const ME = '3c:a9:f4:10:20:30';
+    const CAFE = ['00:04:3c:5e:a1:40', '00:1b:21:5e:a1:20', 'da:7e:11:5e:a1:31', 'f0:9f:c2:5e:a1:01', ME].sort();
+    // The house (the router, this PC, eight others) and Docker's four; nothing of the café's, though its 192.168.1.x
+    // devices were heard on the same Wi-Fi a moment ago.
     await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Devices"] tbody tr[data-device]').length === 14, null, { timeout: 15_000 });
+    assert.ok((await shown()).every((id) => !CAFE.includes(id!) || id === ME));
     const net = (id: string) => p.locator(`tr[data-device="${id}"] td.net`).innerText();
     assert.match(await net('02:42:ac:1e:00:03'), /Docker/);
-    assert.match(await net('3c:22:fb:ab:cd:ef'), /Wi-Fi/);
+    assert.match(await net('3c:22:fb:ab:cd:ef'), /Willow House/);
 
-    // Docker chosen: its four first, the others after a line, faded.
-    await p.getByRole('button', { name: /Network: All networks/ }).click();
-    await p.getByRole('menuitemradio', { name: /Docker/ }).click();
-    await p.locator('tr.others-h').waitFor();
-    const order = await rows.evaluateAll((trs) => trs.map((tr) => (tr.classList.contains('others-h') ? '|' : tr.classList.contains('other') ? 'o' : 'm')).join(''));
-    assert.equal(order, `mmmm|${'o'.repeat(10)}`);
-
-    // The others left out altogether, and so after a reload.
-    await p.getByRole('button', { name: /Network: Docker/ }).click();
-    await p.getByRole('menuitemcheckbox', { name: /Hide the other networks/ }).click();
-    await p.keyboard.press('Escape');
-    await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Devices"] tbody tr').length === 4);
+    // The café: its five, this PC among them, and nothing else; remembered across a reload.
+    await choose(/^Harbour Café/);
+    await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Devices"] tbody tr[data-device]').length === 5);
+    assert.deepEqual(await shown(), CAFE);
+    assert.match(await net(ME), /Willow House[\s\S]*Harbour Café|Harbour Café[\s\S]*Willow House/);
     await p.reload();
-    await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Devices"] tbody tr[data-device]').length === 4, null, { timeout: 15_000 });
-    await p.waitForTimeout(500);
-    assert.equal(await rows.count(), 4);
-    assert.match(await p.getByRole('button', { name: /Network: Docker/ }).innerText(), /only this/);
-    // Who is using the network, on Now, follows the same choice: only Docker's.
+    await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Devices"] tbody tr[data-device]').length === 5, null, { timeout: 15_000 });
+    assert.deepEqual(await shown(), CAFE);
+    assert.match(await p.getByRole('button', { name: /^Network:/ }).innerText(), /Harbour Café/);
+    // Who is using the network, on Now, follows the same choice: nobody of the house.
     await p.goto(`${demo.base}/#/`);
-    const who = p.getByRole('list', { name: 'Who is using the network' }).locator('li[data-device]');
-    await who.first().waitFor({ timeout: 15_000 });
-    for (const id of await who.evaluateAll((els) => els.map((e) => e.getAttribute('data-device')))) assert.match(id ?? '', /^02:42:/);
+    await p.waitForTimeout(1500);
+    for (const id of await p.getByRole('list', { name: 'Who is using the network' }).locator('li[data-device]').evaluateAll((els) => els.map((e) => e.getAttribute('data-device'))))
+      assert.ok(CAFE.includes(id ?? ''), id ?? '');
 
-    // Every network again: all fourteen.
+    // The house alone: its ten, none of the café's; then every network: all eighteen (this PC once).
     await p.goto(`${demo.base}/#/devices`);
-    await p.getByRole('button', { name: /Network: Docker/ }).click();
-    await p.getByRole('menuitemradio', { name: /All networks/ }).click();
-    await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Devices"] tbody tr[data-device]').length === 14);
-    assert.equal(await p.locator('tr.others-h').count(), 0);
+    await choose(/^Willow House/);
+    await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Devices"] tbody tr[data-device]').length === 10);
+    assert.ok((await shown()).every((id) => !CAFE.includes(id!) || id === ME));
+    await choose(/^All networks/);
+    await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Devices"] tbody tr[data-device]').length === 18);
 
-    // The Docker network's page: its conversations, both ends, moving as they come (no reload).
+    // The Docker interface's page: its conversations, both ends, moving as they come (no reload).
     await p.goto(`${demo.base}/#/interface/docker0`);
     const talk = p.getByRole('table', { name: 'Conversations' }).locator('tr', { hasText: 'PostgreSQL' });
     await talk.waitFor({ timeout: 15_000 });
@@ -450,7 +466,8 @@ function perSecond(s: string): number {
 test('A busy network: the busiest few lines and how many more; the order follows the number shown; rates said as rates', { skip: !CHROMIUM }, async () => {
   const fake = await fakeCapture();
   const demo = await startServer(ROOT, {
-    env: { TSHARK: path.join(ROOT, 'scripts/demo-tshark.ts'), DUMPCAP: fake.dumpcap, SYS_NET: fake.sysNet, EMIT_MS: '250' },
+    // The house alone, from the start: no café first (it would move every line at once mid-test).
+    env: { TSHARK: path.join(ROOT, 'scripts/demo-tshark.ts'), DUMPCAP: fake.dumpcap, SYS_NET: fake.sysNet, EMIT_MS: '250', DEMO_CAFE: '0' },
   });
   try {
     for (const i of ['wlan0', 'docker0'])

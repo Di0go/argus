@@ -6,8 +6,13 @@
 // what the dictionary says it is (shared/words.ts keyOf). That gives what each device is doing now (the last minute),
 // and each minute is appended to the day's file, data/history/YYYY-MM-DD.jsonl (local time):
 //
-//   {"t":1761400000,"a":[["device:3c:…","video|Google|YouTube|watching video||",120034,5320], …]}   a minute
-//   {"t":1761400013,"e":"clear","d":"device:…","w":"remote:198.51.100.77","p":"HTTP","c":1}           an event
+//   {"t":1761400000,"a":[["device:3c:…","video|Google|YouTube|watching video||",120034,5320,"net:50:c7:…"], …]}   a minute
+//   {"t":1761400013,"e":"clear","d":"device:…","w":"remote:198.51.100.77","p":"HTTP","c":1,"x":"net:50:c7:…"}       an event
+//
+// Each minute's line and each event say the network they were on (shared/networks.ts), and the networks' names, as
+// last seen, are kept beside (networks.json): a day reads one network at a time. Days kept before networks were told
+// apart have lines without one: they are said as not told apart, never split after the fact. Traffic in a stay just
+// joined, whose network is not known yet, is counted a few seconds later, once it is.
 //
 // Events: a device seen for the first time ever, a conversation in the clear (once a day each), a server that agreed
 // old TLS. Past days are gzipped; past ARGUS_HISTORY_DAYS days or ARGUS_HISTORY_MB, the oldest are removed. The
@@ -26,7 +31,7 @@ import { isObject } from '@organon/core/server/store';
 import { CATEGORIES } from '../shared/dictionary/apps.ts';
 import type { Classification } from '../shared/classify.ts';
 import { isOldTls } from '../shared/security.ts';
-import type { Conversation, DayEvent, DayView, Device, Doing, Episode, Remote } from '../shared/types.ts';
+import type { Conversation, DayEvent, DayView, Device, Doing, Episode, Network, Remote } from '../shared/types.ts';
 import { BACKGROUND, fromKey, groupOf, keyOf, siteOnly, visit } from '../shared/words.ts';
 
 export interface HistoryOptions {
@@ -80,6 +85,17 @@ const EVENTS_A_DAY = 500;
 
 const label = (c: string) => CATEGORIES[c as keyof typeof CATEGORIES]?.label ?? c;
 const isKnown = (v: unknown): v is Record<string, Known> => isObject(v);
+/** A network, as last seen: its name and when. */
+interface KnownNet {
+  name: string;
+  ssid?: string;
+  interfaces: string[];
+  first: number;
+  last: number;
+}
+const isNets = (v: unknown): v is Record<string, KnownNet> => isObject(v);
+/** Networks remembered, the ones heard longest ago forgotten past it. */
+const NETS = 500;
 
 export class History {
   private readonly o: Required<Omit<HistoryOptions, 'now'>> & { now: () => number };
@@ -102,6 +118,7 @@ export class History {
   /** What each key was last said to be, whole (the history keeps only its words). */
   private words = new Map<string, Classification>();
   private known: Record<string, Known> = {};
+  private nets: Record<string, KnownNet> = {};
   /** Today's events already written, so each is said once a day. */
   private said = new Set<string>();
   /** Today's events written, "new device" ones apart, and those not written past the ceiling. */
@@ -125,6 +142,7 @@ export class History {
   async load(): Promise<this> {
     await mkdir(this.o.dir, { recursive: true });
     this.known = await this.o.store.loadJson(path.join(this.o.dir, 'devices.json'), isKnown, {});
+    this.nets = await this.o.store.loadJson(path.join(this.o.dir, 'networks.json'), isNets, {});
     this.day = dateOf(this.o.now());
     this.started = this.o.now();
     this.learning = Object.keys(this.known).length ? 0 : this.started + 600;
@@ -139,7 +157,7 @@ export class History {
   }
 
   /** A look at what the live session adds up to: what grew since the last one is now's traffic. */
-  async observe(view: { devices: Device[]; conversations: Conversation[]; remotes?: Remote[]; session?: { started?: number } }): Promise<void> {
+  async observe(view: { devices: Device[]; conversations: Conversation[]; remotes?: Remote[]; networks?: Network[]; session?: { started?: number } }): Promise<void> {
     if (!this.loaded) return;
     const now = this.o.now();
     const t = Math.floor(now / 60) * 60;
@@ -153,9 +171,16 @@ export class History {
     // A host by the name the request asked for (HTTP's Host), else its name: DNS's may be another site's.
     this.others = new Map((view.remotes ?? []).map((r) => [`remote:${r.id}`, r.names?.find((n) => n.source === 'HTTP')?.name ?? r.name]));
     for (const [k, d] of names) this.others.set(k, d.name);
+    for (const n of view.networks ?? []) {
+      if (n.pending) continue;
+      const had = this.nets[n.id];
+      this.nets[n.id] = { name: n.name, ...(n.ssid ? { ssid: n.ssid } : {}), interfaces: n.interfaces, first: Math.min(had?.first ?? n.first, n.first), last: Math.max(had?.last ?? 0, n.last) };
+    }
     const next = new Map<string, number>();
     const events: Record<string, unknown>[] = [];
     for (const c of view.conversations) {
+      // Its network not known yet (a stay just joined): counted whole once it is, at a later look.
+      if (c.pending) continue;
       const total = c.sent + c.received;
       next.set(c.id, total);
       // The first look: what began before this server did is the baseline (counted before a restart); what began
@@ -172,21 +197,22 @@ export class History {
       const key = keyOf(what);
       if (what) this.words.set(key, what);
       const share = c.sent / (total || 1);
-      const m = this.minute.get(`${device}\t${key}`) ?? [0, 0];
+      const mk = `${device}\t${key}\t${c.network ?? ''}`;
+      const m = this.minute.get(mk) ?? [0, 0];
       m[0] += Math.round(delta * share);
       m[1] += delta - Math.round(delta * share);
-      this.minute.set(`${device}\t${key}`, m);
+      this.minute.set(mk, m);
       const r = this.recent.get(device) ?? [];
       r.push([now, key, delta]);
       this.recent.set(device, r);
-      if (c.clear && !c.clear.harmless) events.push(this.event('clear', device, c.b, c.clear.proto, now, c.clear.credentials, c.b.startsWith('device:')));
-      if (c.tls && isOldTls(c.tls)) events.push(this.event('old-tls', device, c.b, `TLS ${c.tls}`, now));
+      if (c.clear && !c.clear.harmless) events.push(this.event('clear', device, c.b, c.clear.proto, now, c.clear.credentials, c.b.startsWith('device:'), c.network));
+      if (c.tls && isOldTls(c.tls)) events.push(this.event('old-tls', device, c.b, `TLS ${c.tls}`, now, undefined, undefined, c.network));
     }
     // Devices seen for the first time ever: said once. A history that knew nobody learns the house first (ten minutes):
     // everyone there is not news.
     for (const [key, d] of names) {
       const k = this.known[key];
-      if (!k && now > this.learning && !this.baseline) events.push(this.event('new', key, '', '', now));
+      if (!k && now > this.learning && !this.baseline) events.push(this.event('new', key, '', '', now, undefined, undefined, d.networks?.[0]));
       this.known[key] = { name: d.name, label: d.identity?.label, kind: d.identity?.kind, first: k?.first ?? d.firstSeen, last: Math.max(k?.last ?? 0, d.lastSeen) };
     }
     this.prev = next;
@@ -256,8 +282,8 @@ export class History {
   async flush(): Promise<void> {
     if (!this.minute.size || !this.minuteT) return;
     const a = [...this.minute].map(([k, [s, r]]) => {
-      const [device, key] = k.split('\t');
-      return [device, key, s, r];
+      const [device, key, net] = k.split('\t');
+      return net ? [device, key, s, r, net] : [device, key, s, r];
     });
     this.minute = new Map();
     // Each device's video stream, by minute, for the last few.
@@ -279,15 +305,42 @@ export class History {
     const ids = Object.keys(this.known);
     if (ids.length > KNOWN) for (const id of ids.sort((a, b) => this.known[a]!.last - this.known[b]!.last).slice(0, ids.length - KNOWN)) delete this.known[id];
     await this.o.store.writeJson(path.join(this.o.dir, 'devices.json'), this.known).catch(() => {});
+    const nets = Object.keys(this.nets);
+    if (nets.length > NETS) for (const id of nets.sort((a, b) => this.nets[a]!.last - this.nets[b]!.last).slice(0, nets.length - NETS)) delete this.nets[id];
+    await this.o.store.writeJson(path.join(this.o.dir, 'networks.json'), this.nets).catch(() => {});
   }
 
-  /** A day as it was kept: by hour and category, by device, the diary and the events. */
-  async dayView(date = dateOf(this.o.now()), device?: string): Promise<DayView> {
+  /** A network's name, as last seen. */
+  network(id: string): KnownNet | undefined {
+    return this.nets[id];
+  }
+
+  /** Every network remembered, the latest first. */
+  networks(): (KnownNet & { id: string })[] {
+    return Object.entries(this.nets)
+      .map(([id, n]) => ({ id, ...n }))
+      .sort((a, b) => b.last - a.last);
+  }
+
+  /**
+   * A day as it was kept: by hour and category, by device, the diary and the events; of one or more networks when
+   * asked (then what was kept before networks were told apart is left out, and said: `untold`).
+   */
+  async dayView(date = dateOf(this.o.now()), device?: string, networks?: ReadonlySet<string>): Promise<DayView> {
     const lines = await this.lines(date);
     if (date === dateOf(this.o.now()) && this.minute.size) {
       // The minute going on, too: a reload shows what is happening.
-      lines.push({ t: this.minuteT, a: [...this.minute].map(([k, [s, r]]) => [...k.split('\t'), s, r] as [string, string, number, number]) });
+      lines.push({
+        t: this.minuteT,
+        a: [...this.minute].map(([k, [s, r]]) => {
+          const [d = '', key = '', net] = k.split('\t');
+          return (net ? [d, key, s, r, net] : [d, key, s, r]) as Entry;
+        }),
+      });
     }
+    const nets = new Map<string, number>();
+    let untold = 0;
+    let untoldTo: number | undefined;
     const hours: Record<string, number>[] = Array.from({ length: 24 }, () => ({}));
     const cats = new Map<string, number>();
     const devs = new Map<string, { bytes: number; keys: Map<string, number> }>();
@@ -301,6 +354,7 @@ export class History {
     for (const l of lines) {
       if (l.e) {
         if (device && l.d !== device) continue;
+        if (networks && !(l.x && networks.has(l.x))) continue;
         events.push({
           t: l.t,
           type: l.e as DayEvent['type'],
@@ -310,11 +364,18 @@ export class History {
           ...(l.p ? { proto: l.p } : {}),
           ...(l.c ? { credentials: true } : {}),
           ...(l.l ? { local: true } : {}),
+          ...(l.x ? { network: l.x } : {}),
         });
         continue;
       }
-      for (const [d, key, s, r] of l.a ?? []) {
+      for (const [d, key, s, r, net] of l.a ?? []) {
         if (device && d !== device) continue;
+        if (net) nets.set(net, (nets.get(net) ?? 0) + s + r);
+        else {
+          untold += s + r;
+          untoldTo = Math.max(untoldTo ?? l.t, l.t + 60);
+        }
+        if (networks && !(net && networks.has(net))) continue;
         const bytes = s + r;
         total += bytes;
         first = Math.min(first ?? l.t, l.t);
@@ -400,6 +461,8 @@ export class History {
       diary: stories,
       events: once(events).sort((a, b) => b.t - a.t),
       bytes: total,
+      networks: [...nets].sort((a, b) => b[1] - a[1]).map(([id, bytes]) => ({ id, name: this.nets[id]?.name ?? id, bytes })),
+      ...(untold ? { untold: { bytes: untold, until: untoldTo! } } : {}),
       ...(date === this.day && this.counted.dropped ? { dropped: this.counted.dropped } : {}),
       ...(date === this.day && this.full ? { full: true } : {}),
       ...(first !== undefined ? { first, last: (last ?? first) + 60 } : {}),
@@ -430,7 +493,7 @@ export class History {
     return this.known[id];
   }
 
-  private event(type: DayEvent['type'], device: string, other: string, proto: string, t: number, credentials?: boolean, local?: boolean): Record<string, unknown> {
+  private event(type: DayEvent['type'], device: string, other: string, proto: string, t: number, credentials?: boolean, local?: boolean, network?: string): Record<string, unknown> {
     // A login seen later in the same conversation is news again: it upgrades the event (dayView keeps the one with it).
     const key = eventKey(type, device, other, `${proto}${credentials ? '+login' : ''}`);
     if (this.said.has(key)) return undefined as unknown as Record<string, unknown>;
@@ -440,7 +503,7 @@ export class History {
       return undefined as unknown as Record<string, unknown>;
     }
     this.count(type);
-    return { t: Math.round(t), e: type, d: device, n: this.known[device]?.name, ...(other ? { w: other, wn: this.others.get(other) } : {}), ...(proto ? { p: proto } : {}), ...(credentials ? { c: 1 } : {}), ...(local ? { l: 1 } : {}) };
+    return { t: Math.round(t), e: type, d: device, n: this.known[device]?.name, ...(other ? { w: other, wn: this.others.get(other) } : {}), ...(proto ? { p: proto } : {}), ...(credentials ? { c: 1 } : {}), ...(local ? { l: 1 } : {}), ...(network ? { x: network } : {}) };
   }
 
   private count(type: string) {
@@ -534,9 +597,12 @@ export class History {
   }
 }
 
+/** A device's bytes a minute by what it was, sent and received, and the network (absent: kept before it was said). */
+type Entry = [string, string, number, number] | [string, string, number, number, string];
+
 interface Line {
   t: number;
-  a?: [string, string, number, number][];
+  a?: Entry[];
   e?: string;
   d?: string;
   n?: string;
@@ -545,6 +611,8 @@ interface Line {
   p?: string;
   c?: number;
   l?: number;
+  /** The network (shared/networks.ts). */
+  x?: string;
 }
 
 /** One event per kind, device, other end and protocol: the one with a login if there is one, else the first. */

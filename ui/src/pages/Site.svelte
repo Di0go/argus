@@ -12,7 +12,7 @@
   import SourceHead from '../lib/SourceHead.svelte';
 
   let { id, capture }: { id: string; capture?: string } = $props();
-  const source = $derived(argus.sourceFor(capture));
+  const source = $derived(argus.sourceFor(capture, true));
   const live = $derived(source?.kind === 'live');
   const s = $derived(source?.graph.get(`site:${id}`) as Site | undefined);
   const hosts = $derived(s && source ? s.hosts.map((h) => source.graph.get(`remote:${h}`)).filter((r): r is Remote => Boolean(r)) : []);

@@ -2,7 +2,8 @@
 //
 // It fails on:
 // - a value of this machine's network: an address, MAC or interface name of this PC, a neighbour it knows (ip addr,
-//   ip link, ip neigh), a device the live session saw (data/live/session.json: its MACs, addresses and names), and
+//   ip link, ip neigh), a device the live session saw (data/live/session.json: its MACs, addresses and names), the
+//   name of a Wi-Fi it has been on (the session's and the history's, NetworkManager's saved ones, the one of now), and
 //   with --listen the names the network announces for that many seconds (DHCP, mDNS, NetBIOS); also the device half
 //   of a real MAC under another maker, an address on one of this PC's own subnets, the /48 its IPv6 addresses are
 //   under, or its interface ID at the end of another address; the user's name, home path and e-mail (git config);
@@ -96,7 +97,8 @@ function readReal(): Real {
       r.ip6.add(g.join(':'));
       // A Tailscale address is under a prefix every Tailscale user shares: only the address itself is his.
       if (global6(g)) r.prefixes6.add(g.slice(0, 3).join(':'));
-      if (global6(g) || g[0] === 'fe80') r.iids6.add(g.slice(4).join(':'));
+      // An interface ID set by hand (::1, ::2: a router's fe80::1) is everyone's, not his.
+      if ((global6(g) || g[0] === 'fe80') && !/^(0000:){3}/.test(g.slice(4).join(':'))) r.iids6.add(g.slice(4).join(':'));
     }
   };
   for (const i of json('ip', ['-j', 'addr'])) {
@@ -127,6 +129,24 @@ function readReal(): Real {
       }
     } catch {}
   }
+  // The Wi-Fis he has been on: their names say where he lives, works and goes.
+  const wifi = (n: unknown) => typeof n === 'string' && n && names(r, n, 'the name of a Wi-Fi he has been on');
+  if (existsSync(session)) {
+    try {
+      for (const g of JSON.parse(readFileSync(session, 'utf8')).segments ?? []) for (const n of Object.keys(g.ssids ?? {})) wifi(n);
+    } catch {}
+  }
+  const known = path.join(ROOT, 'data/history/networks.json');
+  if (existsSync(known)) {
+    try {
+      for (const n of Object.values(JSON.parse(readFileSync(known, 'utf8')) as { ssid?: string }[])) wifi(n.ssid);
+    } catch {}
+  }
+  for (const l of run('nmcli', ['-t', '-f', 'NAME,TYPE', 'connection', 'show'])?.toString().split('\n') ?? []) {
+    const [name = '', type = ''] = l.split(/(?<!\\):/);
+    if (type === '802-11-wireless') wifi(name.replace(/\\:/g, ':'));
+  }
+  for (const i of json('ip', ['-j', 'link'])) wifi(/^\s*SSID: (.*)$/m.exec(run('iw', ['dev', i.ifname, 'link'])?.toString() ?? '')?.[1]);
   if (LISTEN) for (const n of listen(LISTEN)) named(n, 'a name his network announces');
   // Who he is: his user name, home and e-mail; the GitHub account (with a zero) is public and stays.
   const user = os.userInfo();

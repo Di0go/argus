@@ -10,7 +10,6 @@
   import EntityIcon from '../lib/EntityIcon.svelte';
   import { rate } from '../lib/format.ts';
   import Limits from '../lib/Limits.svelte';
-  import { networks } from '../lib/networks.svelte.ts';
   import { Ranked } from '../lib/ranked.svelte.ts';
   import { link } from '../lib/router.svelte.ts';
   import { talks } from '../lib/talks.ts';
@@ -25,8 +24,8 @@
   /** How many lines: the busiest few; the rest in one line, so a busy house reads as quickly as a quiet one. */
   const LINES = 5;
   const seen = $derived(Boolean(s?.packets));
-  // The network chosen on Devices, when the others are hidden there, is the one shown here too.
-  const devices = $derived(networks.hideOthers && networks.selected ? networks.split(argus.liveSource.devices).mine : argus.liveSource.devices);
+  // The network shown (the one of now, unless he chose another in the bar): its devices only.
+  const devices = $derived(argus.liveSource.devices);
   const groups = $derived(split(devices, argus.interfaces, argus.meters, talkers(argus.liveSource.conversations)));
   // Each line's rate is its last ten seconds, and the order is by it, re-sorted every two: what a glance reads is what
   // the order says, and a burst does not throw a line to the top and back.

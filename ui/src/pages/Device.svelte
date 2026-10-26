@@ -79,7 +79,7 @@
           <h1 class="page-title">{d.name}</h1>
           <p class="who">
             {d.role === 'gateway' ? 'The way out to the internet' : subline(d) || KIND_WORD[deviceKind(d)]}{d.model && d.role ? `, ${d.model}` : ''}
-            {#if d.interfaces.length}<span class="on-net">on <NetTag ids={d.interfaces} /></span>{/if}
+            {#if d.interfaces.length}<span class="on-net">on <NetTag device={d} /></span>{/if}
           </p>
         </div>
       </div>
@@ -144,7 +144,7 @@
               >{/each}
           </dd>
           <dt>Network</dt>
-          <dd><NetTag ids={d.interfaces} />{#if d.interfaces.length > 1}<span class="muted small"> (heard on {d.interfaces.length})</span>{/if}</dd>
+          <dd><NetTag device={d} />{#if (d.networks?.length ?? d.interfaces.length) > 1}<span class="muted small"> (heard on {d.networks?.length ?? d.interfaces.length})</span>{/if}</dd>
           <dt>Seen</dt>
           <dd>{when(d.firstSeen)} to {when(d.lastSeen)}{live ? ` (${since(d.lastSeen)})` : ''}</dd>
         </dl>

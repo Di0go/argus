@@ -80,7 +80,17 @@
     { id: 'captures', label: 'Captures', href: link.captures(), icon: ICON.captures, on: route.page === 'captures' || route.page === 'capture' },
   ]);
   const on = $derived(argus.session?.listening.filter((l) => l.on) ?? []);
-  const onNames = $derived(on.map((l) => argus.interfaces.find((i) => i.id === l.id)?.name ?? l.id).join(', '));
+  const onNames = $derived(
+    on
+      .map((l) => {
+        const i = argus.interfaces.find((x) => x.id === l.id);
+        const name = i?.name ?? l.id;
+        const net = argus.networks.find((n) => n.nowOn?.includes(l.id));
+        // A network with no router is called as its interface is: said once.
+        return net && !net.pending && net.name !== name && net.name !== i?.label ? `${name} (${net.name})` : name;
+      })
+      .join(', '),
+  );
 
   /** A tab's title, from what is known now, so it follows names as they are learnt. */
   function title(key: string): string {

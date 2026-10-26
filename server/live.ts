@@ -26,7 +26,7 @@ import type { EventHub } from '@organon/core/server/events';
 import type { Store } from '@organon/core/server/store';
 import { isObject } from '@organon/core/server/store';
 import type { Link } from '@organon/core/shared/entities';
-import type { Conversation, Device, LiveEvent, LiveView, Listening, Remote, Session } from '../shared/types.ts';
+import type { Conversation, Device, LiveEvent, LiveView, Listening, Network, Remote, Session } from '../shared/types.ts';
 import { type Dissected, fieldArgs, parseLine, Tally, type TallyData, type TallyOptions } from './tally.ts';
 
 export interface LiveOptions {
@@ -38,6 +38,14 @@ export interface LiveOptions {
   store: Store;
   events: EventHub;
   ownMacs: () => string[];
+  /**
+   * The SSID a Wi-Fi interface is associated with now, as the system says it (server/capture.ts ssidOf); nothing for
+   * another kind, or when it cannot say. Asked every few seconds of each interface listened on: another SSID is another
+   * stay (tally.ts).
+   */
+  ssid?: (iface: string) => Promise<string | undefined>;
+  /** Milliseconds between those looks, and at the MACs this machine has now (5000). */
+  pollEvery?: number;
   /**
    * How the server reads the facts before they go to the page and the agent (server/index.ts: interpret.ts, and what
    * each device is doing from the history). The sensor never interprets: this is where the line runs (docs/sensor.md).
@@ -80,6 +88,7 @@ export class Live {
   private readonly o: Required<Omit<LiveOptions, 'tally'>> & { tally: LiveOptions['tally'] };
   private timer: ReturnType<typeof setInterval> | undefined;
   private saver: ReturnType<typeof setInterval> | undefined;
+  private poller: ReturnType<typeof setInterval> | undefined;
   /** What the page was last sent, to send only what changed: devices and hosts by a mark of what they show, links by weight. */
   private sentDevices = new Map<string, string>();
   private sentRemotes = new Map<string, string>();
@@ -92,7 +101,19 @@ export class Live {
   private stopping = false;
 
   constructor(options: LiveOptions) {
-    this.o = { editcap: 'editcap', read: (v) => v, ringFiles: 20, ringFileMB: 10, ringSeconds: 30, emitEvery: 1000, saveEvery: 60_000, tally: undefined, ...options };
+    this.o = {
+      editcap: 'editcap',
+      read: (v) => v,
+      ssid: async () => undefined,
+      ringFiles: 20,
+      ringFileMB: 10,
+      ringSeconds: 30,
+      emitEvery: 1000,
+      saveEvery: 60_000,
+      pollEvery: 5000,
+      tally: undefined,
+      ...options,
+    };
     this.tally = this.newTally();
   }
 
@@ -117,7 +138,28 @@ export class Live {
     for (const id of on) this.listen(id, state.since?.[id]);
     this.timer = setInterval(() => this.emit(), this.o.emitEvery);
     this.saver = setInterval(() => void this.save(), this.o.saveEvery);
+    this.poller = setInterval(() => void this.poll(), this.o.pollEvery);
+    void this.poll();
     return this;
+  }
+
+  /**
+   * What the system says now: the MACs this machine has (a Wi-Fi makes one up per network, a dock is plugged in), and
+   * the SSID of each interface listened on. Facts for the tally: where this PC joined another network.
+   */
+  private polling = false;
+  private async poll() {
+    if (this.polling) return;
+    this.polling = true;
+    try {
+      this.tally.addOwn(this.o.ownMacs());
+      for (const id of this.on()) {
+        const ssid = await this.o.ssid(id).catch(() => undefined);
+        this.tally.ssid(id, ssid, Date.now() / 1000);
+      }
+    } finally {
+      this.polling = false;
+    }
   }
 
   /** Turns listening on `id` on or off. `known` are the interfaces this user can capture on. */
@@ -125,6 +167,7 @@ export class Live {
     if (!IFACE.test(id) || (on && !known.includes(id))) throw new LiveError(`Unknown interface: ${id}`);
     if (on) this.listen(id);
     else this.unlisten(id);
+    if (on) void this.poll();
     await this.saveState();
     this.emit(true);
     return this.session();
@@ -178,21 +221,27 @@ export class Live {
       remotes: v.remotes,
       links: v.links,
       conversations: v.conversations,
+      networks: v.networks ?? [],
       total: { fine: this.tally.fine.tail(), coarse: this.tally.coarse.tail() },
       byDevice: this.tally.activeByDevice(600),
       byInterface: this.tally.byInterface(),
     };
   }
 
-  /** What the tally adds up to, read (interpret.ts). */
+  /** What the tally adds up to, with what is listened on now, read (interpret.ts). */
   private facts() {
-    return this.o.read(this.tally.view());
+    return this.o.read({ ...this.tally.view(), listening: this.on() });
   }
 
-  /** What a capture view is for the agent: the session's devices and hosts. */
-  hosts(): { devices: Device[]; remotes: Remote[]; links: Link[]; conversations: Conversation[] } {
+  /** What a capture view is for the agent: the session's devices and hosts, and the networks they were on. */
+  hosts(): { devices: Device[]; remotes: Remote[]; links: Link[]; conversations: Conversation[]; networks: Network[] } {
     const v = this.facts();
-    return { devices: this.withRates(v.devices), remotes: v.remotes, links: v.links, conversations: v.conversations };
+    return { devices: this.withRates(v.devices), remotes: v.remotes, links: v.links, conversations: v.conversations, networks: v.networks ?? [] };
+  }
+
+  /** This machine's MACs, every one the session saw it have (a capture saved from it is read with them). */
+  ownMacs(): string[] {
+    return this.tally.ownMacs();
   }
 
   deviceSeries(id: string) {
@@ -229,6 +278,7 @@ export class Live {
     this.stopping = true;
     clearInterval(this.timer);
     clearInterval(this.saver);
+    clearInterval(this.poller);
     for (const l of this.listeners.values()) clearTimeout(l.retry);
     await Promise.all([...this.listeners.values()].map((l) => this.kill(l)));
     await this.save();
@@ -386,7 +436,7 @@ export class Live {
       this.withRates(v.devices),
       this.sentDevices,
       (d) =>
-        `${d.bytesSent}:${d.bytesReceived}:${d.lastSeen}:${d.names.length}:${d.ips.length}:${d.role ?? ''}:${d.rate?.sent ?? 0}:${d.rate?.received ?? 0}:${d.identity?.label ?? ''}:${d.identity?.confidence ?? ''}:${(d.doing ?? []).map((x) => `${x.what?.app ?? x.what?.category}${x.bytes}`).join(',')}:${d.dns?.length ?? 0}`,
+        `${d.bytesSent}:${d.bytesReceived}:${d.lastSeen}:${d.names.length}:${d.ips.length}:${d.role ?? ''}:${d.networks?.join() ?? ''}:${d.rate?.sent ?? 0}:${d.rate?.received ?? 0}:${d.identity?.label ?? ''}:${d.identity?.confidence ?? ''}:${(d.doing ?? []).map((x) => `${x.what?.app ?? x.what?.category}${x.bytes}`).join(',')}:${d.dns?.length ?? 0}`,
     );
     const remotes = changed(v.remotes, this.sentRemotes, (r) => `${r.bytesSent + r.bytesReceived}:${r.lastSeen}:${r.names.length}`);
     const conversations = changed(v.conversations, this.sentConversations, (c) => `${c.sent}:${c.received}:${c.last}:${c.app?.app ?? ''}:${c.app?.activity ?? ''}`);
@@ -410,6 +460,7 @@ export class Live {
       links,
       conversations: conversations.out,
       goneConversations: conversations.gone,
+      networks: v.networks ?? [],
       total: { fine: this.tally.fine.tail(5), coarse: this.tally.coarse.tail(2) },
       byDevice: this.tally.recentByDevice(5),
       byInterface: this.tally.byInterface(5),

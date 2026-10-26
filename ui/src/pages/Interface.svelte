@@ -1,20 +1,22 @@
 <script lang="ts">
   // One interface: what it is, whether Argus listens on it and how that goes, its bandwidth of the last ten minutes,
-  // and the devices heard on it.
+  // the networks it was on, and the devices heard on it (of every network: an interface is where, not which).
   import type { Interface } from '../../../shared/types.ts';
   import { argus } from '../lib/argus.svelte.ts';
   import Conversations from '../lib/Conversations.svelte';
   import DeviceTable from '../lib/DeviceTable.svelte';
   import EntityIcon from '../lib/EntityIcon.svelte';
-  import { bytes, rate, since, span } from '../lib/format.ts';
+  import { bytes, rate, since, span, when } from '../lib/format.ts';
+  import { networks } from '../lib/networks.svelte.ts';
   import RateChart from '../lib/RateChart.svelte';
   import { link } from '../lib/router.svelte.ts';
 
   let { id }: { id: string } = $props();
   const i = $derived(argus.interfaces.find((x) => x.id === id) as Interface | undefined);
   const l = $derived(argus.session?.listening.find((x) => x.id === id));
-  const devices = $derived(argus.liveSource.devices.filter((d) => d.interfaces.includes(id)));
-  const talks = $derived(argus.liveSource.conversations.filter((c) => c.interfaces.includes(id)));
+  const devices = $derived(argus.allSource.devices.filter((d) => d.interfaces.includes(id)));
+  const talks = $derived(argus.allSource.conversations.filter((c) => c.interfaces.includes(id)));
+  const nets = $derived(argus.networks.filter((n) => n.interfaces.includes(id)));
   let problem = $state('');
 </script>
 
@@ -45,6 +47,21 @@
           </dd>
         {/if}
       </dl>
+      {#if nets.length}
+        <dl class="props">
+          <dt>Networks</dt>
+          <dd>
+            <ul class="nets" aria-label="Networks on {i.name}">
+              {#each nets as n (n.id)}
+                <li>
+                  <button class="linkish" onclick={() => networks.choose(n.id)} title="Show this network on every page">{n.name}</button>
+                  <span class="muted small">{n.nowOn?.includes(id) ? 'now' : n.pending ? 'joining' : `${when(n.first)} to ${when(n.last)}`}</span>
+                </li>
+              {/each}
+            </ul>
+          </dd>
+        </dl>
+      {/if}
       <div class="head-actions">
         <button
           class={l?.on ? 'ghost' : 'primary'}
@@ -70,7 +87,7 @@
       <DeviceTable {devices} live />
     </section>
     <section class="band">
-      <Conversations conversations={talks} source={argus.liveSource} title="Conversations on this network" />
+      <Conversations conversations={talks} source={argus.allSource} title="Conversations on this interface" />
     </section>
   {:else if l?.on}
     <p class="muted">Nobody yet{l.since ? ` since ${since(l.since)}` : ''}.</p>
@@ -92,5 +109,31 @@
   .aside {
     font-size: 0.84rem;
     color: var(--muted);
+  }
+
+  .nets {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .nets li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 10px;
+    align-items: baseline;
+  }
+
+  .linkish {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--acc);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .linkish:hover {
+    text-decoration: underline;
   }
 </style>

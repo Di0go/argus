@@ -7,6 +7,7 @@
 // answers are remembered (server/dictionary.ts).
 
 import { identify } from '../shared/identify.ts';
+import { byNetwork } from '../shared/networks.ts';
 import { type DnsUse, harmless, RESOLVERS } from '../shared/security.ts';
 import type { Conversation, Device, Remote } from '../shared/types.ts';
 import { classify, siteOf } from './dictionary.ts';
@@ -17,9 +18,13 @@ export interface Reading {
   /** This PC's system, and whether it is a laptop (server/capture.ts selfSystem). */
   self?: { os: string; laptop?: boolean };
   geo?: Geo;
+  /** An interface as he would say it (server/capture.ts classify): what a network without a router is called. */
+  label?: (iface: string) => string;
 }
 
-export function interpret<V extends Dissected | Pick<Dissected, 'devices' | 'remotes' | 'conversations'>>(v: V, o: Reading = {}): V {
+export function interpret<V extends Dissected | Pick<Dissected, 'devices' | 'remotes' | 'conversations' | 'segments'>>(v: V, o: Reading = {}): V {
+  // Which network each stay was on (shared/networks.ts): the devices', the conversations' (a network's stays joined).
+  byNetwork(v, { label: o.label, router: (mac) => v.devices.find((d) => d.mac === mac)?.name });
   const remotes = new Map(v.remotes.map((h) => [h.id, h]));
   for (const h of v.remotes) {
     // What it is, in plain words: by the names it was given, TLS's and HTTP's first, else its network.

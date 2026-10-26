@@ -217,6 +217,16 @@ test('MCP: get_hosts reads the live session (or a capture); get_device walks to 
   assert.equal(body.devices.length, DEVICES);
   assert.ok(body.devices.some((d) => d.name === 'raspberrypi' && d.vendor === 'Raspberry Pi Foundation'));
   assert.ok(body.devices.some((d) => d.role?.startsWith('router')));
+  // The network it is on now, told by its router: what the answer is about, and the others to ask for.
+  const nets = body as unknown as { showing: string; networks: { id: string; name: string; now?: boolean; routers: string[] }[] };
+  assert.deepEqual(nets.networks.map((n) => [n.routers[0], n.now]), [[truth.hosts.router.mac, true]]);
+  assert.equal(nets.showing, nets.networks[0]!.name);
+  const elsewhere = await mcp(app.base, 'tools/call', { name: 'get_hosts', arguments: { network: 'the moon' } });
+  assert.equal(elsewhere.result?.isError, true);
+  assert.match(elsewhere.result?.content?.[0]?.text ?? '', new RegExp(`${nets.networks[0]!.id}.*all`));
+  const all = JSON.parse((await mcp(app.base, 'tools/call', { name: 'get_hosts', arguments: { network: 'all' } })).result?.content?.[0]?.text ?? '{}');
+  assert.equal(all.showing, 'all networks');
+  assert.equal(all.devices.length, DEVICES);
   // What the traffic was for, in plain words: by app, with its share; and each host with what it is.
   const read = body as unknown as { apps: { app?: string; activity?: string; share: number }[]; remotes: { ip: string; what?: { app?: string } }[] };
   assert.ok(read.apps.some((a) => a.app === 'YouTube' && a.activity === 'watching video'));
@@ -386,6 +396,12 @@ test('The day kept: a live session becomes the day (events for what went unencry
   const got = await mcp(app.base, 'tools/call', { name: 'get_day', arguments: {} });
   const summary = JSON.parse(got.result?.content?.[0]?.text ?? '{}');
   assert.ok(summary.events.some((e: { event: string }) => /FTP without encryption/.test(e.event)));
+  // The day's network, by its name: the same day, of it alone; a network it was not on is said so.
+  assert.equal(summary.networks.length, 1);
+  const theNet = JSON.parse((await mcp(app.base, 'tools/call', { name: 'get_day', arguments: { network: summary.networks[0].name } })).result?.content?.[0]?.text ?? '{}');
+  assert.equal(theNet.network, summary.networks[0].name);
+  assert.equal(theNet.bytes, summary.bytes);
+  assert.equal((await mcp(app.base, 'tools/call', { name: 'get_day', arguments: { network: 'the moon' } })).result?.isError, true);
   assert.ok(!JSON.stringify(summary).includes('ZXhhbXBsZTpleGFtcGxl'));
   const did = await mcp(app.base, 'tools/call', {
     name: 'what_happened',

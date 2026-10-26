@@ -66,10 +66,13 @@ this PC are known by what they do.
 **The internet, by company.** Hosts are named by the DNS answers your network got for them and by the server name an
 encrypted connection asks for in the clear (SNI), then grouped by who runs them: `rr3---sn-…googlevideo.com` is Google.
 
-**Networks.** Where it listens is a bar of pills at the top of every page: each network a switch, with its rate now;
-the minor ones (Docker's bridges, what is down) behind "more". Each network's page has its devices, its bandwidth and
-its conversations. Every device says which network it is on, and one network can be chosen: its devices first and the
-others' after, or the others left out altogether (remembered).
+**Networks.** Where it listens is a bar of pills at the top of every page: each interface a switch, with the network
+it is on now (its Wi-Fi's name) and its rate; the minor ones (Docker's bridges, what is down) behind "more". Each
+network you were on is kept apart: home, the office and a café are three networks, though all three may hand
+out the same addresses on the same Wi-Fi card, and home by cable and by Wi-Fi is one. A network is its router (the way out your
+PC's frames go through), named by its Wi-Fi when there is one. The pages show the network of now; the menu beside the
+pills chooses an earlier one, or all of them together, and the devices, the hosts, the diary and the agent's answers
+follow. A day kept before Argus told networks apart says so, rather than being split after the fact.
 
 **Conversations.** Open a device, a host, a company or a network and it says whom it talked to, by what service (as
 the port says: HTTPS, DNS, QUIC…), how much each way and when, live; the other end is a click away.
@@ -136,7 +139,8 @@ reload: the page asks the server, and the server writes the session to `data/liv
 | Part | Where |
 |---|---|
 | Listening, the ring buffer, saving | `server/live.ts` |
-| Adding up, naming, the router | `server/tally.ts` |
+| Adding up, naming, the router, the stays on each network | `server/tally.ts` |
+| Which stays are one network, and its name | `shared/networks.ts` |
 | Reading the facts: the dictionary, identity, DNS, where | `server/interpret.ts`, `shared/identify.ts`, `shared/security.ts`, `server/geo.ts` |
 | The day kept, the diary, what each device is doing now | `server/history.ts`, `shared/words.ts` |
 | The routes and the MCP tools (`get_hosts`, `get_device`, `list_captures`, `get_day`, `what_happened`) | `server/index.ts`, `server/tools.ts` |

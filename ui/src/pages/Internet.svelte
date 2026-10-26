@@ -13,7 +13,7 @@
   let q = $state('');
   let all = $state(false);
 
-  const source = $derived(argus.sourceFor(capture));
+  const source = $derived(argus.sourceFor(capture, true));
   const live = $derived(source?.kind === 'live');
   const hosts = $derived.by(() => {
     if (!source) return [];

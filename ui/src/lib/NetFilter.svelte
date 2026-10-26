@@ -1,20 +1,30 @@
 <script lang="ts">
-  // Which network the list shows, as a menu: every network, or one (with how many devices each), and whether the
-  // other networks' devices then stay out of the list altogether. The choice is the same on every page, and kept.
+  // Which network the pages show, as a menu in the bar on every page: the one Argus is on now (the default), each
+  // network the session was on and those remembered from before it (its Wi-Fi's name, else its router's; when it was
+  // heard last), or all of them together. The choice is the same on every page, and kept.
   import Check from '@lucide/svelte/icons/check';
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import Layers from '@lucide/svelte/icons/layers';
-  import type { Device } from '../../../shared/types.ts';
+  import Radio from '@lucide/svelte/icons/radio';
+  import type { Network } from '../../../shared/types.ts';
+  import { argus } from './argus.svelte.ts';
   import EntityIcon from './EntityIcon.svelte';
-  import { networks, networksOf } from './networks.svelte.ts';
-
-  let { devices }: { devices: Device[] } = $props();
+  import { since } from './format.ts';
+  import { networks } from './networks.svelte.ts';
 
   let open = $state(false);
   let root = $state<HTMLElement>();
-  const nets = $derived(networksOf(devices));
-  const current = $derived(networks.current(devices));
-  const label = $derived(current ? (nets.find((n) => n.id === current)?.name ?? current) : 'All networks');
+  const list = $derived(argus.netList);
+  const nowNets = $derived(argus.networks.filter((n) => n.now));
+  const nowLabel = $derived(nowNets.map((n) => n.name).join(' and ') || (argus.networks[0] ? argus.networks[0].name : ''));
+  const chosen = $derived(list.find((n) => n.id === networks.choice));
+  const label = $derived(
+    networks.choice === 'all' ? 'All networks' : networks.choice === 'now' ? nowLabel || 'No network yet' : (chosen?.name ?? 'A network not seen since'),
+  );
+  /** How many devices of the session each network has. */
+  const count = (id: string) => argus.devices.filter((d) => d.networks?.includes(id)).length;
+  const ifaceOf = (n: Network) => argus.interfaces.find((i) => i.id === n.interfaces[0]);
+  const where = (n: Network) => n.interfaces.map((id) => argus.interfaces.find((i) => i.id === id)?.label ?? id).join(' and ');
 
   function outside(e: PointerEvent) {
     if (open && root && !root.contains(e.target as Node)) open = false;
@@ -34,8 +44,8 @@
     e.preventDefault();
   }
 
-  function pick(id: string | null) {
-    networks.select(id);
+  function pick(c: string) {
+    networks.choose(c);
     open = false;
   }
 </script>
@@ -43,33 +53,36 @@
 <svelte:window onpointerdown={outside} onkeydown={key} />
 
 <div class="nf" bind:this={root}>
-  <button class="nf-button" class:set={current} aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)}>
-    <span class="sr">Network: </span>{label}{#if current && networks.hideOthers}<span class="only">only this</span>{/if}
+  <button class="nf-button" class:set={networks.choice !== 'now'} aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)} title="Which network the pages show">
+    <span class="sr">Network: </span>{#if networks.choice === 'now' && nowNets.length}<i class="live" aria-hidden="true"></i>{/if}<span class="lb">{label}</span>
     <ChevronDown size={14} strokeWidth={2} />
   </button>
   {#if open}
     <div class="nf-menu" role="menu" aria-label="Network">
-      <button role="menuitemradio" aria-checked={!current} onclick={() => pick(null)}>
-        <span class="ic"><Layers size={15} strokeWidth={1.7} /></span><span class="nm">All networks</span><span class="n">{devices.length}</span>
-        <span class="tick">{#if !current}<Check size={14} strokeWidth={2.2} />{/if}</span>
+      <button role="menuitemradio" aria-checked={networks.choice === 'now'} onclick={() => pick('now')}>
+        <span class="ic"><Radio size={15} strokeWidth={1.7} /></span>
+        <span class="nm">The network of now<span class="hint">{nowNets.length ? nowLabel : 'not listening: the latest one'}</span></span>
+        <span class="n"></span>
+        <span class="tick">{#if networks.choice === 'now'}<Check size={14} strokeWidth={2.2} />{/if}</span>
       </button>
-      {#each nets as n (n.id)}
-        <button role="menuitemradio" aria-checked={current === n.id} onclick={() => pick(n.id)}>
-          <span class="ic">{#if n.iface}<EntityIcon entity={n.iface} size={20} />{/if}</span>
-          <span class="nm">{n.name}{#if n.iface && n.iface.name !== n.id}<span class="id">{n.id}</span>{/if}</span>
-          <span class="n">{n.count}</span>
-          <span class="tick">{#if current === n.id}<Check size={14} strokeWidth={2.2} />{/if}</span>
+      <div class="sep" role="separator"></div>
+      {#each list as n (n.id)}
+        {@const iface = ifaceOf(n)}
+        <button role="menuitemradio" aria-checked={networks.choice === n.id} onclick={() => pick(n.id)}>
+          <span class="ic">{#if iface}<EntityIcon entity={iface} size={20} />{/if}</span>
+          <span class="nm"
+            >{n.name}<span class="hint">{where(n)}{n.now ? ', now' : n.pending ? ', joining' : `, last ${since(n.last)}`}{argus.networks.some((x) => x.id === n.id) ? '' : ' (before this session)'}</span></span
+          >
+          <span class="n">{argus.networks.some((x) => x.id === n.id) ? count(n.id) : ''}</span>
+          <span class="tick">{#if networks.choice === n.id}<Check size={14} strokeWidth={2.2} />{/if}</span>
         </button>
       {/each}
       <div class="sep" role="separator"></div>
-      <button
-        role="menuitemcheckbox"
-        class="hide"
-        aria-checked={networks.hideOthers}
-        onclick={() => networks.setHideOthers(!networks.hideOthers)}
-      >
-        <span class="box" class:on={networks.hideOthers} aria-hidden="true">{#if networks.hideOthers}<Check size={12} strokeWidth={3} />{/if}</span>
-        <span class="nm">Hide the other networks' devices<span class="hint">with a network chosen, the others are not listed at all</span></span>
+      <button role="menuitemradio" aria-checked={networks.choice === 'all'} onclick={() => pick('all')}>
+        <span class="ic"><Layers size={15} strokeWidth={1.7} /></span><span class="nm">All networks<span class="hint">together, as one list</span></span><span class="n"
+          >{argus.devices.length}</span
+        >
+        <span class="tick">{#if networks.choice === 'all'}<Check size={14} strokeWidth={2.2} />{/if}</span>
       </button>
     </div>
   {/if}
@@ -79,21 +92,29 @@
   .nf {
     position: relative;
     display: inline-block;
+    min-width: 0;
   }
 
   .nf-button {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    max-width: min(320px, 40vw);
     min-height: 30px;
     padding: 3px 9px 3px 11px;
     border: 1px solid var(--rule-strong);
     border-radius: var(--radius);
     background: var(--b0);
-    color: var(--fg-2);
+    color: var(--fg);
     font-size: 0.82rem;
     font-weight: 500;
     cursor: pointer;
+  }
+
+  .lb {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .nf-button:hover {
@@ -102,13 +123,14 @@
 
   .nf-button.set {
     border-color: var(--acc-line);
-    color: var(--fg);
   }
 
-  .only {
-    font-size: 0.74rem;
-    font-weight: 500;
-    color: var(--acc);
+  .live {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--acc);
   }
 
   .nf-menu {
@@ -116,8 +138,10 @@
     z-index: 30;
     top: calc(100% + 6px);
     right: 0;
-    min-width: 290px;
-    max-width: min(340px, calc(100vw - 32px));
+    min-width: 300px;
+    max-width: min(360px, calc(100vw - 32px));
+    max-height: 70vh;
+    overflow-y: auto;
     padding: 5px;
     border: 1px solid var(--rule);
     border-radius: var(--radius-lg);
@@ -158,19 +182,13 @@
     flex-direction: column;
     min-width: 0;
     font-weight: 500;
+    overflow-wrap: anywhere;
   }
 
-  .id,
   .hint {
-    font-family: var(--mono);
-    font-size: 0.72rem;
+    font-size: 0.74rem;
     font-weight: 400;
     color: var(--faint);
-  }
-
-  .hint {
-    font-family: var(--sans);
-    font-size: 0.74rem;
   }
 
   .n {
@@ -189,26 +207,6 @@
     height: 1px;
     margin: 5px 4px;
     background: var(--rule);
-  }
-
-  .nf-menu button.hide {
-    grid-template-columns: 22px minmax(0, 1fr);
-  }
-
-  .box {
-    display: inline-grid;
-    place-items: center;
-    width: 16px;
-    height: 16px;
-    margin-left: 3px;
-    border: 1.5px solid var(--rule-strong);
-    border-radius: 4px;
-    color: var(--on-acc);
-  }
-
-  .box.on {
-    border-color: var(--acc);
-    background: var(--acc);
   }
 
   .sr {

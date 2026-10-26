@@ -1,15 +1,19 @@
 <script lang="ts">
-  // Every device the live session (or a saved capture) saw, busiest first, each with its network; one network first,
-  // or alone, if he chooses (NetFilter).
+  // The devices of the network shown (the one of now, unless he chose another in the bar: NetFilter), or of a saved
+  // capture, busiest first, each with its networks.
   import { argus } from '../lib/argus.svelte.ts';
   import DeviceTable from '../lib/DeviceTable.svelte';
-  import NetFilter from '../lib/NetFilter.svelte';
+  import { since } from '../lib/format.ts';
+  import { networks } from '../lib/networks.svelte.ts';
+  import { link } from '../lib/router.svelte.ts';
   import SourceHead from '../lib/SourceHead.svelte';
 
   let { capture }: { capture?: string } = $props();
 
-  const source = $derived(argus.sourceFor(capture));
+  const source = $derived(argus.sourceFor(capture, true));
   const shown = $derived(source?.devices ?? []);
+  /** A network chosen that this session never was on (one remembered from before it). */
+  const before = $derived(!capture && !['now', 'all'].includes(networks.choice) && !argus.networks.some((n) => n.id === networks.choice) ? argus.netList.find((n) => n.id === networks.choice) : undefined);
 </script>
 
 <div class="page">
@@ -24,8 +28,12 @@
   </header>
   {#if source}
     {#if shown.length}
-      <div class="filter"><NetFilter devices={shown} /></div>
-      <DeviceTable devices={shown} live={source.kind === 'live'} {capture} byNetwork />
+      <DeviceTable devices={shown} live={source.kind === 'live'} {capture} />
+    {:else if before}
+      <div class="empty-state">
+        <h2>Not on {before.name} in this session</h2>
+        <p>It was last heard {since(before.last)}. What it did is in the <a href={link.diary()}>Diary</a>, a day at a time; this session began after.</p>
+      </div>
     {:else}
       <div class="empty-state">
         <h2>No devices yet</h2>
@@ -36,11 +44,3 @@
     <p class="error">{argus.captureProblem[capture ?? '']}</p>
   {/if}
 </div>
-
-<style>
-  .filter {
-    display: flex;
-    justify-content: flex-end;
-    margin: -12px 0 8px;
-  }
-</style>

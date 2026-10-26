@@ -1,0 +1,102 @@
+{
+  "packets": 34,
+  "hosts": {
+    "homeRouter": {
+      "mac": "50:c7:bf:aa:00:01",
+      "ip": "192.168.88.1"
+    },
+    "cafeRouter": {
+      "mac": "f0:9f:c2:bb:00:01",
+      "ip": "192.168.88.1"
+    },
+    "meHome": {
+      "mac": "3c:a9:f4:aa:00:10",
+      "ip": "192.168.88.10"
+    },
+    "meCafe": {
+      "mac": "9e:5a:11:bb:00:10",
+      "ip": "192.168.88.57"
+    },
+    "meCable": {
+      "mac": "3c:a9:f4:aa:00:11",
+      "ip": "192.168.88.11"
+    },
+    "tv": {
+      "mac": "f4:f5:d8:aa:00:20",
+      "ip": "192.168.88.20",
+      "name": "Lounge TV",
+      "model": "Chromecast",
+      "host": "c0ffee00-0000-4000-8000-0000000a0020.local"
+    },
+    "phone": {
+      "mac": "3c:22:fb:aa:00:30",
+      "ip": "192.168.88.30",
+      "name": "Sams-iPhone"
+    },
+    "till": {
+      "mac": "00:1b:21:bb:00:20",
+      "ip": "192.168.88.20",
+      "name": "TILL-01"
+    },
+    "guest": {
+      "mac": "ba:11:22:bb:00:31",
+      "ip": "192.168.88.31",
+      "name": "Guest-Laptop"
+    },
+    "web": {
+      "ip": "203.0.113.14",
+      "name": "www.example.com"
+    },
+    "fonts": {
+      "ip": "198.51.100.44"
+    },
+    "shop": {
+      "ip": "203.0.113.50",
+      "name": "pay.example.net"
+    },
+    "photos": {
+      "ip": "198.51.100.30",
+      "name": "photos.example.org"
+    }
+  },
+  "own": [
+    "3c:a9:f4:aa:00:10",
+    "9e:5a:11:bb:00:10",
+    "3c:a9:f4:aa:00:11"
+  ],
+  "places": {
+    "home": {
+      "macs": [
+        "3c:22:fb:aa:00:30",
+        "3c:a9:f4:aa:00:10",
+        "3c:a9:f4:aa:00:11",
+        "50:c7:bf:aa:00:01",
+        "f4:f5:d8:aa:00:20"
+      ],
+      "me": {
+        "sent": 1542,
+        "received": 3794
+      },
+      "web": {
+        "sent": 108,
+        "received": 2620
+      }
+    },
+    "cafe": {
+      "macs": [
+        "00:1b:21:bb:00:20",
+        "9e:5a:11:bb:00:10",
+        "ba:11:22:bb:00:31",
+        "f0:9f:c2:bb:00:01"
+      ],
+      "me": {
+        "sent": 771,
+        "received": 1720
+      },
+      "web": {
+        "sent": 54,
+        "received": 1310
+      }
+    }
+  }
+}
