@@ -1,14 +1,16 @@
 // pnpm demo: Argus with a made-up house instead of a capture (scripts/demo-tshark.ts), for a look without the
 // capture permissions, and for the README's pictures. Its own data in .demo/, its own port (4950), the Wi-Fi and
 // Docker's bridge turned on at start; on the Wi-Fi a café first, then the house (two networks, each its own, named by
-// a made-up SSID that scripts/demo-iw.ts says); the neighbour table and a scan of the LAN made up too
-// (scripts/demo-ip.ts, scripts/demo-nmap.ts): nothing touches the network.
+// a made-up SSID that scripts/demo-iw.ts says); the neighbour table, a scan of the LAN and the router made up too
+// (scripts/demo-ip.ts, scripts/demo-nmap.ts, tests/fake-router.ts, whose password is DEMO_ROUTER_PASSWORD below): nothing
+// touches the network.
 //
 //   pnpm demo          then http://localhost:4950
 
 import { spawn } from 'node:child_process';
 import { chmodSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
+import { fakeRouter } from '../tests/fake-router.ts';
 import { fakeCapture } from '../tests/helpers.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -22,9 +24,13 @@ for (const f of [tshark, iw, ip, nmap]) chmodSync(f, 0o755);
 const ssidFile = path.join(DEMO, 'ssid');
 rmSync(ssidFile, { force: true });
 rmSync(`${ssidFile}.scanned`, { force: true });
+rmSync(path.join(DEMO, 'router-keys.json'), { force: true });
 mkdirSync(path.join(DEMO, 'data'), { recursive: true });
 mkdirSync(path.join(DEMO, 'state'), { recursive: true });
 const fake = await fakeCapture();
+/** The made-up router's password, to type on the Scan page. */
+const DEMO_ROUTER_PASSWORD = 'willow-demo';
+const router = await fakeRouter({ password: DEMO_ROUTER_PASSWORD });
 
 const server = spawn(process.execPath, ['server/index.ts'], {
   cwd: ROOT,
@@ -48,6 +54,9 @@ const server = spawn(process.execPath, ['server/index.ts'], {
     ARGUS_NMAP: nmap,
     ARGUS_NEIGH: '1',
     ARGUS_SCAN: '1',
+    ARGUS_ROUTER: '1',
+    ARGUS_ROUTER_URL: router.base,
+    ARGUS_ROUTER_KEYS: path.join(DEMO, 'router-keys.json'),
     ARGUS_LEASES: 'none',
     ARGUS_SOURCES_MS: '3000',
   },
@@ -64,6 +73,6 @@ for (const iface of ['wlan0', 'docker0'])
     } catch {}
     await new Promise((r) => setTimeout(r, 100));
   }
-console.log(`\n  Argus, the demo: http://localhost:${PORT}  (a made-up house; Ctrl+C stops it)\n`);
+console.log(`\n  Argus, the demo: http://localhost:${PORT}  (a made-up house; its router's password: ${DEMO_ROUTER_PASSWORD}; Ctrl+C stops it)\n`);
 for (const s of ['SIGINT', 'SIGTERM'] as const) process.on(s, () => server.kill('SIGTERM'));
 server.on('exit', (code) => process.exit(code ?? 0));

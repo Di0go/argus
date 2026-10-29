@@ -17,6 +17,7 @@ import type {
   Capture,
   Conversation,
   Device,
+  Here,
   HostsView,
   Interface,
   LiveView,
@@ -25,6 +26,7 @@ import type {
   SeriesData,
   Session,
   Site,
+  SourceRun,
   SourceState,
 } from '../../../shared/types.ts';
 
@@ -51,6 +53,22 @@ export interface KnownNetwork {
   last: number;
 }
 
+/** What reading the router came to (POST /api/sources/router). */
+export interface RouterAnswer {
+  ok: boolean;
+  model?: string;
+  /** Its public factory password let Argus in (a warning). */
+  factory?: boolean;
+  /** Where the factory password is, when it has to be typed. */
+  hint?: string;
+  need?: 'password';
+  user?: string;
+  attemptsLeft?: number;
+  error?: string;
+  run?: SourceRun;
+  here?: Here | null;
+}
+
 const EMPTY_SERIES: SeriesData = { step: 1, end: 0, sent: [], received: [] };
 
 class Argus {
@@ -70,6 +88,10 @@ class Argus {
   known = $state<KnownNetwork[]>([]);
   /** Where devices are found besides listening (server/sources.ts), and how each is going. */
   sources = $state<SourceState[]>([]);
+  /** Every time he asked the network or the router who is there (the Scan page), the latest first. */
+  runs = $state<SourceRun[]>([]);
+  /** Where this PC is now: what can be asked (server/sources.ts here); undefined until asked, null when nowhere. */
+  here = $state<Here | null | undefined>(undefined);
   /** Why capturing can't be done yet (dumpcap missing or not allowed). */
   interfacesProblem = $state('');
   warnings = $state<string[]>([]);
@@ -95,7 +117,9 @@ class Argus {
   readonly live = new LiveStream<ArgusEvent>({
     reload: async () => {
       const [state, view, ifaces] = await Promise.all([
-        getJson<{ captures: Capture[]; warnings: string[]; build?: string; geo?: boolean; networks?: KnownNetwork[]; sources?: SourceState[] }>('/api/state'),
+        getJson<{ captures: Capture[]; warnings: string[]; build?: string; geo?: boolean; networks?: KnownNetwork[]; sources?: SourceState[]; runs?: SourceRun[] }>(
+          '/api/state',
+        ),
         getJson<LiveView>('/api/live'),
         getJson<{ interfaces: Interface[]; problem?: string }>('/api/interfaces').catch((e: Error) => ({ interfaces: [], problem: e.message })),
       ]);
@@ -104,6 +128,7 @@ class Argus {
       this.geo = Boolean(state.geo);
       this.known = state.networks ?? [];
       this.sources = state.sources ?? [];
+      this.runs = state.runs ?? [];
       this.networks = view.networks ?? [];
       this.interfaces = ifaces.interfaces;
       this.interfacesProblem = ifaces.problem ?? '';
@@ -191,10 +216,36 @@ class Argus {
     await sendJson('/api/live/reset', {});
   }
 
-  /** Asks the LAN who is there (`iface`, else the server's first real interface): the one thing Argus sends (server/sources.ts). */
-  async scanSources(iface?: string): Promise<SourceState[]> {
-    this.sources = await sendJson<SourceState[]>('/api/sources/scan', iface ? { iface } : {});
-    return this.sources;
+  /** Where this PC is now: its way out, its router, the network that is (local reads on the server, nothing sent). */
+  async loadHere(): Promise<Here | null> {
+    this.here = await getJson<Here | null>('/api/sources/here');
+    return this.here;
+  }
+
+  /** Asks the LAN this PC is on who is there (`network`, which must be the one of here): it sends packets (server/sources.ts). */
+  async scan(network?: string): Promise<SourceRun | undefined> {
+    const r = await sendJson<{ sources: SourceState[]; runs: SourceRun[] }>('/api/sources/scan', network ? { network } : {});
+    this.sources = r.sources;
+    this.runs = r.runs;
+    return r.runs[0];
+  }
+
+  /** Logs in to the router of here and reads its devices (server/routers.ts); `password` once, then it is kept on the server. */
+  async readRouter(network: string | undefined, password?: string): Promise<RouterAnswer> {
+    const r = await sendJson<RouterAnswer & { sources: SourceState[]; runs: SourceRun[] }>('/api/sources/router', {
+      ...(network ? { network } : {}),
+      ...(password ? { password } : {}),
+    });
+    this.sources = r.sources;
+    this.runs = r.runs;
+    if (r.here !== undefined) this.here = r.here;
+    return r;
+  }
+
+  /** Forgets the password kept for the router of here. */
+  async forgetRouter(): Promise<void> {
+    const r = await sendJson<{ here: Here | null }>('/api/sources/router', {}, 'DELETE');
+    this.here = r.here;
   }
 
   async save(): Promise<Capture> {
@@ -223,6 +274,7 @@ class Argus {
     }
     if (e.type === 'sources') {
       this.sources = e.sources;
+      this.runs = e.runs;
       return;
     }
     this.session = e.session;

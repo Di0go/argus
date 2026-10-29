@@ -32,12 +32,20 @@ mostly its own traffic and the broadcast and multicast of the others. The interf
 
 To see more of the network than passes through this PC, `server/sources.ts` asks other witnesses
 ([docs/sources.md](docs/sources.md)). Passive, every 15 s: this PC's neighbour table (`ip neigh`) and DHCP lease files
-on this PC, both local reads that send nothing. Active, and the one thing in Argus that sends: a scan of the LAN
-(`nmap -sn` over the /24 this PC is in: an ARP request and a TCP connection attempt to ports 80 and 443 per address,
-then PTR questions for those that answered), run only when he presses its button on Devices, which says "active" and
-what it sends; never on a timer, at start or from the agent. What they find is `foundOnly` (no traffic), shown apart,
-placed on the network its interface was on when it was found (else on none), and never kept in the day. Anything that
-changes other people's traffic (ARP spoofing, deauthentication) or scans ports for services is not in Argus.
+on this PC, both local reads that send nothing. Active, two, both on the *Scan* page (`ui/src/pages/Scan.svelte`) and
+nowhere else: a scan of the LAN (`nmap -sn` over the /24 this PC is in: an ARP request and a TCP connection attempt to
+ports 80 and 443 per address, then PTR questions for those that answered), and reading the router (`server/routers.ts`:
+it logs in to the router's web page, reads its list of devices, logs out, changes nothing; one adapter per model in
+`server/routers/`, the first the MEO Fiber Gateway). Each runs only when he presses its button, which says "active" and
+what it does, only on the network this PC is on then (its way out: `Sources.here`, the server refuses any other); never
+on a timer, at start or from the agent. The router's password is his: typed on that page, kept in
+`~/.config/argus/routers.json` (600, by the router's MAC, `ARGUS_ROUTER_KEYS`), only ever given to that MAC, and never
+in the repository, a test, a log or an answer of the API; a model whose factory password is public tries it first and
+says so as a warning. Tests use a pretend router (`tests/fake-router.ts`), never the real one. What they find is
+`foundOnly` (no traffic), shown apart, placed on the network asked (else the one its interface was on when it was
+found, else none), each time kept as a run (when, where, what Argus knew of each device before) until a restart, and
+never kept in the day. Anything that changes other people's traffic (ARP spoofing, deauthentication) or scans ports for
+services is not in Argus.
 
 ## The sensor and the server
 

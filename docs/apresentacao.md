@@ -5,6 +5,27 @@ know in seconds what is happening on the network, what each device is and is doi
 is how the pages are laid out, why, and what was tried and turned down. (The file keeps the name it was asked for;
 everything in it is in English, like the rest of Argus.)
 
+## 2026-10-29, later: Scan, a page of its own, and the router read
+
+He: "the scan has to be a new section in Argus's sidebar", and of the router, "we go case by case then […] check MEO's
+default password". **Scan** is a place in the ribbon, between Internet and Privacy. At its top, the networks as chips,
+the one of here first ("here now"; the bar's network when it shows one). For the network of here, two panels side by
+side (stacked on a phone), each titled with what it does in a tag, "active · sends packets" and "active · logs in to
+it", the sentence of what exactly, and its button. For another network: why not ("cannot be reached from here") and a
+link back to the network of here, no button. Under them, every run on that network, the latest first: what, when, on
+which interface, how many, and a table of what it found with what Argus knew of each just before (*Heard*, *Found
+before*, *New*), the router's with how each is connected (*Wi-Fi 5GHz, Willow House*, *Cable, LAN 2*) and the ones it
+only remembers greyed. The router panel says the router's address and model and whether a password is saved (with
+*Forget it*); asked for one, it says where the factory one is and that it stays on this PC. A public factory password
+that let Argus in is said in a warning band: anyone on the network can log in to it.
+
+Devices keeps the passive sources and points to Scan for the two active ones: one way to ask, not two.
+
+**Turned down:** keeping the scan's button on Devices beside a link to Scan (two ways of doing one thing); detecting the
+router's model on opening the page (a request to the router he did not press for); a second network picker in the
+bar's menu (the chips are what can be *asked*, the bar is what is *shown*); trying guessed passwords on his router (it
+locks its page after five; the factory password of the MEO box is the Wi-Fi key on its label, one per box, not public).
+
 ## 2026-10-29: where it listens, what it shows, and what it found
 
 He, after the monitor: "I have certain networks selected but I still see devices that aren't from there. And I'm still

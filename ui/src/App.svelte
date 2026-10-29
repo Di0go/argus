@@ -27,6 +27,7 @@
   import Now from './pages/Now.svelte';
   import Privacy from './pages/Privacy.svelte';
   import Remote from './pages/Remote.svelte';
+  import Scan from './pages/Scan.svelte';
   import Site from './pages/Site.svelte';
   import { theme } from './theme.svelte.ts';
 
@@ -40,6 +41,7 @@
     interface: 'M3 8.2a10 10 0 0 1 14 0M5.6 11a6.3 6.3 0 0 1 8.8 0M8.2 13.8a2.6 2.6 0 0 1 3.6 0M10 16.2v.1',
     privacy: 'M5.5 9V6.5a4.5 4.5 0 0 1 9 0V9M4 9h12v8H4zM10 12v2',
     diary: 'M5 3.5h10v13H5zM7.5 7h5M7.5 10h5M7.5 13h3',
+    scan: 'M10 10l5-5M10 3.5a6.5 6.5 0 1 0 6.5 6.5M10 6.5a3.5 3.5 0 1 0 3.5 3.5',
   };
   const PAGE_ICON: Record<Located['page'], string> = {
     now: ICON.now,
@@ -53,6 +55,7 @@
     capture: ICON.captures,
     privacy: ICON.privacy,
     diary: ICON.diary,
+    scan: ICON.scan,
   };
 
   const route = $derived(router.route);
@@ -75,6 +78,7 @@
       icon: ICON.internet,
       on: route.page === 'internet' || route.page === 'remote' || route.page === 'site',
     },
+    { id: 'scan', label: 'Scan', href: link.scan(), icon: ICON.scan, on: route.page === 'scan' },
     { id: 'privacy', label: 'Privacy', href: link.privacy(), icon: ICON.privacy, on: route.page === 'privacy' },
     { id: 'diary', label: 'Diary', href: link.diary(), icon: ICON.diary, on: route.page === 'diary' },
     { id: 'captures', label: 'Captures', href: link.captures(), icon: ICON.captures, on: route.page === 'captures' || route.page === 'capture' },
@@ -116,6 +120,8 @@
         return 'Captures';
       case 'privacy':
         return 'Privacy';
+      case 'scan':
+        return 'Scan';
       case 'diary':
         return r.id ? `Diary, ${r.id}` : 'Diary';
       case 'capture': {
@@ -256,6 +262,8 @@
       <Interface id={route.id} />
     {:else if route.page === 'privacy'}
       <Privacy capture={route.capture} />
+    {:else if route.page === 'scan'}
+      <Scan />
     {:else if route.page === 'diary'}
       <Diary date={route.id} />
     {:else if route.page === 'captures'}

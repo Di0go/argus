@@ -15,8 +15,8 @@ export type Kind = 'device' | 'remote' | 'site' | 'interface' | 'capture';
 export type NameSource = 'DHCP' | 'mDNS' | 'NetBIOS' | 'DNS' | 'TLS' | 'HTTP';
 
 /**
- * Where a device was found besides this PC's own listening: the router's leases, the kernel's neighbour table, a scan
- * of the LAN, or a DNS server's log. The sensor (tshark) is not one of these: what it heard is the device's own traffic.
+ * Where a device was found besides this PC's own listening: the router (its list of devices, read from its page, or a
+ * DHCP lease file on this PC), the kernel's neighbour table, a scan of the LAN, or a DNS server's log. The sensor (tshark) is not one of these: what it heard is the device's own traffic.
  */
 export type DeviceOrigin = 'router' | 'neigh' | 'scan' | 'dns';
 
@@ -288,10 +288,10 @@ export interface Listening {
 
 /**
  * A place Argus finds devices besides listening: the kernel's neighbour table, the router's (or a local) DHCP leases,
- * and a scan of the LAN on demand. What each adds, and how it is going, as the page says it.
+ * and, on demand, a scan of the LAN and a reading of the router. What each adds, and how it is going, as the page says it.
  */
 export interface SourceState {
-  id: 'neigh' | 'leases' | 'scan';
+  id: 'neigh' | 'leases' | 'scan' | 'router';
   name: string;
   /** Whether it is adding anything now (scan: whether it can be asked to). */
   on: boolean;
@@ -303,6 +303,51 @@ export interface SourceState {
   found: number;
   /** Why it is off, or what failed at the last look. */
   error?: string;
+}
+
+/** One time he asked the network who is there (a scan) or the router what it knows (Scan page): when, where, what. */
+export interface SourceRun {
+  id: string;
+  kind: 'scan' | 'router';
+  /** Epoch seconds. */
+  at: number;
+  iface: string;
+  /** The network it asked: the router's, by its MAC (shared/networks.ts ids). */
+  network?: string;
+  /** Reading the router: its model, and whether its public factory password let Argus in (a warning). */
+  router?: { model: string; factory?: boolean };
+  error?: string;
+  found: RunDevice[];
+}
+
+/** A device a run found, and what Argus knew of it just before. */
+export interface RunDevice {
+  mac?: string;
+  ip?: string;
+  hostname?: string;
+  /** From the router: by cable or Wi-Fi, where ("LAN 2", "5GHz"), on which SSID, and whether connected now. */
+  link?: 'cable' | 'wifi';
+  port?: string;
+  ssid?: string;
+  connected?: boolean;
+  /** Heard by this PC already, found before by another source (or an earlier run), or new to Argus. */
+  known: 'heard' | 'found' | 'new';
+  /** Its device's id and the name it had then, when it was known. */
+  device?: string;
+  name?: string;
+}
+
+/**
+ * Where this PC is now, for what can only be asked of the network it is on: the interface of its way out, the gateway
+ * (its address and MAC), the network that is (when Argus knows it), and what is kept of its router.
+ */
+export interface Here {
+  iface: string;
+  gateway: string;
+  mac?: string;
+  network?: string;
+  /** The router's model, once read, and whether a password is saved for it (never the password). */
+  router?: { model?: string; saved: boolean; user?: string };
 }
 
 export interface Session {
@@ -367,7 +412,7 @@ export interface ResetEvent {
   type: 'reset';
 }
 
-export type ArgusEvent = LiveEvent | ResetEvent | { type: 'captures'; captures: Capture[] } | { type: 'sources'; sources: SourceState[] };
+export type ArgusEvent = LiveEvent | ResetEvent | { type: 'captures'; captures: Capture[] } | { type: 'sources'; sources: SourceState[]; runs: SourceRun[] };
 
 /** One episode of the diary: a device doing one thing, from when it began to when it stopped, and how much. */
 export interface Episode {

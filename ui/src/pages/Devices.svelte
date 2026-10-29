@@ -1,8 +1,9 @@
 <script lang="ts">
   // The devices of the network shown (the one of now, unless he chose another in the bar: NetFilter), or of a saved
   // capture, busiest first, each with its networks. Two lists, said apart: what this PC heard (the sensor), and, under
-  // it, what another source found without a frame passing here (this PC's neighbour table, a lease file, a scan of the
-  // LAN: server/sources.ts). "Now" keeps the first list to what was heard in the last minutes.
+  // it, what another source found without a frame passing here (this PC's neighbour table, a lease file, and what he
+  // asked for on the Scan page, a scan of the LAN and the router's list: server/sources.ts). "Now" keeps the first list
+  // to what was heard in the last minutes.
   import type { Device, SourceState } from '../../../shared/types.ts';
   import { argus } from '../lib/argus.svelte.ts';
   import DeviceTable from '../lib/DeviceTable.svelte';
@@ -36,33 +37,10 @@
   const recent = (d: Device) => Date.now() / 1000 - d.lastSeen < PRESENT;
   const heardShown = $derived(presence === 'now' ? heard.filter(recent) : heard);
 
-  /**
-   * The interface a scan asks on: a Wi-Fi or a cable listened on now, of a network shown (else what it finds would have
-   * no network to be placed on). Docker's bridges and VPNs are not a LAN to scan.
-   */
-  const scanIface = $derived(
-    argus.networks
-      .filter((n) => n.now && (!argus.shown || argus.shown.has(n.id)))
-      .flatMap((n) => n.nowOn ?? [])
-      .find((id) => ['wifi', 'cable'].includes(argus.interfaces.find((i) => i.id === id)?.type ?? '')),
-  );
-  const scan = $derived(argus.sources.find((s) => s.id === 'scan'));
-  const passive = $derived(argus.sources.filter((s) => s.id !== 'scan'));
-  let scanning = $state(false);
-  let scanNote = $state('');
-
-  async function find() {
-    scanning = true;
-    scanNote = '';
-    try {
-      const s = (await argus.scanSources(scanIface)).find((x) => x.id === 'scan');
-      scanNote = s?.error ?? `Scanned ${scanIface}: ${s?.found === 1 ? 'one device answered' : `${s?.found ?? 0} devices answered`}.`;
-    } catch (err) {
-      scanNote = (err as Error).message;
-    } finally {
-      scanning = false;
-    }
-  }
+  /** The two that are asked for by hand, on the Scan page: they send, so they are not run from here. */
+  const ACTIVE = ['scan', 'router'];
+  const active = $derived(argus.sources.filter((s) => ACTIVE.includes(s.id) && s.on));
+  const passive = $derived(argus.sources.filter((s) => !ACTIVE.includes(s.id)));
   const count = (s: SourceState) => (s.on ? `${s.found} found` : 'off');
 </script>
 
@@ -127,17 +105,13 @@
           {#each passive as s (s.id)}
             <li><b>{s.name}</b> <span class="muted">· passive, {count(s)}</span><span class="why">{s.error ?? s.detail}</span></li>
           {/each}
-          {#if scan?.on}
+          {#each active as s (s.id)}
             <li class="active">
-              <b>Scan of the LAN</b> <span class="active-tag">active</span>{#if scan.last}<span class="muted"> · scanned {since(scan.last)}, {scan.found} answered</span>{/if}
-              <span class="why">{scan.detail}</span>
-              <span class="scan-row">
-                <button class="scan-btn" disabled={scanning || !scanIface} onclick={find}>{scanning ? 'Scanning…' : scanIface ? `Scan ${scanIface} now` : 'Scan the LAN'}</button>
-                {#if !scanIface}<span class="muted">Listen on the Wi-Fi or the cable of the network shown first: what a scan finds is placed on the network being heard.</span>{/if}
-                {#if scanNote}<span role="status">{scanNote}</span>{:else if scan.error}<span class="err">{scan.error}</span>{/if}
-              </span>
+              <b>{s.name}</b> <span class="active-tag">active</span>{#if s.last}<span class="muted"> · asked {since(s.last)}, {count(s)}</span>{/if}
+              <span class="why">{s.id === 'scan' ? 'Sends packets to every address of this LAN.' : 'Logs in to the router and reads its list of devices.'} Only
+                when you ask, on the <a href={link.scan()}>Scan</a> page.</span>
             </li>
-          {/if}
+          {/each}
         </ul>
         {#if found.length}
           <DeviceTable devices={found} live={source.kind === 'live'} {capture} />
@@ -238,36 +212,8 @@
     font-weight: 600;
   }
 
-  .scan-row {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px 10px;
-    margin-top: 6px;
-  }
 
-  .scan-btn {
-    min-height: 30px;
-    padding: 3px 11px;
-    border: 1px solid var(--rule-strong);
-    border-radius: var(--radius);
-    background: var(--b0);
-    color: var(--fg);
-    font-size: 0.82rem;
-    font-weight: 500;
-    cursor: pointer;
-  }
 
-  .scan-btn:hover:not(:disabled) {
-    background: var(--hover);
-  }
 
-  .scan-btn:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
 
-  .err {
-    color: var(--shaky);
-  }
 </style>

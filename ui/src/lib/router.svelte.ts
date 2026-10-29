@@ -6,6 +6,7 @@
 //   #/remote/<ip>         one host             #/interface/<id>  one interface
 //   #/captures            the captures saved   #/capture/<id>    one, as it was
 //   #/privacy             what went unencrypted, tracking, DNS, where the data goes
+//   #/scan                asking the network who is there: a scan of the LAN, the router's list (both active)
 //   #/diary[/<date>]      a day kept: by hour, by device, its episodes
 
 import { createRouter, hashParts, hashQuery } from '@organon/core/ui/router';
@@ -21,6 +22,7 @@ export type Route =
   | { page: 'interface'; id: string }
   | { page: 'captures' }
   | { page: 'privacy' }
+  | { page: 'scan' }
   | { page: 'diary'; id?: string }
   | { page: 'capture'; id: string };
 
@@ -33,7 +35,7 @@ function parse(hash: string): Located {
   const r = (route: Route): Located => ({ ...route, capture });
   if ((first === 'device' || first === 'remote' || first === 'site' || first === 'interface') && id) return r({ page: first, id });
   if (first === 'capture' && id) return { page: 'capture', id, capture: id };
-  if (first === 'devices' || first === 'internet' || first === 'captures' || first === 'privacy') return r({ page: first });
+  if (first === 'devices' || first === 'internet' || first === 'captures' || first === 'privacy' || first === 'scan') return r({ page: first });
   if (first === 'diary') return r({ page: 'diary', ...(id ? { id } : {}) });
   return r({ page: 'now' });
 }
@@ -55,6 +57,7 @@ export const link = {
   captures: () => '#/captures',
   capture: (id: string) => `#/capture/${e(id)}`,
   privacy: (c?: string) => `#/privacy${q(c)}`,
+  scan: () => '#/scan',
   diary: (date?: string) => (date ? `#/diary/${e(date)}` : '#/diary'),
 };
 

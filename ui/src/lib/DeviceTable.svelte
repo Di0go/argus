@@ -57,7 +57,7 @@
   );
   const quiet = (d: Device) => live && Date.now() / 1000 - d.lastSeen > 300;
   const ORIGIN: Record<DeviceOrigin, string> = {
-    router: 'the router’s leases',
+    router: 'the router',
     neigh: 'this PC’s neighbour table',
     scan: 'a scan of the LAN',
     dns: 'a DNS server’s log',

@@ -3,6 +3,7 @@
 // ceilings of the live session. Each from ARGUS_* in the
 // environment, with a default.
 
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { defineApp } from '@organon/core/server/app';
 
@@ -56,9 +57,10 @@ export const SEED_PCAP = app.env('SEED_PCAP');
 /**
  * Where Argus finds devices besides listening (server/sources.ts): the kernel's neighbour table (ARGUS_NEIGH=0 turns it
  * off), DHCP lease files (ARGUS_LEASES, comma separated; "none" turns them off; unset reads the usual places), both
- * local reads, and a scan of the LAN, which sends, only when he presses its button (ARGUS_SCAN=0 takes the button away;
- * it needs nmap). The three are on only where the interfaces are the real ones (SYS_NET is /sys/class/net): the tests
- * and the demo make them up, and the real LAN must not leak in.
+ * local reads, a scan of the LAN, which sends, only when he presses its button (ARGUS_SCAN=0 takes the button away;
+ * it needs nmap), and reading the router, which logs in to it, the same way (ARGUS_ROUTER=0). All four are on only
+ * where the interfaces are the real ones (SYS_NET is /sys/class/net): the tests and the demo make them up, and the real
+ * LAN must not leak in.
  */
 const realNet = (app.env('SYS_NET') ?? '/sys/class/net') === '/sys/class/net';
 const flag = (name: string, fallback: boolean) => {
@@ -69,8 +71,23 @@ const leases = app.env('LEASES');
 export const SOURCES = {
   neigh: flag('NEIGH', realNet),
   scan: flag('SCAN', realNet),
+  router: flag('ROUTER', realNet),
   leases: leases === undefined ? (realNet ? undefined : []) : leases === 'none' || leases === '' ? [] : leases.split(',').map((f) => f.trim()).filter(Boolean),
   nmap: app.env('NMAP') ?? 'nmap',
   ip: app.env('IP') ?? 'ip',
   pollEvery: int('SOURCES_MS', 15_000),
+};
+
+/**
+ * Reading the router (server/routers.ts), only when he presses its button. Its page is the gateway's
+ * (`http://<gateway>`), or ARGUS_ROUTER_URL where the router is made up (the tests, the demo). The passwords he types
+ * are kept in ARGUS_ROUTER_KEYS, by default ~/.config/argus/routers.json (mode 600): outside the repository and the data
+ * folder, shared by every instance of this user, so he types each once. Where the interfaces are made up, beside the
+ * instance's data instead: a made-up router's password never reaches his.
+ */
+export const ROUTER = {
+  url: app.env('ROUTER_URL'),
+  keys:
+    app.env('ROUTER_KEYS') ??
+    (realNet ? path.join(process.env.XDG_CONFIG_HOME || path.join(homedir(), '.config'), 'argus', 'routers.json') : path.join(app.dataDir, 'router-keys.json')),
 };

@@ -157,11 +157,12 @@ test('A scan of the LAN: nmap on the interface’s /24 at most, and the MACs its
       // A /16: 65 534 addresses. The scan keeps to the /24 this PC is in.
       if (cmd === 'ip' && args.includes('addr')) return '2: wlan0    inet 10.20.30.10/16 brd 10.20.255.255 scope global wlan0';
       if (cmd === 'nmap') return NMAP('10.20.30.20', '10.20.30.30');
-      if (cmd === 'ip' && args[0] === 'neigh') return [`10.20.30.20 dev wlan0 lladdr ${TV} REACHABLE`, `10.20.30.30 dev wlan0 lladdr ${SPEAKER} REACHABLE`].join('\n');
+      // Asked of one interface, ip leaves it out of each line, as the real one does.
+      if (cmd === 'ip' && args[0] === 'neigh') return [`10.20.30.20 lladdr ${TV} REACHABLE`, `10.20.30.30 lladdr ${SPEAKER} REACHABLE`].join('\n');
       return '';
     },
   });
-  const scan = (await s.scan('wlan0')).find((x) => x.id === 'scan')!;
+  const scan = (await s.scan({ iface: 'wlan0' })).find((x) => x.id === 'scan')!;
   assert.equal(scan.last, NOW);
   assert.equal(scan.found, 2);
   assert.equal(scan.error, undefined);
@@ -187,8 +188,8 @@ test('A scan of the LAN: nmap on the interface’s /24 at most, and the MACs its
       return cmd === 'ip' && args.includes('addr') ? 'inet 192.168.88.10/25 brd' : cmd === 'nmap' ? NMAP() : '';
     },
   });
-  await narrow.scan('wlan0');
-  await spy.scan('wlan0');
+  await narrow.scan({ iface: 'wlan0' });
+  await spy.scan({ iface: 'wlan0' });
   assert.ok(asked.includes('192.168.88.10/25'));
 });
 
@@ -233,7 +234,7 @@ test('His case: a device found at home is not shown at the café, and one found 
     },
   });
   t = NOW;
-  await s.scan('wlan0');
+  await s.scan({ iface: 'wlan0' });
   // And one more, by a lease, on an interface that was never listened on.
   const v = s.attach({ devices: [] as Device[] }, networkAt(segments, told.of));
   const tv = v.devices.find((d) => d.mac === TV)!;
@@ -263,8 +264,8 @@ test('This PC is never reported as another device; a scan turned off refuses, an
   assert.deepEqual(s.attach({ devices: [] as Device[] }).devices, [], 'the MAC and the address of this machine are not devices of the LAN');
 
   const off = await reading({ neigh: false });
-  await assert.rejects(() => off.scan('wlan0'), /turned off/);
+  await assert.rejects(() => off.scan({ iface: 'wlan0' }), /turned off/);
 
   const noAddress = await reading({ scan: true, run: async () => '' });
-  assert.match((await noAddress.scan('wlan0')).find((x) => x.id === 'scan')!.error ?? '', /No IPv4 address on wlan0/);
+  assert.match((await noAddress.scan({ iface: 'wlan0' })).find((x) => x.id === 'scan')!.error ?? '', /No IPv4 address on wlan0/);
 });

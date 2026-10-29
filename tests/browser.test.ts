@@ -14,7 +14,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { type Running, findChromium, startServer } from '@organon/core/testing';
 import { type Browser, chromium, type Page } from 'playwright-core';
+import { fakeRouter } from './fake-router.ts';
 import { DEVICES, FIXTURE, fakeCapture, fakeTshark, ROOT } from './helpers.ts';
+
+/** The made-up router's password (tests/fake-router.ts): made up too. */
+const ROUTER_PASSWORD = 'willow-test-pw';
 
 const CHROMIUM = findChromium(process.env.ARGUS_TEST_CHROMIUM, chromium.executablePath());
 const truth = JSON.parse(readFileSync(path.join(ROOT, 'tests/fixtures/lan.truth.json'), 'utf8'));
@@ -310,6 +314,7 @@ test("A device's conversations: with whom, by what service, how much each way, a
 test('Two Wi-Fi networks, a café and the house: each shows only its own devices, the one of now said; remembered; conversations move live', { skip: !CHROMIUM }, async () => {
   const fake = await fakeCapture();
   const ssid = path.join(await mkdtemp(path.join(tmpdir(), 'argus-ssid-')), 'ssid');
+  const fakeHouseRouter = await fakeRouter({ password: ROUTER_PASSWORD });
   const demo = await startServer(ROOT, {
     env: {
       TSHARK: path.join(ROOT, 'scripts/demo-tshark.ts'),
@@ -327,6 +332,10 @@ test('Two Wi-Fi networks, a café and the house: each shows only its own devices
       SCAN: '1',
       LEASES: 'none',
       SOURCES_MS: '300',
+      // The router of the house, made up (tests/fake-router.ts); its password kept beside the test's data.
+      ROUTER: '1',
+      ROUTER_URL: fakeHouseRouter.base,
+      ROUTER_KEYS: path.join(path.dirname(ssid), 'router-keys.json'),
     },
   });
   try {
@@ -377,20 +386,69 @@ test('Two Wi-Fi networks, a café and the house: each shows only its own devices
     await choose(/^All networks/);
     await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Devices"] tbody tr[data-device]').length === 18);
 
-    // Found, not heard: a scan of the house, asked for by its button (the one thing that sends, said so), adds a plug and
-    // a NAS to the house's list, apart; the café's has none of them, and cannot be scanned while it is not being heard.
+    // Found, not heard: asked for on the Scan page, never from Devices (which only points there). A scan of the house
+    // (it sends, said so) adds a plug and a NAS to the house's list, apart, and says what Argus knew of each before.
     await choose(/^Willow House/);
     const found = () => p.locator('.found-band tr[data-device]').evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-device')).sort());
     assert.deepEqual(await found(), []);
-    assert.match(await p.locator('.found-band').innerText(), /active[\s\S]*Sends packets, only when asked/);
+    assert.match(await p.locator('.found-band').innerText(), /Scan of the LAN\s*active[\s\S]*on the Scan page/);
+    assert.equal(await p.locator('.found-band').getByRole('button').count(), 0, 'no second way to scan');
+    await p.getByRole('navigation', { name: 'Places' }).getByRole('link', { name: 'Scan' }).click();
+    await p.getByRole('heading', { name: 'Scan', exact: true }).waitFor();
+    assert.match(await p.getByRole('group', { name: 'Which network' }).getByRole('button', { pressed: true }).innerText(), /^Willow House\s*here now$/);
+    assert.match(await p.getByRole('region', { name: /Scan the LAN/ }).innerText(), /active · sends packets[\s\S]*Sends packets, only when asked/);
+    assert.match(await p.getByRole('region', { name: /Read the router/ }).innerText(), /active · logs in to it[\s\S]*Changes nothing on the router[\s\S]*none saved/);
     await p.getByRole('button', { name: 'Scan wlan0 now' }).click();
-    await p.waitForFunction(() => document.querySelectorAll('.found-band tr[data-device]').length === 2, null, { timeout: 15_000 });
-    assert.deepEqual(await found(), ['00:11:32:5e:b0:62', '24:0a:c4:5e:b0:61']);
-    assert.match(await p.locator('.found-band tr[data-device="24:0a:c4:5e:b0:61"]').innerText(), /plug-hall\.lan[\s\S]*Willow House[\s\S]*not heard/);
+    const byScan = p.getByRole('table', { name: 'Found by Scan of the LAN' }).locator('tbody tr');
+    await byScan.nth(3).waitFor({ timeout: 15_000 });
+    const known = async (rows: typeof byScan) =>
+      Object.fromEntries(await rows.evaluateAll((trs) => trs.map((tr) => [tr.getAttribute('data-found'), tr.querySelector('.known')?.textContent])));
+    assert.deepEqual(await known(byScan), {
+      '50:c7:bf:12:34:56': 'Heard',
+      'f4:f5:d8:c0:ff:ee': 'Heard',
+      '24:0a:c4:5e:b0:61': 'New',
+      '00:11:32:5e:b0:62': 'New',
+    });
+
+    // The router, its password typed once: the field says where the factory one is; a wrong one is refused and says
+    // how many tries are left; then its list, how each is connected, what the scan had found; the password saved, and
+    // never in the page.
+    await p.getByRole('button', { name: 'Read the router now' }).click();
+    await p.getByLabel(/The router’s password/).waitFor();
+    assert.match(await p.locator('form.pw').innerText(), /Wi-Fi key on the label/);
+    await p.getByLabel(/The router’s password/).fill('guess');
+    await p.getByRole('button', { name: 'Save and read' }).click();
+    await p.getByText(/refused this password\. It allows 4 more tries/).waitFor();
+    await p.getByLabel(/The router’s password/).fill(ROUTER_PASSWORD);
+    await p.getByRole('button', { name: 'Save and read' }).click();
+    const byRouter = p.getByRole('table', { name: /^Found by The router/ }).locator('tbody tr');
+    await byRouter.nth(3).waitFor({ timeout: 15_000 });
+    await p.getByLabel(/The router’s password/).waitFor({ state: 'detached' });
+    assert.match(await p.getByRole('region', { name: /Read the router/ }).innerText(), /MEO Fiber Gateway[\s\S]*saved on this PC for admin/);
+    assert.equal((await known(byRouter))['24:0a:c4:5e:b0:61'], 'Found before');
+    assert.match(await byRouter.filter({ hasText: 'nas' }).innerText(), /Cable, LAN 2/);
+    assert.match(await byRouter.filter({ hasText: '78:4f:43:5e:b0:80' }).innerText(), /not connected/);
+    assert.ok(!(await p.content()).includes(ROUTER_PASSWORD));
+
+    // Back on Devices: the house's found devices, the router's three connected among them; the café has none, and on the
+    // Scan page cannot be asked: it says why, with no button.
+    await p.goto(`${demo.base}/#/devices`);
+    await p.waitForFunction(() => document.querySelectorAll('.found-band tr[data-device]').length === 3, null, { timeout: 15_000 });
+    assert.deepEqual(await found(), ['00:11:32:5e:b0:62', '24:0a:c4:5e:b0:61', 'd0:c2:4e:5e:b0:71']);
+    assert.match(await p.locator('.found-band tr[data-device="24:0a:c4:5e:b0:61"]').innerText(), /plug-hall[\s\S]*Willow House[\s\S]*not heard/);
     await choose(/^Harbour Café/);
     await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Devices"] tbody tr[data-device]').length === 5);
     assert.deepEqual(await found(), []);
-    assert.equal(await p.getByRole('button', { name: /^Scan / }).isEnabled(), false);
+    await p.goto(`${demo.base}/#/scan`);
+    await p.getByRole('heading', { name: 'Not on Harbour Café now' }).waitFor();
+    assert.equal(await p.getByRole('button', { name: /^Scan |Read the router/ }).count(), 0);
+    assert.match(await p.getByRole('note').innerText(), /cannot be reached\. This PC is on Willow House now/);
+    // On a phone, the page fits: nothing wider than the screen.
+    await p.setViewportSize({ width: 390, height: 844 });
+    await p.getByRole('button', { name: /^Willow House/ }).first().click();
+    await p.getByRole('button', { name: 'Scan wlan0 now' }).waitFor();
+    assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= 390), 'no sideways scroll at 390');
+    await p.setViewportSize({ width: 1440, height: 900 });
 
     // The Docker interface's page: its conversations, both ends, moving as they come (no reload).
     await p.goto(`${demo.base}/#/interface/docker0`);
@@ -406,6 +464,7 @@ test('Two Wi-Fi networks, a café and the house: each shows only its own devices
     await p.close();
   } finally {
     await demo.stop();
+    await fakeHouseRouter.close();
   }
 });
 

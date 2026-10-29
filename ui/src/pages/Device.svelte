@@ -64,7 +64,7 @@
     possibly: 'Possibly: one indirect clue (the maker, or what it talks to).',
   };
   const ORIGIN: Record<DeviceOrigin, string> = {
-    router: 'the router’s leases',
+    router: 'the router',
     neigh: 'this PC’s neighbour table',
     scan: 'a scan of the LAN',
     dns: 'a DNS server’s log',

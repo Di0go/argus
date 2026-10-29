@@ -1,27 +1,33 @@
 // Where Argus finds devices besides its own listening: the kernel's neighbour table, DHCP leases (a local dnsmasq, or
-// one Argus can read), and a scan of the LAN asked for by hand. The sensor still only listens; these are other
-// witnesses, and what they add is said as such (a device this PC never saw a frame from is `foundOnly`).
+// one Argus can read), and, asked for by hand on the Scan page, a scan of the LAN and a reading of the router
+// (server/routers.ts). The sensor still only listens; these are other witnesses, and what they add is said as such (a
+// device this PC never saw a frame from is `foundOnly`).
 //
 // What they give is merged into the live view after the server has read it (server/interpret.ts), so a device the
 // router knows about but this PC never hears still has a name, an address and a network: the one its interface was on
-// when it was last found there (shared/networks.ts networkAt, the rule for what was heard), else none. Reading the
-// neighbour table and a lease file are local reads: nothing goes out. The scan is the one thing that sends, only when
-// he presses its button, and the page says what it sends (docs/sources.md).
+// when it was last found there (shared/networks.ts networkAt, the rule for what was heard), else none; what a scan or
+// the router found is on the network that was asked, the router's. Reading the neighbour table and a lease file are
+// local reads: nothing goes out. The scan sends packets and reading the router logs in to it: each only when he presses
+// its button, only on the network this PC is on then (`here`), and the page says what each does (docs/sources.md).
+// Each time is kept as a run: when, where, what it found and what Argus knew of each before.
 //
-// A source is not the sensor: docs/sensor.md. The next ones (SNMP, a router's API, a remote sensor, a DNS server's log)
-// answer the same `Found` shape and add a name to `DeviceOrigin`.
+// A source is not the sensor: docs/sensor.md. The next ones (SNMP, a remote sensor, a DNS server's log) answer the
+// same `Found` shape and add a name to `DeviceOrigin`; another model of router is an adapter (server/routers/).
 
 import { execFile } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
 import path from 'node:path';
-import type { Device, DeviceOrigin, Network, SourceState } from '../shared/types.ts';
+import type { Device, DeviceOrigin, Here, RunDevice, SourceRun, SourceState } from '../shared/types.ts';
+import type { RouterClient } from './routers.ts';
 
 export interface Found {
   mac?: string;
   ip?: string;
   hostname?: string;
   iface?: string;
+  /** The network it was found on, when the one asked is known (a scan, the router); else by its interface and time. */
+  network?: string;
   /** Epoch seconds when it ends, for a lease; absent for the others. */
   expires?: number;
   origins: Partial<Record<DeviceOrigin, { first: number; last: number }>>;
@@ -34,6 +40,8 @@ export interface SourcesOptions {
   neigh?: boolean;
   /** A scan of the LAN when asked (on by default; it needs nmap). */
   scan?: boolean;
+  /** Reading the router when asked (on by default). */
+  router?: boolean;
   nmap?: string;
   ip?: string;
   /** Milliseconds between looks at the neighbour table and the leases (15 000). */
@@ -51,6 +59,7 @@ export interface Discovered {
   ip?: string;
   hostname?: string;
   iface?: string;
+  network?: string;
   origins: DeviceOrigin[];
   firstSeen: number;
   lastSeen: number;
@@ -65,9 +74,11 @@ const SKIP_IP = /^(169\.254\.|0\.0\.0\.0$|255\.255\.255\.255$)/i;
 const SCAN_BITS = 24;
 /** The interfaces that are not the LAN: loopback, Docker's bridges and containers, VPNs and tunnels. */
 const NOT_LAN = /^(lo|docker|br-|veth|tun|tap|wg|tailscale|ppp)/;
+/** How many runs are kept (in memory, as the devices they found are). */
+const RUNS = 30;
 
 export class Sources {
-  private readonly o: Required<Pick<SourcesOptions, 'neigh' | 'scan' | 'nmap' | 'ip' | 'pollEvery' | 'now' | 'run'>> &
+  private readonly o: Required<Pick<SourcesOptions, 'neigh' | 'scan' | 'router' | 'nmap' | 'ip' | 'pollEvery' | 'now' | 'run'>> &
     Pick<SourcesOptions, 'leases' | 'own'>;
   private readonly found = new Map<string, Found>();
   private files: string[] = [];
@@ -75,7 +86,13 @@ export class Sources {
   private polling = false;
   private lastPoll = 0;
   private lastScan = 0;
+  private lastRouter = 0;
   private scanError = '';
+  private routerError = '';
+  /** The devices the lease files held at the last look, and the router at its last reading: both are `router` marks. */
+  private leaseCount = 0;
+  private routerCount = 0;
+  private readonly done: SourceRun[] = [];
   private leaseError = '';
   private scanning: Promise<SourceState[]> | undefined;
 
@@ -83,6 +100,7 @@ export class Sources {
     this.o = {
       neigh: options.neigh ?? true,
       scan: options.scan ?? true,
+      router: options.router ?? true,
       nmap: options.nmap ?? 'nmap',
       ip: options.ip ?? 'ip',
       pollEvery: options.pollEvery ?? 15_000,
@@ -132,6 +150,7 @@ export class Sources {
         ...(f.ip ? { ip: f.ip } : {}),
         ...(f.hostname ? { hostname: f.hostname } : {}),
         ...(f.iface ? { iface: f.iface } : {}),
+        ...(f.network ? { network: f.network } : {}),
         origins,
         firstSeen: Math.min(...times.map((t) => t.first)),
         lastSeen: Math.max(...times.map((t) => t.last)),
@@ -161,7 +180,7 @@ export class Sources {
           ? `Every device a DHCP server on this PC gave an address to, by the name it asked with: ${this.files.map((f) => path.basename(f)).join(', ')}. A local read: nothing is sent.`
           : 'None on this PC: it is not the router. A lease file (dnsmasq or ISC dhcpd) named in ARGUS_LEASES is read here.',
         ...(this.lastPoll ? { last: this.lastPoll } : {}),
-        found: this.files.length ? by('router') : 0,
+        found: this.files.length ? this.leaseCount : 0,
         ...(this.leaseError ? { error: this.leaseError } : {}),
       },
       {
@@ -173,15 +192,76 @@ export class Sources {
         found: this.o.scan ? by('scan') : 0,
         ...(this.scanError ? { error: this.scanError } : {}),
       },
+      {
+        id: 'router',
+        name: 'The router',
+        on: this.o.router,
+        detail: ROUTER_DOES,
+        ...(this.lastRouter ? { last: this.lastRouter } : {}),
+        found: this.routerCount,
+        ...(this.routerError ? { error: this.routerError } : {}),
+      },
     ];
   }
 
-  /** Asks the LAN who is there (nmap, then the neighbour table for the MACs): on `iface`, else the first real one. */
-  async scan(iface?: string): Promise<SourceState[]> {
+  /** Every time he asked, the latest first. */
+  runs(): SourceRun[] {
+    return [...this.done];
+  }
+
+  /** Whether reading the router can be asked for here (ARGUS_ROUTER=0 takes the button away). */
+  get routerOn(): boolean {
+    return this.o.router;
+  }
+
+  /**
+   * Where this PC is now: the interface of its way out (the default route with the lowest metric, of a Wi-Fi or a
+   * cable, not a VPN or Docker), the gateway's address and, from the neighbour table, its MAC. Local reads only.
+   */
+  async here(): Promise<Omit<Here, 'network' | 'router'> | undefined> {
+    const routes = await this.o.run(this.o.ip, ['-4', 'route', 'show', 'default'], 5000).catch(() => '');
+    const ways = routes
+      .split('\n')
+      .map((l) => /^default\s+via\s+(\d+\.\d+\.\d+\.\d+)\s+dev\s+(\S+)(?:.*\smetric\s+(\d+))?/.exec(l.trim()))
+      .filter((m): m is RegExpExecArray => Boolean(m && !NOT_LAN.test(m[2]!)))
+      .map((m) => ({ gateway: m[1]!, iface: m[2]!, metric: Number(m[3] ?? 0) }))
+      .sort((a, b) => a.metric - b.metric);
+    const way = ways[0];
+    if (!way) return undefined;
+    const neigh = parseNeigh(await this.o.run(this.o.ip, ['neigh', 'show', way.gateway, 'dev', way.iface], 5000).catch(() => ''), way.iface);
+    const mac = neigh.find((n) => n.ip === way.gateway)?.mac;
+    return { iface: way.iface, gateway: way.gateway, ...(mac ? { mac } : {}) };
+  }
+
+  /**
+   * Asks the LAN who is there (nmap, then the neighbour table for the MACs), on the interface of where this PC is now;
+   * what answers is on `at.network`. `before` is the view as it was: what Argus knew of each one.
+   */
+  async scan(at?: { iface: string; network?: string }, before: Device[] = []): Promise<SourceState[]> {
     if (!this.o.scan) throw new Error('The scan is turned off');
     if (this.scanning) return this.scanning;
-    this.scanning = this.doScan(iface ?? this.defaultIface()).finally(() => (this.scanning = undefined));
+    this.scanning = this.doScan(at ?? { iface: this.defaultIface() ?? '' }, before).finally(() => (this.scanning = undefined));
     return this.scanning;
+  }
+
+  /**
+   * What the router said (server/routers.ts), as a run: the devices connected now join the found ones, on the router's
+   * network; those it only remembers are listed in the run and nothing more.
+   */
+  fromRouter(at: { iface: string; network?: string }, r: { model: string; factory?: boolean; clients?: RouterClient[]; error?: string }, before: Device[] = []): SourceRun {
+    const now = this.o.now();
+    const clients = r.clients ?? [];
+    const found: RunDevice[] = clients.map((c) => ({ ...knownOf(c, before), ...c }));
+    for (const c of clients) {
+      if (!c.connected) continue;
+      this.add({ mac: c.mac, ip: c.ip, hostname: c.hostname, iface: at.iface, network: at.network, origin: 'router', last: now });
+    }
+    this.routerError = r.error ?? '';
+    if (!r.error) {
+      this.lastRouter = now;
+      this.routerCount = clients.filter((c) => c.connected).length;
+    }
+    return this.record({ kind: 'router', at: now, iface: at.iface, network: at.network, router: { model: r.model, ...(r.factory ? { factory: true } : {}) }, error: r.error, found });
   }
 
   /**
@@ -204,7 +284,7 @@ export class Sources {
         continue;
       }
       const iface = f.iface ?? this.ifaceForIp(f.ip);
-      const net = iface ? at(iface, f.lastSeen) : undefined;
+      const net = f.network ?? (iface ? at(iface, f.lastSeen) : undefined);
       const id = f.mac ?? f.ip!;
       v.devices.push({
         kind: 'device',
@@ -230,8 +310,10 @@ export class Sources {
     return v;
   }
 
-  private async doScan(iface: string | undefined): Promise<SourceState[]> {
+  private async doScan(at: { iface: string; network?: string }, before: Device[]): Promise<SourceState[]> {
     this.scanError = '';
+    const iface = at.iface;
+    const found: RunDevice[] = [];
     try {
       if (!iface) throw new Error('No network interface to scan: turn one on first');
       const cidr = await this.cidr(iface);
@@ -240,15 +322,33 @@ export class Sources {
       // for each one's MAC by ARP first; the names of those up are asked of the DNS server (their PTR records).
       const hosts = parseNmapXml(await this.o.run(this.o.nmap, ['-sn', '-T4', '--max-retries', '1', '--host-timeout', '5s', '-oX', '-', cidr], 90_000));
       // The ARP the scan needed left their MACs in the neighbour table: read, not asked again.
-      const neigh = parseNeigh(await this.o.run(this.o.ip, ['neigh', 'show', 'dev', iface], 5000).catch(() => ''));
+      const neigh = parseNeigh(await this.o.run(this.o.ip, ['neigh', 'show', 'dev', iface], 5000).catch(() => ''), iface);
       const byIp = new Map(neigh.map((n) => [n.ip, n.mac]));
       const now = this.o.now();
-      for (const h of hosts) this.add({ ip: h.ip, mac: byIp.get(h.ip), hostname: h.hostname, iface, origin: 'scan', last: now });
+      const own = this.o.own?.();
+      const ownMacs = new Set((own?.macs ?? []).map((m) => m.toLowerCase()));
+      for (const h of hosts) {
+        const mac = byIp.get(h.ip);
+        // This machine answers its own scan: it is not a device of the LAN.
+        if ((mac && ownMacs.has(mac)) || own?.ips.includes(h.ip)) continue;
+        found.push({ ...knownOf({ mac, ip: h.ip }, before), ...(mac ? { mac } : {}), ip: h.ip, ...(h.hostname ? { hostname: h.hostname } : {}) });
+        this.add({ ip: h.ip, mac, hostname: h.hostname, iface, network: at.network, origin: 'scan', last: now });
+      }
       this.lastScan = now;
     } catch (err) {
       this.scanError = (err as Error).message;
     }
+    this.record({ kind: 'scan', at: this.o.now(), iface, network: at.network, error: this.scanError || undefined, found });
     return this.status();
+  }
+
+  private record(r: Omit<SourceRun, 'id'>): SourceRun {
+    const run: SourceRun = { id: `${r.kind}-${Math.round(r.at * 1000).toString(36)}-${this.done.length}`, ...r };
+    if (!run.error) delete run.error;
+    if (!run.network) delete run.network;
+    this.done.unshift(run);
+    this.done.length = Math.min(this.done.length, RUNS);
+    return run;
   }
 
   private async poll(): Promise<void> {
@@ -268,15 +368,21 @@ export class Sources {
           // No `ip`: the neighbour table is simply not read.
         }
       }
+      let leases = 0;
       for (const file of this.files) {
         try {
           const text = await readFile(file, 'utf8');
-          const leases = /^lease\s/m.test(text) ? parseIsc(text) : parseDnsmasq(text);
-          for (const l of leases) if (!l.expires || l.expires > now) this.add({ ...l, origin: 'router', last: now });
+          const parsed = /^lease\s/m.test(text) ? parseIsc(text) : parseDnsmasq(text);
+          for (const l of parsed) {
+            if (l.expires && l.expires <= now) continue;
+            this.add({ ...l, origin: 'router', last: now });
+            leases++;
+          }
         } catch (err) {
           this.leaseError = `${path.basename(file)}: ${(err as Error).message}`;
         }
       }
+      this.leaseCount = leases;
       this.lastPoll = now;
       this.prune(now);
     } finally {
@@ -285,7 +391,7 @@ export class Sources {
   }
 
   /** Adds or merges a fact; a MAC and an address that meet are one device, whichever source found them. */
-  private add(f: { mac?: string; ip?: string; hostname?: string; iface?: string; origin: DeviceOrigin; last: number; expires?: number }) {
+  private add(f: { mac?: string; ip?: string; hostname?: string; iface?: string; network?: string; origin: DeviceOrigin; last: number; expires?: number }) {
     const mac = f.mac?.toLowerCase();
     if (mac && (mac === '00:00:00:00:00:00' || mac === 'ff:ff:ff:ff:ff:ff' || parseInt(mac.slice(0, 2), 16) & 1)) return;
     if (f.ip && (f.ip.includes(':') || SKIP_IP.test(f.ip))) return;
@@ -318,6 +424,7 @@ export class Sources {
     if (f.ip) had.ip = f.ip;
     if (f.hostname) had.hostname = f.hostname;
     if (f.iface) had.iface = f.iface;
+    if (f.network) had.network = f.network;
     if (f.expires) had.expires = f.expires;
     // By its MAC once one is known (it stays the same device across addresses), else by its address.
     const key = had.mac ? `m:${had.mac}` : had.ip ? `i:${had.ip}` : '';
@@ -397,6 +504,18 @@ export class Sources {
 export const SCAN_SENDS =
   'Sends packets, only when asked: to every address of this LAN (up to 254), an ARP request and a TCP connection attempt to ports 80 and 443 (nmap -sn), then a DNS question for the names of those that answered.';
 
+/** What reading the router does, as the page and the docs say it. */
+export const ROUTER_DOES =
+  'Logs in to the router, only when asked: opens its web page as its owner would, with the password saved for it, reads its list of devices (name, MAC, address, cable or Wi-Fi) and logs out. Changes nothing on the router.';
+
+/** What Argus knew of a device before a run found it: heard by this PC, found before another way, or nothing. */
+export function knownOf(f: { mac?: string; ip?: string }, before: Device[]): Pick<RunDevice, 'known' | 'device' | 'name'> {
+  const mac = f.mac?.toLowerCase();
+  const d = before.find((x) => (mac && x.mac?.toLowerCase() === mac) || (!mac && f.ip && x.ips.includes(f.ip))) ?? (f.ip ? before.find((x) => x.ips.includes(f.ip!) && (!mac || !x.mac)) : undefined);
+  if (!d) return { known: 'new' };
+  return { known: d.foundOnly ? 'found' : 'heard', device: d.id, ...(d.name && d.name !== d.id ? { name: d.name } : {}) };
+}
+
 /** A dnsmasq lease file: `<expiry> <mac> <ip> <hostname> <client-id>`, one per line. */
 export function parseDnsmasq(text: string): { mac?: string; ip?: string; hostname?: string; expires?: number }[] {
   const out: { mac?: string; ip?: string; hostname?: string; expires?: number }[] = [];
@@ -422,17 +541,21 @@ export function parseIsc(text: string): { mac?: string; ip?: string; hostname?: 
   return out;
 }
 
-/** `ip neigh show`: an address, its interface, its MAC and its state (only the ones with a MAC are devices). */
-export function parseNeigh(text: string): { mac?: string; ip?: string; iface?: string; state?: string }[] {
+/**
+ * `ip neigh show`: an address, its interface, its MAC and its state (only the ones with a MAC are devices). Asked of one
+ * interface (`ip neigh show dev wlan0`), ip leaves the interface out of each line: it is `iface`.
+ */
+export function parseNeigh(text: string, iface?: string): { mac?: string; ip?: string; iface?: string; state?: string }[] {
   const out: { mac?: string; ip?: string; iface?: string; state?: string }[] = [];
   for (const line of text.split('\n')) {
-    const m = /^(\S+)\s+dev\s+(\S+)(?:\s+lladdr\s+([0-9a-f:]{17}))?\s+(\S+)/i.exec(line.trim());
+    const m = /^(\S+)(?:\s+dev\s+(\S+))?(?:\s+lladdr\s+([0-9a-f:]{17}))?\s+(\S+)/i.exec(line.trim());
     if (!m?.[1] || !m[3]) continue;
     const state = m[4]?.toUpperCase();
     if (state === 'FAILED' || state === 'INCOMPLETE') continue;
     // Only IPv4: the address is what the LAN is scanned by, and a global IPv6 one would replace it and say less.
     if (m[1].includes(':') || SKIP_IP.test(m[1])) continue;
-    out.push({ ip: m[1], iface: m[2]!, mac: m[3].toLowerCase(), ...(state ? { state } : {}) });
+    const dev = m[2] ?? iface;
+    out.push({ ip: m[1], ...(dev ? { iface: dev } : {}), mac: m[3].toLowerCase(), ...(state ? { state } : {}) });
   }
   return out;
 }
