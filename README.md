@@ -70,9 +70,10 @@ encrypted connection asks for in the clear (SNI), then grouped by who runs them:
 it is on now (its Wi-Fi's name) and its rate; the minor ones (Docker's bridges, what is down) behind "more". Each
 network you were on is kept apart: home, the office and a café are three networks, though all three may hand
 out the same addresses on the same Wi-Fi card, and home by cable and by Wi-Fi is one. A network is its router (the way out your
-PC's frames go through), named by its Wi-Fi when there is one. The pages show the network of now; the menu beside the
-pills chooses an earlier one, or all of them together, and the devices, the hosts, the diary and the agent's answers
-follow. A day kept before Argus told networks apart says so, rather than being split after the fact.
+PC's frames go through), named by its Wi-Fi when there is one. The bar says the two apart: *Listen on* (the pills) and
+*Showing* (the menu beside them): the network of now by default, an earlier one, or all of them together, and the
+devices, the hosts, the diary and the agent's answers follow. In one network's list a device that was also on others
+says "+1 elsewhere"; one heard far from any stay is on no network rather than guessed into one. A day kept before Argus told networks apart says so, rather than being split after the fact.
 
 **Conversations.** Open a device, a host, a company or a network and it says whom it talked to, by what service (as
 the port says: HTTPS, DNS, QUIC…), how much each way and when, live; the other end is a click away.
@@ -100,10 +101,15 @@ capture you can open again as it was, or in Wireshark.
 
 ## What it cannot see
 
-Argus only listens: no monitor mode, nothing sent, nobody's traffic changed. What is encrypted is not read; you see who
-talks to whom, when and how much. And on an ordinary home network (a router, a switch), a PC hears mostly its own
-traffic and what the others announce to everyone, not what they say to each other or to the internet. The page says
-so too, once.
+Argus listens: no monitor mode, nobody's traffic changed. What is encrypted is not read; you see who talks to whom,
+when and how much. And on an ordinary home network (a router, a switch), a PC hears mostly its own traffic and what the
+others announce to everyone, not what they say to each other or to the internet. The page says so too, once.
+
+To find the devices it cannot hear, it reads this PC's neighbour table and any DHCP lease file on it (local reads,
+nothing sent), and, only when you press *Scan … now* on Devices, scans the LAN with `nmap -sn`: the one thing Argus
+sends (an ARP request and a TCP connection attempt to ports 80 and 443 per address of the /24, then a DNS question for
+the names of those that answered). They are listed apart, as found and not heard: no traffic of theirs is known.
+[docs/sources.md](docs/sources.md) has the rule.
 
 ## Quick start
 
@@ -141,6 +147,7 @@ reload: the page asks the server, and the server writes the session to `data/liv
 | Listening, the ring buffer, saving | `server/live.ts` |
 | Adding up, naming, the router, the stays on each network | `server/tally.ts` |
 | Which stays are one network, and its name | `shared/networks.ts` |
+| Devices found besides listening: the neighbour table, leases, a scan asked for | `server/sources.ts`, [docs/sources.md](docs/sources.md) |
 | Reading the facts: the dictionary, identity, DNS, where | `server/interpret.ts`, `shared/identify.ts`, `shared/security.ts`, `server/geo.ts` |
 | The day kept, the diary, what each device is doing now | `server/history.ts`, `shared/words.ts` |
 | The routes and the MCP tools (`get_hosts`, `get_device`, `list_captures`, `get_day`, `what_happened`) | `server/index.ts`, `server/tools.ts` |

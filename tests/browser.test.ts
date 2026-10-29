@@ -81,7 +81,7 @@ test('Turning the Wi-Fi on: who is using the network arrives live, moves without
   await who.locator('li[data-device] a').first().click();
   await p.waitForURL(/#\/device\//);
   await p.getByRole('table', { name: /is talking to now/ }).waitFor({ timeout: 15_000 });
-  await p.getByRole('navigation', { name: 'Places' }).getByRole('link', { name: 'Network' }).click();
+  await p.getByRole('navigation', { name: 'Places' }).getByRole('link', { name: 'Devices' }).click();
   await p.waitForFunction((n) => document.querySelectorAll('table[aria-label="Devices"] tbody tr').length === n, DEVICES, { timeout: 15_000 });
   const phone = p.locator('tr', { hasText: truth.hosts.phone.name });
   assert.match(await phone.innerText(), new RegExp(truth.hosts.phone.ip.replaceAll('.', '\\.')));
@@ -320,6 +320,13 @@ test('Two Wi-Fi networks, a café and the house: each shows only its own devices
       IW: path.join(ROOT, 'scripts/demo-iw.ts'),
       DEMO_SSID_FILE: ssid,
       DEMO_CAFE: '4',
+      // The house's neighbour table and a scan of it, made up (scripts/demo-ip.ts, scripts/demo-nmap.ts).
+      IP: path.join(ROOT, 'scripts/demo-ip.ts'),
+      NMAP: path.join(ROOT, 'scripts/demo-nmap.ts'),
+      NEIGH: '1',
+      SCAN: '1',
+      LEASES: 'none',
+      SOURCES_MS: '300',
     },
   });
   try {
@@ -329,11 +336,11 @@ test('Two Wi-Fi networks, a café and the house: each shows only its own devices
     await p.goto(`${demo.base}/#/devices`);
     const shown = () => devices(p).evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-device')).sort());
     const choose = async (name: RegExp) => {
-      await p.getByRole('button', { name: /^Network:/ }).click();
+      await p.getByRole('button', { name: /^Showing: / }).click();
       await p.getByRole('menuitemradio', { name }).click();
     };
     // The café first (four seconds), then home: the network of now is the house's Wi-Fi, by its name, and Docker.
-    await p.getByRole('button', { name: /^Network: Docker and Willow House/ }).waitFor({ timeout: 20_000 });
+    await p.getByRole('button', { name: /^Showing: Docker and Willow House/ }).waitFor({ timeout: 20_000 });
     assert.match(await p.getByRole('switch', { name: /Wi-Fi/ }).innerText(), /Willow House/);
     const ME = '3c:a9:f4:10:20:30';
     const CAFE = ['00:04:3c:5e:a1:40', '00:1b:21:5e:a1:20', 'da:7e:11:5e:a1:31', 'f0:9f:c2:5e:a1:01', ME].sort();
@@ -349,11 +356,13 @@ test('Two Wi-Fi networks, a café and the house: each shows only its own devices
     await choose(/^Harbour Café/);
     await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Devices"] tbody tr[data-device]').length === 5);
     assert.deepEqual(await shown(), CAFE);
-    assert.match(await net(ME), /Willow House[\s\S]*Harbour Café|Harbour Café[\s\S]*Willow House/);
+    // This PC was at both: the café's list names the café, and says the house apart, as elsewhere.
+    assert.match(await net(ME), /^Harbour Café\s*\+1 elsewhere$/);
+    assert.equal(await p.locator(`tr[data-device="${ME}"] td.net .also`).getAttribute('title'), 'Also heard on Willow House');
     await p.reload();
     await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Devices"] tbody tr[data-device]').length === 5, null, { timeout: 15_000 });
     assert.deepEqual(await shown(), CAFE);
-    assert.match(await p.getByRole('button', { name: /^Network:/ }).innerText(), /Harbour Café/);
+    assert.match(await p.getByRole('button', { name: /^Showing: / }).innerText(), /Harbour Café/);
     // Who is using the network, on Now, follows the same choice: nobody of the house.
     await p.goto(`${demo.base}/#/`);
     await p.waitForTimeout(1500);
@@ -367,6 +376,21 @@ test('Two Wi-Fi networks, a café and the house: each shows only its own devices
     assert.ok((await shown()).every((id) => !CAFE.includes(id!) || id === ME));
     await choose(/^All networks/);
     await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Devices"] tbody tr[data-device]').length === 18);
+
+    // Found, not heard: a scan of the house, asked for by its button (the one thing that sends, said so), adds a plug and
+    // a NAS to the house's list, apart; the café's has none of them, and cannot be scanned while it is not being heard.
+    await choose(/^Willow House/);
+    const found = () => p.locator('.found-band tr[data-device]').evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-device')).sort());
+    assert.deepEqual(await found(), []);
+    assert.match(await p.locator('.found-band').innerText(), /active[\s\S]*Sends packets, only when asked/);
+    await p.getByRole('button', { name: 'Scan wlan0 now' }).click();
+    await p.waitForFunction(() => document.querySelectorAll('.found-band tr[data-device]').length === 2, null, { timeout: 15_000 });
+    assert.deepEqual(await found(), ['00:11:32:5e:b0:62', '24:0a:c4:5e:b0:61']);
+    assert.match(await p.locator('.found-band tr[data-device="24:0a:c4:5e:b0:61"]').innerText(), /plug-hall\.lan[\s\S]*Willow House[\s\S]*not heard/);
+    await choose(/^Harbour Café/);
+    await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Devices"] tbody tr[data-device]').length === 5);
+    assert.deepEqual(await found(), []);
+    assert.equal(await p.getByRole('button', { name: /^Scan / }).isEnabled(), false);
 
     // The Docker interface's page: its conversations, both ends, moving as they come (no reload).
     await p.goto(`${demo.base}/#/interface/docker0`);

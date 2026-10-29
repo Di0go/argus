@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { dissect } from '../server/dissect.ts';
 import { interpret } from '../server/interpret.ts';
-import type { Conversation, Device } from '../shared/types.ts';
+import type { Conversation, Device, Segment } from '../shared/types.ts';
 import { ROOT, TSHARK } from './helpers.ts';
 
 const MOVE = path.join(ROOT, 'tests/fixtures/move.pcapng');
@@ -192,6 +192,53 @@ test('One network’s view: its devices with their traffic there, its conversati
   const web = v.remotes.find((h) => h.ip === H.web.ip)!;
   assert.equal(web.bytesSent, truth.places.home.web.received);
   assert.ok(v.links.every((l) => v.devices.some((d) => `device:${d.id}` === l.from)));
+});
+
+test('One network’s view says where else a device was heard: a device is on every network it was heard on', () => {
+  const home = netOf(H.homeRouter.mac)!;
+  const cafe = netOf(H.cafeRouter.mac)!;
+  const v = within(r, new Set([home.id]));
+  for (const d of v.devices) {
+    assert.deepEqual(d.networks, [home.id], `${d.mac} was listed under ${home.name} with another network`);
+    assert.ok(!d.elsewhere?.includes(home.id), 'the network shown is not also one it is elsewhere on');
+  }
+  // In the fixture this PC changes MAC with the network: no device was at both, so none is elsewhere.
+  assert.ok(v.devices.every((d) => d.elsewhere === undefined));
+  // A device that was at both (the same MAC): listed at home with its home share, the café said as elsewhere.
+  const p = (packets: number, bytesSent: number) => ({ packets, bytesSent, bytesReceived: 0, firstSeen: 1, lastSeen: 2 });
+  const both: Device = { ...v.devices[0]!, id: 'both', networks: [cafe.id, home.id], perNetwork: { [home.id]: p(3, 300), [cafe.id]: p(5, 500) } };
+  const one = within({ devices: [both], remotes: [], links: [], conversations: [] }, new Set([home.id])).devices[0]!;
+  assert.deepEqual(one.elsewhere, [cafe.id]);
+  assert.deepEqual(one.networks, [home.id]);
+  assert.equal(one.bytesSent, 300);
+  assert.equal(one.packets, 3);
+  // The TV never left the house: nothing elsewhere.
+  assert.equal(v.devices.find((d) => d.mac === H.tv.mac)?.elsewhere, undefined);
+});
+
+test('A device heard far outside every stay is left with no network, not guessed into one', () => {
+  const dev = (id: string, lastSeen: number): Device => ({
+    kind: 'device',
+    id,
+    name: id,
+    ips: [],
+    randomMac: true,
+    names: [],
+    interfaces: ['wlan0'],
+    packets: 1,
+    bytesSent: 10,
+    bytesReceived: 20,
+    firstSeen: lastSeen,
+    lastSeen,
+  });
+  const segments: Segment[] = [
+    { id: 'wlan0#1', iface: 'wlan0', first: 1000, last: 1100, packets: 0, bytes: 0, vias: [{ mac: '50:c7:bf:00:00:09', frames: 10, last: 1100 }] },
+  ];
+  const v = byNetwork({ devices: [dev('inside', 1100), dev('near', 1030), dev('far', 2000)], conversations: [], segments }, { now: 2000 });
+  const net = v.networks![0]!.id;
+  assert.deepEqual(v.devices.find((d) => d.id === 'inside')!.networks, [net]);
+  assert.deepEqual(v.devices.find((d) => d.id === 'near')!.networks, [net], 'a minute outside a stay is near enough');
+  assert.deepEqual(v.devices.find((d) => d.id === 'far')!.networks, [], 'a device heard long after is not put on the wrong network');
 });
 
 test('The day of one network: its minutes and diary only; what was kept before networks were told apart is said, not split', async () => {

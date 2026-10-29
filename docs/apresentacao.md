@@ -5,6 +5,34 @@ know in seconds what is happening on the network, what each device is and is doi
 is how the pages are laid out, why, and what was tried and turned down. (The file keeps the name it was asked for;
 everything in it is in English, like the rest of Argus.)
 
+## 2026-10-29: where it listens, what it shows, and what it found
+
+He, after the monitor: "I have certain networks selected but I still see devices that aren't from there. And I'm still
+quite confused by the UI. And I'd like to see more of the network, not only what passes through my device." Three
+answers, each checked in headless Chromium on the demo at 1440 and 390, and on the dev instance:
+
+**The bar says two things apart, each with its caption.** *Listen on*: the interfaces, as pills (where frames are
+captured). *Showing*: which network the pages read (the menu, "Showing: Willow House"). On a phone they are two lines,
+each still captioned. The ribbon's "Network" became *Devices*: one word, one meaning.
+
+**A network's list holds only its devices, and says the rest.** A device is on every network it was heard on; in one
+network's view its network column names that network and "+1 elsewhere" for the others (the names in its tip), and its
+totals are its share there. Traffic heard more than a minute outside every stay is on no network rather than guessed
+into the nearest (`shared/networks.ts` `networkAt`). A device's own page opened while another network is shown says
+so in a line, with "Show its network" and "Show all networks". On Devices, *This session* / *Heard now* (the last five
+minutes) keeps a list of everything ever heard from reading as everyone here now.
+
+**Found on the network, not heard**, at the end of Devices, apart from what was heard: the neighbour table and lease
+files (passive, read every 15 s) and a scan of the LAN (active, only by its button, which says "active" and what it
+sends: docs/sources.md). A found device says by what, "not heard" where its traffic would be, and is placed on the
+network its interface was on when it was found; the scan is offered only while the Wi-Fi or cable of the network shown
+is being listened on. Now says "2 more devices were found on the LAN" in one line, never among who is using it.
+
+**Turned down:** a *Sources* popover in the bar (the bar is where it listens and what it shows; a third thing there
+was the confusion again); a "Found only" choice beside *This session* (the section below is always there); renaming
+Diary to Day (no one asked); a made-up network per interface for found devices (it showed the home TV at the café); one
+ping per host after the scan (the scan's own ARP already left the MACs in the neighbour table).
+
 ## 2026-10-26: the monitor (this replaces the newsroom below)
 
 He saw the newsroom (layout A below, release 8df7daa) on his own network and turned it down: "the homepage is

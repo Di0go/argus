@@ -25,6 +25,7 @@ import type {
   SeriesData,
   Session,
   Site,
+  SourceState,
 } from '../../../shared/types.ts';
 
 /** What a page shows: the live session or a saved capture, as entities and the graph over them. */
@@ -67,6 +68,8 @@ class Argus {
   /** The networks the session was on (with which is now), and those the history remembers from before it. */
   networks = $state<Network[]>([]);
   known = $state<KnownNetwork[]>([]);
+  /** Where devices are found besides listening (server/sources.ts), and how each is going. */
+  sources = $state<SourceState[]>([]);
   /** Why capturing can't be done yet (dumpcap missing or not allowed). */
   interfacesProblem = $state('');
   warnings = $state<string[]>([]);
@@ -92,7 +95,7 @@ class Argus {
   readonly live = new LiveStream<ArgusEvent>({
     reload: async () => {
       const [state, view, ifaces] = await Promise.all([
-        getJson<{ captures: Capture[]; warnings: string[]; build?: string; geo?: boolean; networks?: KnownNetwork[] }>('/api/state'),
+        getJson<{ captures: Capture[]; warnings: string[]; build?: string; geo?: boolean; networks?: KnownNetwork[]; sources?: SourceState[] }>('/api/state'),
         getJson<LiveView>('/api/live'),
         getJson<{ interfaces: Interface[]; problem?: string }>('/api/interfaces').catch((e: Error) => ({ interfaces: [], problem: e.message })),
       ]);
@@ -100,6 +103,7 @@ class Argus {
       this.warnings = state.warnings;
       this.geo = Boolean(state.geo);
       this.known = state.networks ?? [];
+      this.sources = state.sources ?? [];
       this.networks = view.networks ?? [];
       this.interfaces = ifaces.interfaces;
       this.interfacesProblem = ifaces.problem ?? '';
@@ -187,6 +191,12 @@ class Argus {
     await sendJson('/api/live/reset', {});
   }
 
+  /** Asks the LAN who is there (`iface`, else the server's first real interface): the one thing Argus sends (server/sources.ts). */
+  async scanSources(iface?: string): Promise<SourceState[]> {
+    this.sources = await sendJson<SourceState[]>('/api/sources/scan', iface ? { iface } : {});
+    return this.sources;
+  }
+
   async save(): Promise<Capture> {
     const c = await sendJson<Capture>('/api/live/save', {});
     if (!this.captures.some((x) => x.id === c.id)) this.captures = [c, ...this.captures];
@@ -209,6 +219,10 @@ class Argus {
     if (e.type === 'reset') return void this.live.refresh();
     if (e.type === 'captures') {
       this.captures = e.captures;
+      return;
+    }
+    if (e.type === 'sources') {
+      this.sources = e.sources;
       return;
     }
     this.session = e.session;

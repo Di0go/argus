@@ -3,7 +3,7 @@
 A readable network spy for one person, on `tshark`, live: turn on one or more network interfaces and see, as it
 happens and in plain words, which devices are there (name, address, maker, how fast they move data now) and which
 hosts and companies out on the internet they talk to; save the last minutes as a capture. Each network the PC was on (home, the office, a café) is kept apart: a network is
-its router, named by its SSID (`shared/networks.ts`; the sensor keeps where it joined each one). The agent asks the same
+its router, named by its SSID (`shared/networks.ts`; the sensor keeps where it joined each one). The bar on every page says apart where Argus listens ("Listen on": the interfaces) and which network the pages read ("Showing"); a device is on every network it was heard on, and in one network's list says where else it was. The agent asks the same
 over MCP (`get_hosts`, `get_device`, `list_captures`, `get_day`, `what_happened`). Since 2026-10-26 the home page is a live monitor: who is using the network now and for what, a line each, moving every second; where it listens is a bar of pills on every page (docs/apresentacao.md: why, what was tried and turned down). The first app born on the saga's shared core, [Organon](../Organon) (`@organon/core`, pinned at an exact version in `package.json`).
 
 ## The rule of the core
@@ -20,15 +20,24 @@ file here is a copy of Aristotle's or Galen's infrastructure (exceptions, with t
 
 ## Listening, and what it never does
 
-Only `dumpcap` touches the network: it has the capture capabilities and this user may run it
+Listening touches the network only through `dumpcap`: it has the capture capabilities and this user may run it
 (`scripts/install-capture.sh`, run once with `pkexec`). Per interface turned on, `server/live.ts` runs one
 `tshark -i … -w <ring> -b … -P -T fields`: tshark has dumpcap write a ring buffer (data/live/ring/<iface>, files ×
 size, the ceiling in `server/config.ts`) and prints each packet's structured fields, never its text output;
 `server/tally.ts` adds them up, with ceilings on conversations and devices kept. The page gets only the totals, once a
 second, over the core's event stream; the session is written to data/live/ every minute and on stop, and what was on
-is listened on again after a restart. Saving merges the ring with `mergecap` into data/captures/. It only listens: no
-monitor mode, no ARP spoofing, nothing sent. What is encrypted is not read; on a switched network a PC sees mostly its
-own traffic and the broadcast and multicast of the others. The interface says both, once.
+is listened on again after a restart. Saving merges the ring with `mergecap` into data/captures/. The sensor only
+listens: no monitor mode, no ARP spoofing, nothing sent. What is encrypted is not read; on a switched network a PC sees
+mostly its own traffic and the broadcast and multicast of the others. The interface says both, once.
+
+To see more of the network than passes through this PC, `server/sources.ts` asks other witnesses
+([docs/sources.md](docs/sources.md)). Passive, every 15 s: this PC's neighbour table (`ip neigh`) and DHCP lease files
+on this PC, both local reads that send nothing. Active, and the one thing in Argus that sends: a scan of the LAN
+(`nmap -sn` over the /24 this PC is in: an ARP request and a TCP connection attempt to ports 80 and 443 per address,
+then PTR questions for those that answered), run only when he presses its button on Devices, which says "active" and
+what it sends; never on a timer, at start or from the agent. What they find is `foundOnly` (no traffic), shown apart,
+placed on the network its interface was on when it was found (else on none), and never kept in the day. Anything that
+changes other people's traffic (ARP spoofing, deauthentication) or scans ports for services is not in Argus.
 
 ## The sensor and the server
 

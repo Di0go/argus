@@ -122,12 +122,7 @@ export function byNetwork<V extends { devices: Device[]; conversations: Conversa
   if (!v.segments) return v;
   const told = tell(v.segments, { ...o, listening: o.listening ?? v.listening });
   const bySeg = new Map(v.segments.map((s) => [s.id, s]));
-  /** The network an interface was on at a time: its stay that holds it, else the nearest. */
-  const near = (iface: string, t: number) => {
-    const gap = (s: Segment) => (t < s.first ? s.first - t : t > s.last ? t - s.last : 0);
-    const s = v.segments!.filter((x) => x.iface === iface).sort((a, b) => gap(a) - gap(b))[0];
-    return s ? told.of.get(s.id) : undefined;
-  };
+  const near = networkAt(v.segments, told.of);
   for (const d of v.devices) {
     const per = new Map<string, NonNullable<Device['perNetwork']>[string]>();
     for (const h of d.heard ?? []) {
@@ -179,6 +174,25 @@ export function byNetwork<V extends { devices: Device[]; conversations: Conversa
   return Object.assign(v, { networks: told.networks });
 }
 
+/** How near a stay a time may be and still be its network: a frame heard just before the stay was told, or just after. */
+const NEAR = 60;
+
+/**
+ * The network an interface was on at a time: its stay that holds it, else the nearest one within a minute. Outside
+ * that it could have been on another network, so it is none: a list that guesses is worse than one that says it does
+ * not know. `of` is each stay's network (tell). What another source found (server/sources.ts) is placed by the same rule.
+ */
+export function networkAt(segments: Segment[], of: Map<string, string>): (iface: string, t: number) => string | undefined {
+  return (iface, t) => {
+    const gap = (s: Segment) => (t < s.first ? s.first - t : t > s.last ? t - s.last : 0);
+    const stays = segments.filter((x) => x.iface === iface);
+    const inside = stays.filter((s) => gap(s) === 0).sort((a, b) => b.last - a.last)[0];
+    if (inside) return of.get(inside.id);
+    const s = stays.sort((a, b) => gap(a) - gap(b))[0];
+    return s && gap(s) <= NEAR ? of.get(s.id) : undefined;
+  };
+}
+
 /**
  * What one or more networks saw: their devices (with their traffic on them, when they were on others too), their
  * conversations, the hosts those reached (with what went to and from them there), and the links between them.
@@ -187,20 +201,24 @@ export function within<V extends { devices: Device[]; remotes: { id: string; pac
   v: V,
   networks: ReadonlySet<string>,
 ): V {
-  const devices = v.devices
-    .filter((d) => d.networks?.some((n) => networks.has(n)))
-    .map((d) => {
-      if (!d.perNetwork) return d;
-      const mine = Object.entries(d.perNetwork).filter(([n]) => networks.has(n));
-      return {
-        ...d,
-        packets: mine.reduce((s, [, p]) => s + p.packets, 0),
-        bytesSent: mine.reduce((s, [, p]) => s + p.bytesSent, 0),
-        bytesReceived: mine.reduce((s, [, p]) => s + p.bytesReceived, 0),
-        firstSeen: Math.min(...mine.map(([, p]) => p.firstSeen)),
-        lastSeen: Math.max(...mine.map(([, p]) => p.lastSeen)),
-      };
-    });
+  const devices = v.devices.flatMap((d) => {
+    const all = d.networks ?? [];
+    const mine = all.filter((n) => networks.has(n));
+    if (!mine.length) return [];
+    const per = d.perNetwork ? mine.map((n) => [n, d.perNetwork![n]!] as const).filter(([, p]) => p) : [];
+    // What it moved on the networks shown: its own share on each when it was on more than one, else its whole.
+    const totals = per.length
+      ? {
+          packets: per.reduce((s, [, p]) => s + p.packets, 0),
+          bytesSent: per.reduce((s, [, p]) => s + p.bytesSent, 0),
+          bytesReceived: per.reduce((s, [, p]) => s + p.bytesReceived, 0),
+          firstSeen: Math.min(...per.map(([, p]) => p.firstSeen)),
+          lastSeen: Math.max(...per.map(([, p]) => p.lastSeen)),
+        }
+      : { packets: d.packets, bytesSent: d.bytesSent, bytesReceived: d.bytesReceived, firstSeen: d.firstSeen, lastSeen: d.lastSeen };
+    const elsewhere = all.filter((n) => !networks.has(n));
+    return [{ ...d, ...totals, networks: mine, ...(elsewhere.length ? { elsewhere } : {}) }];
+  });
   const conversations = v.conversations.filter((c) => c.network && networks.has(c.network));
   const hosts = new Map<string, { packets: number; bytesSent: number; bytesReceived: number; firstSeen: number; lastSeen: number }>();
   const links = new Map<string, Link>();

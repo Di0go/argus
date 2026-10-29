@@ -67,7 +67,7 @@
       pip: failed.length ? 'turn' : undefined,
       pipTitle: failed.length ? `Stopped: ${failed.map((l) => l.id).join(', ')}` : undefined,
     },
-    { id: 'devices', label: 'Network', href: link.devices(), icon: ICON.devices, on: route.page === 'devices' || route.page === 'device' },
+    { id: 'devices', label: 'Devices', href: link.devices(), icon: ICON.devices, on: route.page === 'devices' || route.page === 'device' },
     {
       id: 'internet',
       label: 'Internet',

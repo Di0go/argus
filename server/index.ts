@@ -14,6 +14,8 @@
 //   GET    /api/captures/<id>          one, with its devices, internet hosts and links
 //   DELETE /api/captures/<id>          removes it and its file
 //   GET    /api/hosts[?capture=<id>]   the live session's view (or that capture's)
+//   GET    /api/sources                where devices are found besides listening, and how each source is going
+//   POST   /api/sources/scan           { iface? } asks the LAN who is there (nmap -sn: the one thing Argus sends)
 
 import { execFile } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -26,16 +28,19 @@ import { createMcpHandler } from '@organon/core/server/mcp';
 import { createSettings } from '@organon/core/server/settings';
 import { createStore } from '@organon/core/server/store';
 import { Warnings } from '@organon/core/server/warnings';
+import type { SourceState } from '../shared/types.ts';
 import { classify, listInterfaces, ownMacs, selfSystem, ssidOf, tsharkFields } from './capture.ts';
 import { useFields } from './tally.ts';
 import { Captures } from './captures.ts';
 import { DissectError } from './dissect.ts';
 import { loadHouse } from './dictionary.ts';
-import { app, CAPTURES_DIR, CAPTURES_MB, DUMPCAP, EDITCAP, HISTORY, IW, LIVE_DIR, MERGECAP, RING, SEED_PCAP, SYS_NET, TSHARK } from './config.ts';
+import { app, CAPTURES_DIR, CAPTURES_MB, DUMPCAP, EDITCAP, HISTORY, IW, LIVE_DIR, MERGECAP, RING, SEED_PCAP, SOURCES, SYS_NET, TSHARK } from './config.ts';
 import { Geo, geoFile } from './geo.ts';
 import { interpret, type Reading } from './interpret.ts';
 import { History } from './history.ts';
 import { Live, LiveError } from './live.ts';
+import { machineAddresses, Sources } from './sources.ts';
+import { networkAt, tell } from '../shared/networks.ts';
 import { argusTools, instructions } from './tools.ts';
 
 const warnings = new Warnings();
@@ -63,26 +68,37 @@ if (!captures.all().length && SEED_PCAP) {
 }
 // The day, kept as aggregates (server/history.ts): what each device did, minute by minute, and the diary.
 const history = await new History({ dir: path.join(app.dataDir, 'history'), store, days: HISTORY.days, mb: HISTORY.mb }).load();
+// What the router, the kernel and a scan know of the LAN (server/sources.ts): added to the live view, never to a
+// capture, and never sent as if the sensor had heard it (`foundOnly`).
+const sources = await new Sources({ ...SOURCES, own: () => ({ macs: own.macs(), ips: machineAddresses().ips }) }).load();
 const live = await new Live({ tshark: TSHARK, editcap: EDITCAP, dir: LIVE_DIR, store, events, ownMacs: () => ownMacs(SYS_NET),
   ssid: (id) => ssidOf(IW, id, SYS_NET),
   // The server reads the sensor's facts: the dictionary, identity, DNS, where (interpret.ts), and what each device is
-  // doing now (the history). The line between the two (docs/sensor.md).
+  // doing now (the history). The line between the two (docs/sensor.md). The other sources are merged after that read,
+  // so a device they found has a network and a name but is not counted as heard.
   read: (v) => {
-    interpret(v, reading);
-    for (const d of v.devices) d.doing = history.doing(`device:${d.id}`);
-    return v;
+    const stays = v.segments;
+    const read = interpret(v, reading);
+    sources.attach(read, stays ? networkAt(stays, tell(stays).of) : undefined);
+    for (const d of read.devices) d.doing = history.doing(`device:${d.id}`);
+    return read;
   },
   ...RING,
 }).load();
 own.macs = () => live.ownMacs();
 
-// Every few seconds, a look at what the session adds up to: what grew is now's traffic, kept by the minute.
+// Every few seconds, a look at what the session adds up to: what grew is now's traffic, kept by the minute. Only what
+// was heard: a device another source found is not news of the day, nor one the history knows.
+const heard = () => {
+  const h = live.hosts();
+  return { ...h, devices: h.devices.filter((d) => !d.foundOnly), session: live.session() };
+};
 let observing = false;
 const looking = setInterval(() => {
   if (observing || !live.on().length) return;
   observing = true;
   history
-    .observe({ ...live.hosts(), session: live.session() })
+    .observe(heard())
     .then(() => {
       if (history.full) warnings.set('history', 'Today’s history reached its ceiling (ARGUS_HISTORY_MB) and is no longer written until midnight.');
     })
@@ -93,12 +109,13 @@ const looking = setInterval(() => {
 await serve(app, {
   warnings,
   accent: () => settings.accent,
-  state: () => ({ captures: captures.all(), session: live.session(), geo: reading.geo?.ready ?? false, networks: history.networks() }),
+  state: () => ({ captures: captures.all(), session: live.session(), geo: reading.geo?.ready ?? false, networks: history.networks(), sources: sources.status() }),
   mcp: createMcpHandler(app, { instructions, tools: () => argusTools(captures, live, history), core: ['get_hosts'] }),
   stop: async () => {
     clearInterval(looking);
+    sources.stop();
     await live.stop();
-    await history.observe({ ...live.hosts(), session: live.session() }).catch(() => {});
+    await history.observe(heard()).catch(() => {});
     await history.flush();
     events.close();
   },
@@ -115,6 +132,16 @@ async function routes(...[req, res, route, params]: Parameters<Route>): Promise<
   const tail = (prefix: string) => decodeURIComponent(route.slice(prefix.length));
   if (req.method === 'GET' && route === '/api/events') return events.stream(req, res);
   if (req.method === 'GET' && route === '/api/interfaces') return json(res, 200, await listInterfaces(tools));
+  if (req.method === 'GET' && route === '/api/sources') return json(res, 200, sources.status());
+  if (req.method === 'POST' && route === '/api/sources/scan') {
+    const body = (await readJson(req)) as { iface?: unknown } | undefined;
+    const iface = typeof body?.iface === 'string' && /^[\w.:@-]{1,64}$/.test(body.iface) ? body.iface : undefined;
+    const state = await sources.scan(iface).catch((err: Error) => {
+      throw new ApiError(409, err.message);
+    });
+    sourcesAttached(state);
+    return json(res, 200, state);
+  }
 
   if (req.method === 'GET' && route === '/api/live') return json(res, 200, live.view());
   if (req.method === 'GET' && route === '/api/day') {
@@ -164,6 +191,12 @@ async function routes(...[req, res, route, params]: Parameters<Route>): Promise<
     return json(res, 200, c.status === 'done' ? await captures.hosts(c) : { capture: c });
   }
   return false;
+}
+
+/** A source looked again (or scanned): its state goes to the page, and the view is sent again with what it found. */
+function sourcesAttached(state: SourceState[]) {
+  events.send({ type: 'sources', sources: state });
+  live.publish();
 }
 
 /**

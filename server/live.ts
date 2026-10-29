@@ -273,6 +273,12 @@ export class Live {
     return [...this.listeners.values()].filter((l) => l.state.on).map((l) => l.state.id);
   }
 
+  /** Sends what changed now: another source found devices outside the sensor (server/sources.ts). */
+  publish(): void {
+    this.dirty = true;
+    this.emit(true);
+  }
+
   /** Stops every tshark and writes the session. */
   async stop(): Promise<void> {
     this.stopping = true;
@@ -436,7 +442,7 @@ export class Live {
       this.withRates(v.devices),
       this.sentDevices,
       (d) =>
-        `${d.bytesSent}:${d.bytesReceived}:${d.lastSeen}:${d.names.length}:${d.ips.length}:${d.role ?? ''}:${d.networks?.join() ?? ''}:${d.rate?.sent ?? 0}:${d.rate?.received ?? 0}:${d.identity?.label ?? ''}:${d.identity?.confidence ?? ''}:${(d.doing ?? []).map((x) => `${x.what?.app ?? x.what?.category}${x.bytes}`).join(',')}:${d.dns?.length ?? 0}`,
+        `${d.bytesSent}:${d.bytesReceived}:${d.lastSeen}:${d.names.length}:${d.ips.length}:${d.role ?? ''}:${d.networks?.join() ?? ''}:${d.rate?.sent ?? 0}:${d.rate?.received ?? 0}:${d.identity?.label ?? ''}:${d.identity?.confidence ?? ''}:${(d.doing ?? []).map((x) => `${x.what?.app ?? x.what?.category}${x.bytes}`).join(',')}:${d.dns?.length ?? 0}:${d.origin?.join() ?? ''}:${d.foundOnly ? 'found' : ''}`,
     );
     const remotes = changed(v.remotes, this.sentRemotes, (r) => `${r.bytesSent + r.bytesReceived}:${r.lastSeen}:${r.names.length}`);
     const conversations = changed(v.conversations, this.sentConversations, (c) => `${c.sent}:${c.received}:${c.last}:${c.app?.app ?? ''}:${c.app?.activity ?? ''}`);

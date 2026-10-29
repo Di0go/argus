@@ -30,7 +30,7 @@ const LISTEN = Number(args[args.indexOf('--listen') + 1]) || 0;
 const repo = args.includes('--repo') ? path.resolve(args[args.indexOf('--repo') + 1]!) : ROOT;
 
 /** Where an address may be private: the made-up networks of the tests, the fixture and the demo. */
-const FIXTURES = [/^tests\//, /^scripts\/make-fixture\.ts$/, /^scripts\/demo(-tshark)?\.ts$/];
+const FIXTURES = [/^tests\//, /^scripts\/make-fixture\.ts$/, /^scripts\/demo(-tshark|-ip|-nmap)?\.ts$/];
 /** Interface names every Linux machine has, or that say nothing of this one. */
 const GENERIC_IFACE = /^(lo|any|eth\d|wlan\d|docker0|tailscale0|virbr0)$/;
 

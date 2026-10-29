@@ -55,6 +55,8 @@ export function deviceLine(d: Device) {
     id: d.id,
     name: d.name,
     ...(d.role ? { role: d.role === 'gateway' ? 'router (the way out to the internet)' : 'this PC' } : {}),
+    // Found by another source (server/sources.ts): on the network, but no frame of it was heard, so no traffic is known.
+    ...(d.foundOnly ? { foundNotHeard: `found by ${(d.origin ?? []).join(', ')}; no traffic of it was heard` } : {}),
     ips: d.ips,
     mac: d.mac,
     vendor: d.vendor ?? (d.randomMac ? 'unknown: a random (private) MAC' : undefined),

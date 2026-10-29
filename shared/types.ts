@@ -14,6 +14,12 @@ export type Kind = 'device' | 'remote' | 'site' | 'interface' | 'capture';
 /** Where a device's name came from, as he would say it. */
 export type NameSource = 'DHCP' | 'mDNS' | 'NetBIOS' | 'DNS' | 'TLS' | 'HTTP';
 
+/**
+ * Where a device was found besides this PC's own listening: the router's leases, the kernel's neighbour table, a scan
+ * of the LAN, or a DNS server's log. The sensor (tshark) is not one of these: what it heard is the device's own traffic.
+ */
+export type DeviceOrigin = 'router' | 'neigh' | 'scan' | 'dns';
+
 export interface Traffic {
   packets: number;
   /** Bytes in frames it sent, and in frames sent to it. */
@@ -114,6 +120,12 @@ export interface Device extends EntityRef, Traffic {
   networks?: string[];
   /** On more than one: its traffic on each, so a network's view says its share (this PC's, above all). */
   perNetwork?: Record<string, { packets: number; bytesSent: number; bytesReceived: number; firstSeen: number; lastSeen: number }>;
+  /** Where it was found besides this PC's own listening (the router's leases, a scan…). Absent: only the sensor saw it. */
+  origin?: DeviceOrigin[];
+  /** This PC never saw a frame from it: another source found it, and it may be on the network without talking to us. */
+  foundOnly?: boolean;
+  /** In a network's view: the other networks it was heard on (the chosen one is not among them). */
+  elsewhere?: string[];
 }
 
 /** A device's own words about itself, as the network carried them. */
@@ -274,6 +286,25 @@ export interface Listening {
   rate?: number;
 }
 
+/**
+ * A place Argus finds devices besides listening: the kernel's neighbour table, the router's (or a local) DHCP leases,
+ * and a scan of the LAN on demand. What each adds, and how it is going, as the page says it.
+ */
+export interface SourceState {
+  id: 'neigh' | 'leases' | 'scan';
+  name: string;
+  /** Whether it is adding anything now (scan: whether it can be asked to). */
+  on: boolean;
+  /** What it adds, in words. */
+  detail: string;
+  /** Epoch seconds of the last look or scan. */
+  last?: number;
+  /** How many devices it found (whole, before merging). */
+  found: number;
+  /** Why it is off, or what failed at the last look. */
+  error?: string;
+}
+
 export interface Session {
   /** Epoch seconds: when this session began (the first interface turned on, or a reset). */
   started?: number;
@@ -336,7 +367,7 @@ export interface ResetEvent {
   type: 'reset';
 }
 
-export type ArgusEvent = LiveEvent | ResetEvent | { type: 'captures'; captures: Capture[] };
+export type ArgusEvent = LiveEvent | ResetEvent | { type: 'captures'; captures: Capture[] } | { type: 'sources'; sources: SourceState[] };
 
 /** One episode of the diary: a device doing one thing, from when it began to when it stopped, and how much. */
 export interface Episode {

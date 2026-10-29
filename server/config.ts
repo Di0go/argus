@@ -52,3 +52,25 @@ export const SYS_NET = app.env('SYS_NET') ?? '/sys/class/net';
 export const IW = app.env('IW') ?? (SYS_NET === '/sys/class/net' ? 'iw' : undefined);
 /** A recording brought in as a capture when there is none yet (pnpm dev uses the fixture). */
 export const SEED_PCAP = app.env('SEED_PCAP');
+
+/**
+ * Where Argus finds devices besides listening (server/sources.ts): the kernel's neighbour table (ARGUS_NEIGH=0 turns it
+ * off), DHCP lease files (ARGUS_LEASES, comma separated; "none" turns them off; unset reads the usual places), both
+ * local reads, and a scan of the LAN, which sends, only when he presses its button (ARGUS_SCAN=0 takes the button away;
+ * it needs nmap). The three are on only where the interfaces are the real ones (SYS_NET is /sys/class/net): the tests
+ * and the demo make them up, and the real LAN must not leak in.
+ */
+const realNet = (app.env('SYS_NET') ?? '/sys/class/net') === '/sys/class/net';
+const flag = (name: string, fallback: boolean) => {
+  const v = app.env(name);
+  return v === undefined ? fallback : v !== '0';
+};
+const leases = app.env('LEASES');
+export const SOURCES = {
+  neigh: flag('NEIGH', realNet),
+  scan: flag('SCAN', realNet),
+  leases: leases === undefined ? (realNet ? undefined : []) : leases === 'none' || leases === '' ? [] : leases.split(',').map((f) => f.trim()).filter(Boolean),
+  nmap: app.env('NMAP') ?? 'nmap',
+  ip: app.env('IP') ?? 'ip',
+  pollEvery: int('SOURCES_MS', 15_000),
+};

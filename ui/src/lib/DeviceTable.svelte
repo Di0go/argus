@@ -3,8 +3,9 @@
   // minutes (live), and how much in all. The order holds still while he reads it, as a radar screen keeps its tracks:
   // the busiest first, sorted again every ten seconds or when a device turns up, not on every tick, and never under
   // the pointer. A device that just turned up is marked for a minute; one quiet for five fades. Each says its networks
-  // (the page gives the devices of the network chosen: networks.svelte.ts).
-  import type { Device } from '../../../shared/types.ts';
+  // (the page gives the devices of the network chosen: networks.svelte.ts). A device another source found, and this PC
+  // never heard, says so and has no traffic to show.
+  import type { Device, DeviceOrigin } from '../../../shared/types.ts';
   import { argus } from './argus.svelte.ts';
   import EntityIcon from './EntityIcon.svelte';
   import EntityLink from './EntityLink.svelte';
@@ -55,6 +56,13 @@
     ),
   );
   const quiet = (d: Device) => live && Date.now() / 1000 - d.lastSeen > 300;
+  const ORIGIN: Record<DeviceOrigin, string> = {
+    router: 'the router’s leases',
+    neigh: 'this PC’s neighbour table',
+    scan: 'a scan of the LAN',
+    dns: 'a DNS server’s log',
+  };
+  const foundBy = (d: Device) => (d.origin ?? []).map((o) => ORIGIN[o]).join(', ');
 </script>
 
 <div class="records-wrap">
@@ -71,16 +79,17 @@
     </thead>
     <tbody>
       {#each rows as d (d.id)}
-        <tr class:quiet={quiet(d)} data-device={d.id}>
+        <tr class:quiet={quiet(d)} class:found={d.foundOnly} data-device={d.id}>
           <td class="name">
             <span class="who">
               <EntityIcon entity={d} size={26} />
               <span class="nm">
                 <EntityLink entity={d} {capture} />
                 <span class="sub"
-                  ><span class="show-s" class:dotted={subline(d)}><NetTag device={d} compact /></span>{subline(d)}{#if live && argus.isNew(d)}<span class="tag solid">new</span>{/if}{#if quiet(d)}<span class="q"
-                      >{since(d.lastSeen)}</span
-                    >{/if}</span
+                  ><span class="show-s" class:dotted={subline(d)}><NetTag device={d} compact /></span>{subline(d)}{#if d.foundOnly}<span
+                      class="tag found-tag"
+                      data-tip="Found by {foundBy(d)}: no frame of its passed through this PC">{foundBy(d)}</span
+                    >{:else if live && argus.isNew(d)}<span class="tag solid">new</span>{/if}{#if quiet(d)}<span class="q">{since(d.lastSeen)}</span>{/if}</span
                 >
               </span>
             </span>
@@ -95,10 +104,10 @@
               >{:else}<span class="muted">—</span>{/if}
           </td>
           {#if live}
-            <td class="num rate">{rate(argus.meters[d.id])}</td>
-            <td class="hide-s spark"><Spark series={argus.byDevice[d.id]} max={peak} /></td>
+            <td class="num rate">{d.foundOnly ? '—' : rate(argus.meters[d.id])}</td>
+            <td class="hide-s spark">{#if !d.foundOnly}<Spark series={argus.byDevice[d.id]} max={peak} />{/if}</td>
           {/if}
-          <td class="num">{bytes(total(d))}</td>
+          <td class="num">{d.foundOnly ? 'not heard' : bytes(total(d))}</td>
         </tr>
       {/each}
     </tbody>
@@ -196,6 +205,14 @@
 
   tr.quiet {
     opacity: 0.55;
+  }
+
+  .found-tag {
+    max-width: 22em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.7rem;
   }
 
   .devices td.net {

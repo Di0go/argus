@@ -1,9 +1,9 @@
 <script lang="ts">
-  // Where Argus listens, on every page, under the tabs: one pill per interface that usually matters (Wi-Fi, cable, VPN,
-  // up), each a switch, with the network it is on now (its Wi-Fi's name, else its router's) and how fast it moves when
-  // on; the rest (Docker's bridges, what is down, loopback, all at once) behind "More". At the end, which network the
-  // pages show (NetFilter) and saving the last minutes. Why an interface cannot be listened on, or stopped, is said in a
-  // line under it.
+  // Two different questions, said apart, on every page under the tabs: where Argus listens (one pill per interface that
+  // usually matters: Wi-Fi, cable, VPN, up; the rest behind "More"), and which network the pages show (NetFilter). They
+  // are not the same: one is where frames are captured, the other is which of the networks heard is being read. At the
+  // end, saving the last minutes. Why an interface cannot be listened on, or
+  // stopped, is said in a line under it.
   import type { Interface } from '../../../shared/types.ts';
   import { argus } from './argus.svelte.ts';
   import { rate, since, span } from './format.ts';
@@ -94,7 +94,8 @@
   </button>
 {/snippet}
 
-<div class="netbar" bind:this={root} aria-label="Where Argus listens: a network each, click to listen or stop" role="group">
+<div class="netbar" bind:this={root} aria-label="Where Argus listens, and which network the pages show" role="group">
+  <span class="cap" aria-hidden="true">Listen on</span>
   <div class="pills">
     {#each main as i (i.id)}{@render pill(i)}{/each}
     {#if rest.length}
@@ -109,6 +110,7 @@
     {/if}
   </div>
   <span class="end">
+    <span class="cap" aria-hidden="true">Showing</span>
     <NetFilter />
     {#if saved}<a href={link.capture(saved)}>Saved: open it</a>{/if}
     <button class="ghost small save" disabled={saving || !on.length} onclick={save} title="Keep what the ring buffer holds (the last minutes, as packets) as a capture"
@@ -145,6 +147,15 @@
     flex-wrap: wrap;
     gap: 6px;
     min-width: 0;
+  }
+
+  .cap {
+    flex: none;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--faint);
   }
 
   .pill {
@@ -284,6 +295,21 @@
   }
 
   @media (max-width: 760px) {
+    /* Two lines on a phone: where it listens, then what the pages show, each with its caption. */
+    .netbar {
+      flex-wrap: wrap;
+      row-gap: 6px;
+    }
+
+    .pills {
+      flex: 1 1 0;
+    }
+
+    .end {
+      flex-basis: 100%;
+      margin-left: 0;
+    }
+
     .save,
     .ssid {
       display: none;

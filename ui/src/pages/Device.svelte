@@ -5,8 +5,9 @@
   // same companies; and where each fact came from (its names and who said them, its addresses, its maker).
   import { getJson } from '@organon/core/ui/live';
   import { keyOf } from '@organon/core/shared/entities';
-  import type { Device, SeriesData } from '../../../shared/types.ts';
+  import type { Device, DeviceOrigin, SeriesData } from '../../../shared/types.ts';
   import { argus } from '../lib/argus.svelte.ts';
+  import { networks } from '../lib/networks.svelte.ts';
   import Conversations from '../lib/Conversations.svelte';
   import EntityIcon from '../lib/EntityIcon.svelte';
   import EntityLink from '../lib/EntityLink.svelte';
@@ -62,6 +63,42 @@
     likely: 'Likely: one strong clue (a default name), or two indirect ones that agree.',
     possibly: 'Possibly: one indirect clue (the maker, or what it talks to).',
   };
+  const ORIGIN: Record<DeviceOrigin, string> = {
+    router: 'the router’s leases',
+    neigh: 'this PC’s neighbour table',
+    scan: 'a scan of the LAN',
+    dns: 'a DNS server’s log',
+  };
+  const foundBy = $derived((d?.origin ?? []).map((o) => ORIGIN[o]).join(', '));
+  /** The networks the pages show: this device's page is not limited to them, so it says when it is not one of them. */
+  const scopeIds = $derived(argus.shown);
+  const scopeName = $derived.by(() => {
+    if (!scopeIds) return 'all networks';
+    return argus.netList
+      .filter((n) => scopeIds.has(n.id))
+      .map((n) => n.name)
+      .join(' and ');
+  });
+  const inScope = $derived(!scopeIds || !d?.networks?.length || d.networks.some((n) => scopeIds.has(n)));
+  /** Each network it was heard on, with its own traffic there: what a network's list is reading when it shows it. */
+  const netRows = $derived.by(() => {
+    if (!d?.networks?.length) return [];
+    return d.networks.map((id) => {
+      const n = argus.netList.find((x) => x.id === id);
+      const p = d.perNetwork?.[id];
+      return {
+        id,
+        name: n?.name ?? id,
+        now: Boolean(n?.now),
+        first: p?.firstSeen ?? d.firstSeen,
+        last: p?.lastSeen ?? d.lastSeen,
+        sent: p?.bytesSent ?? d.bytesSent,
+        received: p?.bytesReceived ?? d.bytesReceived,
+        packets: p?.packets ?? d.packets,
+        shown: scopeIds ? scopeIds.has(id) : true,
+      };
+    });
+  });
 
   $effect(() => {
     if (!live || period !== 'day') return;
@@ -90,7 +127,29 @@
     {/if}
   </header>
 
-  {#if d && live}
+  {#if d && !capture && !inScope}
+    <div class="scope-warn" role="note">
+      <p>
+        This page shows everything the session saw, so it is here even though it was not heard on <b>{scopeName}</b>. It was heard on
+        <NetTag device={d} />{#if d.elsewhere?.length} and elsewhere{/if}. A network's list is the narrower view.
+      </p>
+      <div class="scope-acts">
+        {#if d.networks?.[0]}<button class="linkish" onclick={() => networks.choose(d.networks![0]!)}>Show its network</button>{/if}
+        <button class="linkish" onclick={() => networks.choose('all')}>Show all networks</button>
+      </div>
+    </div>
+  {/if}
+
+  {#if d?.foundOnly}
+    <div class="found-warn" role="note">
+      <p>
+        <b>Found, not heard.</b> {foundBy ? `Found by ${foundBy}.` : 'Another source found it.'} No frame of its passed through this PC, so its
+        traffic and what it is doing are not visible here; it may be on the network and simply never talk through this machine.
+      </p>
+    </div>
+  {/if}
+
+  {#if d && live && !d.foundOnly}
     <section class="band live-now" aria-label="Now">
       <div class="now-head">
         <p class="now-line">
@@ -145,10 +204,44 @@
           </dd>
           <dt>Network</dt>
           <dd><NetTag device={d} />{#if (d.networks?.length ?? d.interfaces.length) > 1}<span class="muted small"> (heard on {d.networks?.length ?? d.interfaces.length})</span>{/if}</dd>
-          <dt>Seen</dt>
+          <dt>{d.foundOnly ? 'Found' : 'Seen'}</dt>
           <dd>{when(d.firstSeen)} to {when(d.lastSeen)}{live ? ` (${since(d.lastSeen)})` : ''}</dd>
         </dl>
     </section>
+
+    {#if netRows.length}
+      <section class="band" aria-labelledby="nets-h">
+        <div class="band-h">
+          <h2 id="nets-h">Networks</h2>
+          <span class="aside">{netRows.length === 1 ? 'heard on one' : `heard on ${netRows.length}`}</span>
+        </div>
+        <p class="net-note">
+          A device is on every network it was heard on. When the bar shows one network, this is the device's part in it; the other
+          networks' lists do not see it as theirs.
+        </p>
+        <div class="records-wrap">
+          <table class="records net-table" aria-label="Networks this device was heard on">
+            <thead>
+              <tr><th>Network</th><th>Last heard</th><th class="num">Sent</th><th class="num">Received</th><th class="num">Packets</th></tr>
+            </thead>
+            <tbody>
+              {#each netRows as n (n.id)}
+                <tr class:elsewhere={!n.shown}>
+                  <td>
+                    <button class="linkish" onclick={() => networks.choose(n.id)} title="Show this network on every page">{n.name}</button>
+                    {#if n.now}<span class="tag solid">now</span>{:else if !n.shown}<span class="muted small">not shown</span>{/if}
+                  </td>
+                  <td>{since(n.last)}{#if n.packets === 0}<span class="muted small"> · found, not heard</span>{/if}</td>
+                  <td class="num">{bytes(n.sent)}</td>
+                  <td class="num">{bytes(n.received)}</td>
+                  <td class="num">{n.packets.toLocaleString('en-GB')}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {/if}
 
     <section class="band">
       <div class="stats">
@@ -337,6 +430,57 @@
     margin: 18px 0 4px;
     font-size: 0.8rem;
     font-weight: 500;
+    color: var(--muted);
+  }
+
+  .scope-warn,
+  .found-warn {
+    margin: 0 0 20px;
+    padding: 10px 14px;
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--acc-line);
+    border-radius: var(--radius);
+    background: var(--b1);
+    font-size: 0.84rem;
+    line-height: 1.5;
+    color: var(--fg-2);
+  }
+
+  .found-warn {
+    border-left-color: var(--faint);
+    background: var(--b2);
+  }
+
+  .scope-warn p,
+  .found-warn p {
+    margin: 0;
+  }
+
+  .scope-acts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 6px;
+  }
+
+  .net-note {
+    max-width: 72ch;
+    margin: 4px 0 10px;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: var(--fg-2);
+  }
+
+  .linkish {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--acc);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .net-table tr.elsewhere td {
     color: var(--muted);
   }
 </style>

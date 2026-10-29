@@ -1,7 +1,8 @@
 <script lang="ts">
   // Which network the pages show, as a menu in the bar on every page: the one Argus is on now (the default), each
   // network the session was on and those remembered from before it (its Wi-Fi's name, else its router's; when it was
-  // heard last), or all of them together. The choice is the same on every page, and kept.
+  // heard last), or all of them together. It is not where Argus listens (the pills beside it): one network may be heard
+  // on two interfaces, and an interface may have been on many networks. The choice is the same on every page, and kept.
   import Check from '@lucide/svelte/icons/check';
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import Layers from '@lucide/svelte/icons/layers';
@@ -53,19 +54,21 @@
 <svelte:window onpointerdown={outside} onkeydown={key} />
 
 <div class="nf" bind:this={root}>
-  <button class="nf-button" class:set={networks.choice !== 'now'} aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)} title="Which network the pages show">
-    <span class="sr">Network: </span>{#if networks.choice === 'now' && nowNets.length}<i class="live" aria-hidden="true"></i>{/if}<span class="lb">{label}</span>
+  <button class="nf-button" class:set={networks.choice !== 'now'} aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)} title="Which network the pages show: the one of now, one heard before, or all together">
+    <span class="sr">Showing: </span>{#if networks.choice === 'now' && nowNets.length}<i class="live" aria-hidden="true"></i>{/if}<span class="lb">{label}</span>
     <ChevronDown size={14} strokeWidth={2} />
   </button>
   {#if open}
-    <div class="nf-menu" role="menu" aria-label="Network">
+    <div class="nf-menu" role="menu" aria-label="Which network the pages show">
+      <p class="menu-head">Which network the pages show</p>
       <button role="menuitemradio" aria-checked={networks.choice === 'now'} onclick={() => pick('now')}>
         <span class="ic"><Radio size={15} strokeWidth={1.7} /></span>
-        <span class="nm">The network of now<span class="hint">{nowNets.length ? nowLabel : 'not listening: the latest one'}</span></span>
+        <span class="nm">Follow the network of now<span class="hint">{nowNets.length ? nowLabel : 'not listening: the latest one'}</span></span>
         <span class="n"></span>
         <span class="tick">{#if networks.choice === 'now'}<Check size={14} strokeWidth={2.2} />{/if}</span>
       </button>
       <div class="sep" role="separator"></div>
+      <p class="menu-head">One network</p>
       {#each list as n (n.id)}
         {@const iface = ifaceOf(n)}
         <button role="menuitemradio" aria-checked={networks.choice === n.id} onclick={() => pick(n.id)}>
@@ -79,9 +82,8 @@
       {/each}
       <div class="sep" role="separator"></div>
       <button role="menuitemradio" aria-checked={networks.choice === 'all'} onclick={() => pick('all')}>
-        <span class="ic"><Layers size={15} strokeWidth={1.7} /></span><span class="nm">All networks<span class="hint">together, as one list</span></span><span class="n"
-          >{argus.devices.length}</span
-        >
+        <span class="ic"><Layers size={15} strokeWidth={1.7} /></span><span class="nm">All networks<span class="hint">together, each device with its networks</span></span
+        ><span class="n">{argus.devices.length}</span>
         <span class="tick">{#if networks.choice === 'all'}<Check size={14} strokeWidth={2.2} />{/if}</span>
       </button>
     </div>
@@ -207,6 +209,15 @@
     height: 1px;
     margin: 5px 4px;
     background: var(--rule);
+  }
+
+  .menu-head {
+    margin: 5px 8px 3px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--faint);
   }
 
   .sr {

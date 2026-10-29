@@ -10,6 +10,7 @@
   import EntityIcon from '../lib/EntityIcon.svelte';
   import { rate } from '../lib/format.ts';
   import Limits from '../lib/Limits.svelte';
+  import { networks } from '../lib/networks.svelte.ts';
   import { Ranked } from '../lib/ranked.svelte.ts';
   import { link } from '../lib/router.svelte.ts';
   import { talks } from '../lib/talks.ts';
@@ -24,8 +25,19 @@
   /** How many lines: the busiest few; the rest in one line, so a busy house reads as quickly as a quiet one. */
   const LINES = 5;
   const seen = $derived(Boolean(s?.packets));
-  // The network shown (the one of now, unless he chose another in the bar): its devices only.
-  const devices = $derived(argus.liveSource.devices);
+  // The network shown (the one of now, unless he chose another in the bar): its devices only, and only what this PC
+  // heard. A device another source found is not someone using the network as far as this PC can see: it has its own
+  // line below, and its page.
+  const devices = $derived(argus.liveSource.devices.filter((d) => !d.foundOnly));
+  const found = $derived(argus.liveSource.devices.filter((d) => d.foundOnly));
+  const scope = $derived.by(() => {
+    const ids = argus.shown;
+    if (!ids) return 'all networks';
+    return argus.netList
+      .filter((n) => ids.has(n.id))
+      .map((n) => n.name)
+      .join(' and ');
+  });
   const groups = $derived(split(devices, argus.interfaces, argus.meters, talkers(argus.liveSource.conversations)));
   // Each line's rate is its last ten seconds, and the order is by it, re-sorted every two: what a glance reads is what
   // the order says, and a burst does not throw a line to the top and back.
@@ -56,6 +68,7 @@
   <header class="head">
     <h1 class="page-title">Who is using the network</h1>
     {#if on.length && seen && !stopped}<p class="live" title="The rates and the lists follow the network each second, without reloading"><i aria-hidden="true"></i>Live, every second</p>{/if}
+    {#if seen && scope}<a class="scope" href={link.devices()} title="Which network the pages show: change it in the bar above">{networks.choice === 'now' ? 'On' : 'Showing'} {scope}</a>{/if}
   </header>
 
   {#if !argus.live.loaded}
@@ -104,6 +117,11 @@
     {:else if groups.quiet.length}
       <p class="quiet"><a href={link.devices()}>{groups.quiet.length} more {groups.quiet.length === 1 ? 'device' : 'devices'}, quiet now</a></p>
     {/if}
+    {#if found.length}
+      <p class="quiet found-line">
+        <a href={link.devices()}>{found.length} more {found.length === 1 ? 'device was' : 'devices were'} found on the LAN, with no traffic through this PC</a>
+      </p>
+    {/if}
 
     <section class="talking" aria-labelledby="talk-h">
       <h2 id="talk-h">Talking to now</h2>
@@ -145,6 +163,15 @@
     border-radius: 50%;
     background: var(--solid);
     animation: beat 2s var(--ease) infinite;
+  }
+
+  .scope {
+    font-size: 0.82rem;
+    color: var(--muted);
+  }
+
+  .scope:hover {
+    color: var(--acc);
   }
 
   @keyframes beat {

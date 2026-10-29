@@ -90,7 +90,8 @@ AdGuard Home's `/control/querylog`).
 
 ## What stays true wherever the sensor runs
 
-- Only listening: no monitor mode, no ARP spoofing, nothing sent into anyone's traffic.
+- Only listening: no monitor mode, no ARP spoofing, nothing sent into anyone's traffic. (A scan of the LAN is not the
+  sensor: it is a source, active and asked for by hand, docs/sources.md.)
 - Facts cross the line, packets never do; a password that went by is a flag, never its value. (The ring buffer and
   the captures saved from it stay with the sensor and are raw packets: they hold it.)
 - What is encrypted is not read.

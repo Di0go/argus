@@ -1,7 +1,8 @@
 // pnpm demo: Argus with a made-up house instead of a capture (scripts/demo-tshark.ts), for a look without the
 // capture permissions, and for the README's pictures. Its own data in .demo/, its own port (4950), the Wi-Fi and
 // Docker's bridge turned on at start; on the Wi-Fi a café first, then the house (two networks, each its own, named by
-// a made-up SSID that scripts/demo-iw.ts says); nothing touches the network.
+// a made-up SSID that scripts/demo-iw.ts says); the neighbour table and a scan of the LAN made up too
+// (scripts/demo-ip.ts, scripts/demo-nmap.ts): nothing touches the network.
 //
 //   pnpm demo          then http://localhost:4950
 
@@ -15,10 +16,12 @@ const PORT = process.env.ARGUS_DEMO_PORT ?? '4950';
 const DEMO = path.join(ROOT, '.demo');
 const tshark = path.join(ROOT, 'scripts/demo-tshark.ts');
 const iw = path.join(ROOT, 'scripts/demo-iw.ts');
-chmodSync(tshark, 0o755);
-chmodSync(iw, 0o755);
+const ip = path.join(ROOT, 'scripts/demo-ip.ts');
+const nmap = path.join(ROOT, 'scripts/demo-nmap.ts');
+for (const f of [tshark, iw, ip, nmap]) chmodSync(f, 0o755);
 const ssidFile = path.join(DEMO, 'ssid');
 rmSync(ssidFile, { force: true });
+rmSync(`${ssidFile}.scanned`, { force: true });
 mkdirSync(path.join(DEMO, 'data'), { recursive: true });
 mkdirSync(path.join(DEMO, 'state'), { recursive: true });
 const fake = await fakeCapture();
@@ -40,6 +43,13 @@ const server = spawn(process.execPath, ['server/index.ts'], {
     // The Wi-Fi's name, made up: the café's, then the house's (never the real one's).
     ARGUS_IW: iw,
     ARGUS_DEMO_SSID_FILE: ssidFile,
+    // The other sources (server/sources.ts), on the made-up house: its neighbour table, and a scan when asked.
+    ARGUS_IP: ip,
+    ARGUS_NMAP: nmap,
+    ARGUS_NEIGH: '1',
+    ARGUS_SCAN: '1',
+    ARGUS_LEASES: 'none',
+    ARGUS_SOURCES_MS: '3000',
   },
 });
 for (const iface of ['wlan0', 'docker0'])

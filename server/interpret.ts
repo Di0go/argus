@@ -11,7 +11,7 @@ import { byNetwork } from '../shared/networks.ts';
 import { type DnsUse, harmless, RESOLVERS } from '../shared/security.ts';
 import { type Classification, describe } from '../shared/classify.ts';
 import { CATEGORIES, PORTS, TAILSCALE_RELAY } from '../shared/dictionary/apps.ts';
-import type { Conversation, Device, Remote } from '../shared/types.ts';
+import type { Conversation, Device, Network, Remote } from '../shared/types.ts';
 import { asnOf, classify, siteOf } from './dictionary.ts';
 import type { Geo } from './geo.ts';
 import type { Dissected } from './tally.ts';
@@ -24,9 +24,9 @@ export interface Reading {
   label?: (iface: string) => string;
 }
 
-export function interpret<V extends Dissected | Pick<Dissected, 'devices' | 'remotes' | 'conversations' | 'segments'>>(v: V, o: Reading = {}): V {
+export function interpret<V extends Dissected | Pick<Dissected, 'devices' | 'remotes' | 'conversations' | 'segments'>>(v: V, o: Reading = {}): V & { networks?: Network[] } {
   // Which network each stay was on (shared/networks.ts): the devices', the conversations' (a network's stays joined).
-  byNetwork(v, { label: o.label, router: (mac) => v.devices.find((d) => d.mac === mac)?.name });
+  const told = byNetwork(v, { label: o.label, router: (mac) => v.devices.find((d) => d.mac === mac)?.name });
   const remotes = new Map(v.remotes.map((h) => [h.id, h]));
   for (const h of v.remotes) {
     // What it is, in plain words: by the names it was given, TLS's and HTTP's first, else its network.
@@ -71,7 +71,7 @@ export function interpret<V extends Dissected | Pick<Dissected, 'devices' | 'rem
     if (h.app?.carrier && u && uploads(u[0], u[1])) h.app = { ...h.app, activity: UPLOADING };
   }
   judge(v.devices, v.conversations, o);
-  return v;
+  return told;
 }
 
 const UPLOADING = 'uploading to a CDN or cloud';
