@@ -14,6 +14,8 @@
 //   GET    /api/captures/<id>          one, with its devices, internet hosts and links
 //   DELETE /api/captures/<id>          removes it and its file
 //   GET    /api/hosts[?capture=<id>]   the live session's view (or that capture's)
+//   GET    /api/requests[?device=&host=&method=&network=…&capture=&limit=]  the HTTP requests read (server/requests.ts),
+//                                      newest first, the key log file's state, and the encrypted conversations not read
 //   GET    /api/sources                where devices are found besides listening, and how each source is going
 //   GET    /api/sources/here           where this PC is now: its way out, the router's MAC, its network, its model
 //   POST   /api/sources/scan           { network? } asks the LAN this PC is on who is there (nmap -sn: sends packets)
@@ -37,7 +39,8 @@ import { useFields } from './tally.ts';
 import { Captures } from './captures.ts';
 import { DissectError } from './dissect.ts';
 import { loadHouse } from './dictionary.ts';
-import { app, CAPTURES_DIR, CAPTURES_MB, DUMPCAP, EDITCAP, HISTORY, IW, LIVE_DIR, MERGECAP, RING, ROUTER, SEED_PCAP, SOURCES, SYS_NET, TSHARK } from './config.ts';
+import { app, CAPTURES_DIR, CAPTURES_MB, DUMPCAP, EDITCAP, HISTORY, IW, KEYLOG, LIVE_DIR, MERGECAP, RING, ROUTER, SEED_PCAP, SOURCES, SYS_NET, TSHARK } from './config.ts';
+import { matches, type RequestFilter, unreadOf } from '../shared/requests.ts';
 import { Geo, geoFile } from './geo.ts';
 import { interpret, type Reading } from './interpret.ts';
 import { History } from './history.ts';
@@ -62,7 +65,7 @@ if (house.problems.length) warnings.set('dicionario', `Some entries of the house
 const reading: Reading = { self: selfSystem(), label: (id) => classify(id, SYS_NET).label };
 // A capture saved from the session is read knowing every MAC this PC had in it (the live session, below, keeps them).
 const own = { macs: (): string[] => [] };
-const tools = { dumpcap: DUMPCAP, tshark: TSHARK, sysNet: SYS_NET, reading, own: () => own.macs() };
+const tools = { dumpcap: DUMPCAP, tshark: TSHARK, sysNet: SYS_NET, reading, own: () => own.macs(), keylog: KEYLOG };
 const captures = await new Captures(CAPTURES_DIR, store, tools).load();
 if (!captures.all().length && SEED_PCAP) {
   try {
@@ -94,6 +97,7 @@ const live = await new Live({ tshark: TSHARK, editcap: EDITCAP, dir: LIVE_DIR, s
     return read;
   },
   ...RING,
+  keylog: KEYLOG,
 }).load();
 own.macs = () => live.ownMacs();
 
@@ -189,6 +193,21 @@ async function routes(...[req, res, route, params]: Parameters<Route>): Promise<
   }
 
   if (req.method === 'GET' && route === '/api/live') return json(res, 200, live.view());
+  if (req.method === 'GET' && route === '/api/requests') {
+    const nets = params.getAll('network').filter(Boolean);
+    const one = (k: string) => params.get(k)?.slice(0, 300) || undefined;
+    const f: RequestFilter = { device: one('device'), host: one('host'), method: one('method'), ...(nets.length ? { networks: new Set(nets) } : {}) };
+    const limit = Math.min(2000, Math.max(1, Number(params.get('limit')) || 500));
+    const id = params.get('capture');
+    if (!id) return json(res, 200, await live.requests(f, limit));
+    const c = captures.get(id);
+    if (!c) throw new ApiError(404, 'There is no such capture');
+    if (c.status !== 'done') return json(res, 200, { requests: [], total: 0, max: RING.tally.maxRequests, keys: await live.keys(), unread: [] });
+    const v = await captures.hosts(c);
+    const all = (v.requests ?? []).filter((r) => matches(r, f));
+    const talks = f.networks ? v.conversations.filter((x) => x.network && f.networks!.has(x.network)) : v.conversations;
+    return json(res, 200, { requests: all.reverse().slice(0, limit), total: v.requests?.length ?? 0, max: RING.tally.maxRequests, keys: await live.keys(), unread: unreadOf(talks, f.device) });
+  }
   if (req.method === 'GET' && route === '/api/day') {
     const date = params.get('date') ?? undefined;
     if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new ApiError(400, 'A day is YYYY-MM-DD');

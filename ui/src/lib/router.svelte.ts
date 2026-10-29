@@ -8,6 +8,7 @@
 //   #/privacy             what went unencrypted, tracking, DNS, where the data goes
 //   #/scan                asking the network who is there: a scan of the LAN, the router's list (both active)
 //   #/diary[/<date>]      a day kept: by hour, by device, its episodes
+//   #/requests[?device=&host=&method=]  the HTTP requests read, as they go by
 
 import { createRouter, hashParts, hashQuery } from '@organon/core/ui/router';
 import { createTabs } from '@organon/core/ui/tabs';
@@ -24,6 +25,7 @@ export type Route =
   | { page: 'privacy' }
   | { page: 'scan' }
   | { page: 'diary'; id?: string }
+  | { page: 'requests'; device?: string; host?: string; method?: string }
   | { page: 'capture'; id: string };
 
 export type Located = Route & { capture?: string };
@@ -37,6 +39,11 @@ function parse(hash: string): Located {
   if (first === 'capture' && id) return { page: 'capture', id, capture: id };
   if (first === 'devices' || first === 'internet' || first === 'captures' || first === 'privacy' || first === 'scan') return r({ page: first });
   if (first === 'diary') return r({ page: 'diary', ...(id ? { id } : {}) });
+  if (first === 'requests') {
+    const p = hashQuery(hash);
+    const one = (k: string) => (p.get(k) ? { [k]: p.get(k)! } : {});
+    return r({ page: 'requests', ...one('device'), ...one('host'), ...one('method') });
+  }
   return r({ page: 'now' });
 }
 
@@ -59,6 +66,12 @@ export const link = {
   privacy: (c?: string) => `#/privacy${q(c)}`,
   scan: () => '#/scan',
   diary: (date?: string) => (date ? `#/diary/${e(date)}` : '#/diary'),
+  requests: (f: { device?: string; host?: string; method?: string } = {}, c?: string) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries({ ...f, c })) if (v) p.set(k, v);
+    const s = p.toString();
+    return `#/requests${s ? `?${s}` : ''}`;
+  },
 };
 
 /** An entity's page, by its kind. */

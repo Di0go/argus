@@ -6,11 +6,11 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { type Running, startServer } from '@organon/core/testing';
-import type { DayView, Capture, HostsView, Interface, LiveEvent, LiveView, Session } from '../shared/types.ts';
+import type { DayView, Capture, HostsView, Interface, LiveEvent, LiveView, RequestsView, Session } from '../shared/types.ts';
 import { DEVICES, FIXTURE, fakeCapture, fakeTshark, ROOT, TSHARK } from './helpers.ts';
 
 const running: Running[] = [];
@@ -19,9 +19,9 @@ after(async () => {
 });
 const truth = JSON.parse(readFileSync(path.join(ROOT, 'tests/fixtures/lan.truth.json'), 'utf8'));
 
-async function start(env: Record<string, string> = {}, dataDir?: string) {
+async function start(env: Record<string, string> = {}, dataDir?: string, fixture?: string) {
   const fake = await fakeCapture();
-  const ts = await fakeTshark();
+  const ts = await fakeTshark(fixture);
   const app = await startServer(ROOT, { dataDir, env: { TSHARK: ts.tshark, DUMPCAP: fake.dumpcap, SYS_NET: fake.sysNet, EMIT_MS: '200', ...env } });
   running.push(app);
   return { app, fake, ts };
@@ -202,7 +202,7 @@ test('With a recording brought in, the capture shows its devices; the live sessi
 test('MCP: get_hosts reads the live session (or a capture); get_device walks to who it talked to', async () => {
   const { app } = await start({ SEED_PCAP: FIXTURE });
   const list = await mcp(app.base, 'tools/list');
-  assert.deepEqual(list.result?.tools?.map((t) => t.name).sort(), ['get_day', 'get_device', 'get_hosts', 'list_captures', 'what_happened']);
+  assert.deepEqual(list.result?.tools?.map((t) => t.name).sort(), ['get_day', 'get_device', 'get_hosts', 'get_requests', 'list_captures', 'what_happened']);
   const idle = await mcp(app.base, 'tools/call', { name: 'get_hosts', arguments: {} });
   assert.equal(idle.result?.isError, true);
   assert.match(idle.result?.content?.[0]?.text ?? '', /Not listening/);
@@ -249,6 +249,74 @@ test('MCP: get_hosts reads the live session (or a capture); get_device walks to 
   assert.equal(JSON.parse(saved.result?.content?.[0]?.text ?? '{}').devices.length, DEVICES);
   const none = await mcp(app.base, 'tools/call', { name: 'get_device', arguments: { device: 'toaster' } });
   assert.equal(none.result?.isError, true);
+});
+
+const WEB = path.join(ROOT, 'tests/fixtures/web.pcap');
+const KEYS = path.join(ROOT, 'tests/fixtures/web.keys');
+/** The key log as the page says it: the home folder as ~. */
+const KEYS_SAID = KEYS.startsWith(`${homedir()}/`) ? `~${KEYS.slice(homedir().length)}` : KEYS;
+const web = JSON.parse(readFileSync(path.join(ROOT, 'tests/fixtures/web.truth.json'), 'utf8'));
+
+test('Requests: with a key log, tshark reads HTTPS too; they reach the page as they come, filtered, and the agent says what is not read', async () => {
+  const { app, ts } = await start({ TLS_KEYLOG: KEYS }, undefined, WEB);
+  const ac = new AbortController();
+  const res = await fetch(`${app.base}/api/events`, { signal: ac.signal });
+  await listen(app.base, 'wlan0');
+  const reader = res.body!.getReader();
+  let text = '';
+  const events: LiveEvent[] = [];
+  while (!events.some((e) => e.session.packets === web.packets && e.requests === undefined)) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    text += new TextDecoder().decode(value);
+    const frames = text.split('\n\n');
+    text = frames.pop() ?? '';
+    for (const f of frames) if (f.startsWith('data: ')) events.push(JSON.parse(f.slice(6)) as LiveEvent);
+  }
+  ac.abort();
+  assert.match(readFileSync(ts.argsFile, 'utf8'), new RegExp(`-o tls\\.keylog_file:${KEYS.replace(/[.]/g, '\\.')} `));
+  // Across the events, every request arrived, answered (the last word on each is its whole self).
+  const seen = new Map<string, NonNullable<LiveEvent['requests']>[number]>();
+  for (const e of events) for (const r of e.requests ?? []) seen.set(r.id, r);
+  assert.equal(seen.size, web.requests.length);
+  assert.ok([...seen.values()].every((r) => r.response && r.network), 'answered, and on a network');
+  const ask = async (q = '') => (await (await fetch(`${app.base}/api/requests${q}`)).json()) as RequestsView;
+  const v = await ask();
+  assert.equal(v.requests.length, web.requests.length);
+  assert.ok(v.requests.every((r, i) => i === 0 || r.time <= v.requests[i - 1]!.time), 'newest first');
+  assert.deepEqual([v.keys.file, v.keys.exists], [KEYS_SAID, true]);
+  assert.ok((v.keys.bytes ?? 0) > 0);
+  assert.deepEqual(v.unread.map((u) => [u.device, u.conversations]), [[web.unread.device, 1]]);
+  assert.equal((await ask('?method=POST')).requests.length, 2);
+  assert.equal((await ask('?host=shop.example')).requests.length, 3);
+  assert.equal((await ask(`?device=${encodeURIComponent(web.hosts.phone.mac)}`)).requests.length, 1);
+  assert.equal((await ask(`?network=${encodeURIComponent(v.requests[0]!.network!)}`)).requests.length, web.requests.length);
+  assert.equal((await ask('?network=net:elsewhere')).requests.length, 0);
+  assert.ok(!JSON.stringify(v).includes('made-up'), 'no cookie, token or set-cookie value');
+  const said = JSON.parse((await mcp(app.base, 'tools/call', { name: 'get_requests', arguments: { device: web.hosts.me.ip } })).result?.content?.[0]?.text ?? '{}') as {
+    keys: { file?: string };
+    requests: { url: string; status: number; https?: string; cookie?: string }[];
+    unread: { encryptedConversations: number }[];
+  };
+  assert.equal(said.keys.file, KEYS_SAID);
+  assert.equal(said.requests.length, web.requests.filter((r: { device: string }) => r.device === web.hosts.me.mac).length);
+  assert.ok(said.requests.some((r) => r.url === 'https://shop.example/cart?item=42' && r.status === 200 && r.https && r.cookie));
+  assert.deepEqual(said.unread, []);
+  const all = JSON.parse((await mcp(app.base, 'tools/call', { name: 'get_requests', arguments: { method: 'post' } })).result?.content?.[0]?.text ?? '{}');
+  assert.equal(all.requests.length, 2);
+});
+
+test('Requests without a key log: only plain HTTP, and the page and the agent say HTTPS is not read', async () => {
+  const { app, ts } = await start({}, undefined, WEB);
+  await listen(app.base, 'wlan0');
+  await until(app.base, (x) => x.session.packets === web.packets);
+  assert.doesNotMatch(readFileSync(ts.argsFile, 'utf8'), /tls\.keylog_file/);
+  const v = (await (await fetch(`${app.base}/api/requests`)).json()) as RequestsView;
+  assert.equal(v.requests.length, web.requests.filter((r: { tls: boolean }) => !r.tls).length);
+  assert.deepEqual(v.keys, { exists: false });
+  assert.equal(v.unread.reduce((n, u) => n + u.conversations, 0), 3);
+  const said = JSON.parse((await mcp(app.base, 'tools/call', { name: 'get_requests', arguments: {} })).result?.content?.[0]?.text ?? '{}');
+  assert.match(said.keys.note, /HTTPS is not read/);
 });
 
 test("The house's own dictionary, from data/dicionario.json: its words on top of the dictionary's, in what the agent reads", async () => {

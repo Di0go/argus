@@ -26,9 +26,22 @@
 // at .1 and a device at .20 (the TV at home, the till at the café), so only the routers' MACs tell them apart; the
 // laptop's Wi-Fi makes up a MAC at the café, as Wi-Fi does per network; the cable has a MAC of its own. Each stay
 // begins as a join does: this PC asks DHCP for an address from 0.0.0.0. Two interfaces, so pcapng (it names them).
+//
+// And tests/fixtures/web.pcap with web.keys, its TLS key log (its truth in web.truth.json): the HTTP requests that go by
+// (server/requests.ts). This PC asks a news site over plain HTTP (a page with a cookie, a missing page answered in
+// chunks), and the phone posts to an upload site, in the clear too; this PC asks a shop over HTTPS with HTTP/2 (three
+// requests on one connection, at once) and an API over HTTPS with HTTP/1.1, both with their keys in web.keys; the phone
+// reads its mail over HTTPS, its keys nowhere, so it stays encrypted. The TLS is real (Node's, TLS 1.3, over streams in
+// memory, a throwaway certificate from openssl for a made-up name), so tshark decrypts it as it would a browser's; the
+// frames around it are built here like every other.
 
-import { writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import http2 from 'node:http2';
+import os from 'node:os';
 import path from 'node:path';
+import net from 'node:net';
+import tls from 'node:tls';
 
 const OUT = path.resolve(import.meta.dirname, '../tests/fixtures');
 
@@ -557,3 +570,213 @@ for (const m of moves) {
 for (const p of Object.values(places)) p.macs.sort();
 writeFileSync(path.join(OUT, 'move.truth.json'), `${JSON.stringify({ packets: moves.length, hosts: MOVE, own: [...MINE], places }, null, 2)}\n`);
 console.log(`${moves.length} packets in tests/fixtures/move.pcapng`);
+
+// ---- The web: HTTP in the clear, and HTTPS read with its keys.
+
+const WEB = {
+  router: HOSTS.router,
+  me: HOSTS.me,
+  phone: HOSTS.phone,
+  news: { ip: '203.0.113.60', name: 'news.example' },
+  upload: { ip: '198.51.100.61', name: 'upload.example' },
+  shop: { ip: '203.0.113.70', name: 'shop.example' },
+  api: { ip: '203.0.113.71', name: 'api.example' },
+  mail: { ip: '203.0.113.72', name: 'mail.example' },
+};
+const WEB_START = Date.UTC(2026, 9, 27, 19, 0, 0) / 1000;
+const frames: { t: number; frame: Buffer }[] = [];
+let webClock = WEB_START;
+
+function tcpSeg(sport: number, dport: number, seq: number, ack: number, flags: number, payload: Buffer = Buffer.alloc(0)): Buffer {
+  return Buffer.concat([u16(sport), u16(dport), u32(seq), u32(ack), Buffer.from([0x50, flags]), u16(64240), u16(0), u16(0), payload]);
+}
+
+/**
+ * One TCP connection from a device here to a host out there through the router: the handshake, then each chunk as it
+ * was written, cut to segments of at most 1400 bytes, acknowledged, and the close. `chunks`: [from the client?, bytes].
+ */
+function connection(client: { mac: string; ip: string }, server: { ip: string }, sport: number, dport: number, chunks: [boolean, Buffer][]) {
+  const up = (b: Buffer) => ether(WEB.router.mac, client.mac, 0x0800, ipv4(client.ip, server.ip, 6, b));
+  const down = (b: Buffer) => ether(client.mac, WEB.router.mac, 0x0800, ipv4(server.ip, client.ip, 6, b, 118));
+  const push = (frame: Buffer) => frames.push({ t: (webClock += 0.002), frame });
+  let [cs, ss] = [1000, 5000];
+  push(up(tcpSeg(sport, dport, cs, 0, 0x02)));
+  push(down(tcpSeg(dport, sport, ss, cs + 1, 0x12)));
+  cs++;
+  ss++;
+  push(up(tcpSeg(sport, dport, cs, ss, 0x10)));
+  for (const [fromClient, bytes] of chunks)
+    for (let i = 0; i < bytes.length; i += 1400) {
+      const part = Buffer.from(bytes.subarray(i, i + 1400));
+      if (fromClient) {
+        push(up(tcpSeg(sport, dport, cs, ss, 0x18, part)));
+        cs += part.length;
+      } else {
+        push(down(tcpSeg(dport, sport, ss, cs, 0x18, part)));
+        ss += part.length;
+      }
+    }
+  push(up(tcpSeg(sport, dport, cs, ss, 0x11)));
+  push(down(tcpSeg(dport, sport, ss, cs + 1, 0x11)));
+  push(up(tcpSeg(sport, dport, cs + 1, ss + 1, 0x10)));
+  webClock += 0.2;
+}
+
+// A throwaway certificate for the made-up names, made now and forgotten: TLS 1.3 sends it encrypted anyway.
+const certDir = mkdtempSync(path.join(os.tmpdir(), 'argus-fixture-'));
+execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-days', '1', '-subj', '/CN=example',
+  '-addext', 'subjectAltName=DNS:shop.example,DNS:api.example,DNS:mail.example', '-keyout', path.join(certDir, 'key.pem'), '-out', path.join(certDir, 'cert.pem')], { stdio: 'ignore' });
+const KEY = { key: readFileSync(path.join(certDir, 'key.pem')), cert: readFileSync(path.join(certDir, 'cert.pem')) };
+rmSync(certDir, { recursive: true, force: true });
+const keylog: string[] = [];
+
+/**
+ * What a client and a server on this machine's loopback say to each other, byte for byte, in order: the client goes
+ * through a relay here that writes each chunk down with its side. `serve` listens (port 0) and says its port; `ask`
+ * talks to the relay's port. Nothing leaves the loopback, and only the bytes are kept, never an address.
+ */
+async function recorded(serve: () => Promise<{ port: number; close: () => void }>, ask: (port: number) => Promise<void>): Promise<[boolean, Buffer][]> {
+  const chunks: [boolean, Buffer][] = [];
+  const server = await serve();
+  const relay = net.createServer((inbound) => {
+    const outbound = net.connect(server.port, '127.0.0.1');
+    inbound.on('data', (d: Buffer) => {
+      chunks.push([true, Buffer.from(d)]);
+      outbound.write(d);
+    });
+    outbound.on('data', (d: Buffer) => {
+      chunks.push([false, Buffer.from(d)]);
+      inbound.write(d);
+    });
+    inbound.on('end', () => outbound.end());
+    outbound.on('end', () => inbound.end());
+    inbound.on('error', () => outbound.destroy());
+    outbound.on('error', () => inbound.destroy());
+  });
+  await new Promise<void>((r) => relay.listen(0, '127.0.0.1', r));
+  await ask((relay.address() as net.AddressInfo).port);
+  await new Promise((r) => setTimeout(r, 50));
+  relay.close();
+  server.close();
+  return chunks;
+}
+
+const listening = (srv: net.Server) => new Promise<{ port: number; close: () => void }>((r) => srv.listen(0, '127.0.0.1', () => r({ port: (srv.address() as net.AddressInfo).port, close: () => srv.close() })));
+const onKeys = (keys: boolean) => (line: Buffer) => keys && keylog.push(line.toString().trim());
+
+/** HTTP/2 over TLS 1.3: the requests asked at once on one connection, each answered as `answer` says. */
+function h2(name: string, keys: boolean, asks: { method: string; path: string; headers?: Record<string, string>; body?: string }[],
+  answer: (path: string) => { status: number; headers: Record<string, string | number>; body: string }) {
+  return recorded(
+    () => {
+      const srv = http2.createSecureServer({ ...KEY, minVersion: 'TLSv1.3' });
+      srv.on('stream', (stream: http2.ServerHttp2Stream, headers: http2.IncomingHttpHeaders) => {
+        const a = answer(String(headers[':path']));
+        stream.respond({ ':status': a.status, ...a.headers });
+        stream.end(a.body);
+      });
+      return listening(srv);
+    },
+    async (port) => {
+      const session = http2.connect(`https://${name}`, {
+        createConnection: () => {
+          const s = tls.connect({ port, host: '127.0.0.1', servername: name, ALPNProtocols: ['h2'], rejectUnauthorized: false, minVersion: 'TLSv1.3' });
+          s.on('keylog', onKeys(keys));
+          return s;
+        },
+      });
+      await Promise.all(
+        asks.map(
+          (q) =>
+            new Promise<void>((resolve, reject) => {
+              const req = session.request({ ':method': q.method, ':path': q.path, 'user-agent': UA, ...q.headers });
+              req.on('data', () => {});
+              req.on('end', () => resolve());
+              req.on('error', reject);
+              req.end(q.body);
+            }),
+        ),
+      );
+      await new Promise<void>((resolve) => session.close(() => resolve()));
+    },
+  );
+}
+
+/** HTTP/1.1 over TLS 1.3, written by hand: the request, then the answer. */
+function h1tls(name: string, keys: boolean, request: string, response: string) {
+  return recorded(
+    () => listening(tls.createServer({ ...KEY, minVersion: 'TLSv1.3', ALPNProtocols: ['http/1.1'] }, (s) => s.once('data', () => s.end(response)))),
+    (port) =>
+      new Promise<void>((resolve, reject) => {
+        const s = tls.connect({ port, host: '127.0.0.1', servername: name, ALPNProtocols: ['http/1.1'], rejectUnauthorized: false, minVersion: 'TLSv1.3' }, () => s.write(request));
+        s.on('keylog', onKeys(keys));
+        s.on('data', () => {});
+        s.on('end', () => {
+          s.end();
+          resolve();
+        });
+        s.on('error', reject);
+      }),
+  );
+}
+
+const crlf = (lines: string[], body = '') => Buffer.from(`${lines.join('\r\n')}\r\n\r\n${body}`);
+const UA = 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0';
+const PAGE = 'p'.repeat(1234);
+
+// This PC reads the news in the clear: a page (with a made-up cookie), then a page that is not there, answered in chunks.
+connection(WEB.me, WEB.news, 54001, 80, [
+  [true, crlf(['GET /today?lang=pt HTTP/1.1', `Host: ${WEB.news.name}`, `User-Agent: ${UA}`, 'Referer: http://news.example/', 'Cookie: visitor=made-up-1', 'Accept: text/html'])],
+  [false, crlf(['HTTP/1.1 200 OK', 'Content-Type: text/html; charset=utf-8', `Content-Length: ${PAGE.length}`, 'Server: example-httpd', 'Set-Cookie: visitor=made-up-2'], PAGE)],
+  [true, crlf(['GET /missing HTTP/1.1', `Host: ${WEB.news.name}`, `User-Agent: ${UA}`])],
+  [false, crlf(['HTTP/1.1 404 Not Found', 'Content-Type: text/plain', 'Transfer-Encoding: chunked'], 'a\r\nnot found.\r\n5\r\nsorry\r\n0\r\n\r\n')],
+]);
+// The phone posts to an upload site in the clear.
+connection(WEB.phone, WEB.upload, 54002, 80, [
+  [true, crlf(['POST /api/upload HTTP/1.1', `Host: ${WEB.upload.name}`, 'User-Agent: ExampleUploader/2.1 (iPhone)', 'Content-Type: application/json', 'Content-Length: 13'], '{"photo":"x"}')],
+  [false, crlf(['HTTP/1.1 201 Created', 'Content-Type: application/json', 'Content-Length: 11', 'Location: /api/upload/7'], '{"id":"7"}\n')],
+]);
+// This PC at the shop over HTTPS, HTTP/2: three requests at once on one connection, its keys in the key log.
+connection(WEB.me, WEB.shop, 54003, 443,
+  await h2(WEB.shop.name, true, [
+    { method: 'GET', path: '/' },
+    { method: 'GET', path: '/cart?item=42', headers: { cookie: 'cart=made-up-3', referer: 'https://shop.example/' } },
+    { method: 'POST', path: '/checkout', headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: 'Bearer made-up-token' }, body: 'pay=1' },
+  ], (p): { status: number; headers: Record<string, string | number>; body: string } =>
+    p === '/'
+      ? { status: 200, headers: { 'content-type': 'text/html' }, body: 'h'.repeat(3000) }
+      : p.startsWith('/cart')
+        ? { status: 200, headers: { 'content-type': 'application/json', 'content-length': 17 }, body: '{"items":[42,43]}' }
+        : { status: 303, headers: { location: '/thanks', 'set-cookie': 'order=made-up-4' }, body: '' },
+  ),
+);
+// This PC asks an API over HTTPS, HTTP/1.1, its keys in the key log.
+connection(WEB.me, WEB.api, 54004, 443,
+  await h1tls(WEB.api.name, true, `GET /v1/status?verbose=1 HTTP/1.1\r\nHost: ${WEB.api.name}\r\nUser-Agent: curl/8.23.0\r\nAccept: */*\r\n\r\n`,
+    'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 15\r\n\r\n{"status":"ok"}'),
+);
+// The phone reads its mail over HTTPS: its keys are nowhere here, so it stays encrypted.
+connection(WEB.phone, WEB.mail, 54005, 443, await h2(WEB.mail.name, false, [{ method: 'GET', path: '/inbox' }], () => ({ status: 200, headers: { 'content-type': 'text/html' }, body: 'm'.repeat(800) })));
+
+const webRecords = frames.map(({ t, frame }) => {
+  const r = Buffer.alloc(16);
+  r.writeUInt32LE(Math.floor(t), 0);
+  r.writeUInt32LE(Math.round((t % 1) * 1e6), 4);
+  r.writeUInt32LE(frame.length, 8);
+  r.writeUInt32LE(frame.length, 12);
+  return Buffer.concat([r, frame]);
+});
+writeFileSync(path.join(OUT, 'web.pcap'), Buffer.concat([header, ...webRecords]));
+writeFileSync(path.join(OUT, 'web.keys'), `${keylog.join('\n')}\n`);
+// What the requests were, as they were asked above: never what the dissector says.
+const requests = [
+  { device: WEB.me.mac, method: 'GET', url: 'http://news.example/today?lang=pt', version: 'HTTP/1.1', tls: false, status: 200, size: PAGE.length, cookie: true, setCookie: true, contentType: 'text/html; charset=utf-8' },
+  { device: WEB.me.mac, method: 'GET', url: 'http://news.example/missing', version: 'HTTP/1.1', tls: false, status: 404, size: 15, contentType: 'text/plain' },
+  { device: WEB.phone.mac, method: 'POST', url: 'http://upload.example/api/upload', version: 'HTTP/1.1', tls: false, status: 201, size: 11, contentType: 'application/json' },
+  { device: WEB.me.mac, method: 'GET', url: 'https://shop.example/', version: 'HTTP/2', tls: true, status: 200, size: 3000, contentType: 'text/html' },
+  { device: WEB.me.mac, method: 'GET', url: 'https://shop.example/cart?item=42', version: 'HTTP/2', tls: true, status: 200, size: 17, cookie: true, contentType: 'application/json' },
+  { device: WEB.me.mac, method: 'POST', url: 'https://shop.example/checkout', version: 'HTTP/2', tls: true, status: 303, authorization: true, setCookie: true },
+  { device: WEB.me.mac, method: 'GET', url: 'https://api.example/v1/status?verbose=1', version: 'HTTP/1.1', tls: true, status: 200, size: 15, contentType: 'application/json' },
+];
+writeFileSync(path.join(OUT, 'web.truth.json'), `${JSON.stringify({ packets: frames.length, hosts: WEB, requests, unread: { device: WEB.phone.mac, host: WEB.mail.ip } }, null, 2)}\n`);
+console.log(`${frames.length} packets in tests/fixtures/web.pcap, ${keylog.length} key lines in web.keys`);

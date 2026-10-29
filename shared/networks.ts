@@ -11,7 +11,7 @@
 // of the router's MAC.
 
 import type { Link } from '@organon/core/shared/entities';
-import type { Conversation, Device, Network, Segment } from './types.ts';
+import type { Conversation, Device, HttpRequest, Network, Segment } from './types.ts';
 
 export interface Telling {
   /** An interface as he would say it (Wi-Fi, Cable, Docker). */
@@ -115,7 +115,7 @@ export function tell(segments: Segment[], o: Telling = {}): { networks: Network[
  * one, its traffic on each; each conversation's network, the stays of one network joined into one conversation. The
  * stays themselves are dropped (the page and the agent need the networks). Facts without stays are left as they are.
  */
-export function byNetwork<V extends { devices: Device[]; conversations: Conversation[]; segments?: Segment[]; listening?: string[] }>(
+export function byNetwork<V extends { devices: Device[]; conversations: Conversation[]; segments?: Segment[]; listening?: string[]; requests?: HttpRequest[] }>(
   v: V,
   o: Telling = {},
 ): V & { networks?: Network[] } {
@@ -166,10 +166,17 @@ export function byNetwork<V extends { devices: Device[]; conversations: Conversa
     had.protocol ??= c.protocol;
     if (c.clear) had.clear = { proto: c.clear.proto, ...(c.clear.credentials || had.clear?.credentials ? { credentials: true } : {}) };
     if (c.tls) had.tls = c.tls;
+    if (c.read) had.read = true;
   }
   v.conversations = [...merged.values()];
   // Which network a just-joined stay is on is not known yet: the history counts its traffic once it is.
   for (const c of v.conversations) if (pending.has(c.id)) c.pending = true;
+  // Each HTTP request on the network of its stay, as its conversation is.
+  for (const r of v.requests ?? []) {
+    const network = (r.segment && told.of.get(r.segment)) || near(r.iface, r.time);
+    delete r.segment;
+    if (network) r.network = network;
+  }
   delete v.segments;
   return Object.assign(v, { networks: told.networks });
 }

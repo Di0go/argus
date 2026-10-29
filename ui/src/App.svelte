@@ -26,6 +26,7 @@
   import Diary from './pages/Diary.svelte';
   import Now from './pages/Now.svelte';
   import Privacy from './pages/Privacy.svelte';
+  import Requests from './pages/Requests.svelte';
   import Remote from './pages/Remote.svelte';
   import Scan from './pages/Scan.svelte';
   import Site from './pages/Site.svelte';
@@ -42,6 +43,7 @@
     privacy: 'M5.5 9V6.5a4.5 4.5 0 0 1 9 0V9M4 9h12v8H4zM10 12v2',
     diary: 'M5 3.5h10v13H5zM7.5 7h5M7.5 10h5M7.5 13h3',
     scan: 'M10 10l5-5M10 3.5a6.5 6.5 0 1 0 6.5 6.5M10 6.5a3.5 3.5 0 1 0 3.5 3.5',
+    requests: 'M3.5 6.5h10M10.5 3.5l3 3-3 3M16.5 13.5h-10M9.5 10.5l-3 3 3 3',
   };
   const PAGE_ICON: Record<Located['page'], string> = {
     now: ICON.now,
@@ -56,6 +58,7 @@
     privacy: ICON.privacy,
     diary: ICON.diary,
     scan: ICON.scan,
+    requests: ICON.requests,
   };
 
   const route = $derived(router.route);
@@ -79,6 +82,7 @@
       on: route.page === 'internet' || route.page === 'remote' || route.page === 'site',
     },
     { id: 'scan', label: 'Scan', href: link.scan(), icon: ICON.scan, on: route.page === 'scan' },
+    { id: 'requests', label: 'Requests', href: link.requests(), icon: ICON.requests, on: route.page === 'requests' },
     { id: 'privacy', label: 'Privacy', href: link.privacy(), icon: ICON.privacy, on: route.page === 'privacy' },
     { id: 'diary', label: 'Diary', href: link.diary(), icon: ICON.diary, on: route.page === 'diary' },
     { id: 'captures', label: 'Captures', href: link.captures(), icon: ICON.captures, on: route.page === 'captures' || route.page === 'capture' },
@@ -124,6 +128,8 @@
         return 'Scan';
       case 'diary':
         return r.id ? `Diary, ${r.id}` : 'Diary';
+      case 'requests':
+        return 'Requests';
       case 'capture': {
         const c = argus.captures.find((x) => x.id === r.id);
         return c ? `Capture of ${when(c.started)}` : 'Capture';
@@ -264,6 +270,8 @@
       <Privacy capture={route.capture} />
     {:else if route.page === 'scan'}
       <Scan />
+    {:else if route.page === 'requests'}
+      <Requests capture={route.capture} device={route.device} host={route.host} method={route.method} />
     {:else if route.page === 'diary'}
       <Diary date={route.id} />
     {:else if route.page === 'captures'}

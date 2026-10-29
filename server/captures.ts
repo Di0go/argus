@@ -20,10 +20,10 @@ export class Captures {
 
   private readonly dir: string;
   private readonly store: Store;
-  private readonly tools: CaptureTools & { tshark: string; reading?: Reading; own?: () => string[] };
+  private readonly tools: CaptureTools & { tshark: string; reading?: Reading; own?: () => string[]; keylog?: string };
 
   /** `own`: MACs that were this machine's before (the live session keeps them: a Wi-Fi's made-up one, at a café). */
-  constructor(dir: string, store: Store, tools: CaptureTools & { tshark: string; reading?: Reading; own?: () => string[] }) {
+  constructor(dir: string, store: Store, tools: CaptureTools & { tshark: string; reading?: Reading; own?: () => string[]; keylog?: string }) {
     this.dir = dir;
     this.store = store;
     this.tools = tools;
@@ -108,7 +108,7 @@ export class Captures {
     }
     // The sensor's facts, read by the server (interpret.ts).
     const own = [...new Set([...ownMacs(this.tools.sysNet), ...(this.tools.own?.() ?? [])])];
-    r = dissect(this.file(c), { tshark: this.tools.tshark, ownMacs: own }).then((v) => interpret(v, this.tools.reading));
+    r = dissect(this.file(c), { tshark: this.tools.tshark, ownMacs: own, keylog: this.tools.keylog }).then((v) => interpret(v, this.tools.reading));
     this.readings.set(c.id, r);
     r.catch(() => this.readings.delete(c.id));
     while (this.readings.size > 4) this.readings.delete(this.readings.keys().next().value!);
@@ -117,7 +117,7 @@ export class Captures {
 
   async hosts(c: Capture): Promise<HostsView> {
     const r = await this.read(c);
-    return { capture: c, devices: r.devices, remotes: r.remotes, links: r.links, conversations: r.conversations, networks: r.networks ?? [] };
+    return { capture: c, devices: r.devices, remotes: r.remotes, links: r.links, conversations: r.conversations, networks: r.networks ?? [], requests: r.requests ?? [] };
   }
 
   private save(c: Capture) {

@@ -15,12 +15,15 @@ Everything that touches packets, and nothing that interprets them:
 | `server/live.ts` | one `tshark` per interface, the ring buffer on disk, the session kept across restarts |
 | `server/tally.ts` | tshark's fields added up: devices, flows, conversations, names, the bandwidth over time |
 | `server/dissect.ts` | the same tally over a file (a capture saved, a recording brought in) |
+| `server/requests.ts` | the HTTP requests that went by and their answers: plain HTTP, and HTTPS where tshark had the keys ([requests.md](requests.md)) |
 
 Its output is **facts**, the `Dissected` shape of `server/tally.ts`: devices (MAC, addresses, names and who said them,
 maker, what the device said of itself in `clues`: DHCP vendor class and options, mDNS services, User-Agents, JA4),
 remote hosts (address, names from DNS, TLS and HTTP), conversations (both ends, service, bytes each way, first and
 last, what tshark recognised, whether it carried content in the clear and whether a login went by, the TLS version
-agreed) and the series of bytes over time. Cumulative counters, never packets, never contents. The sensor knows no
+agreed, whether its TLS was read with the session's keys) and the series of bytes over time; and the HTTP requests read
+(method, URL, a few headers, status, size: metadata, never a body, never a cookie's or a login's value). Cumulative
+counters, never packets, never contents. The sensor knows no
 dictionary, no identity rules, no geography and no history.
 
 And where each frame was: the stays (`segments`). A stay on an interface begins where this PC joined a network (it asked
@@ -94,4 +97,6 @@ AdGuard Home's `/control/querylog`).
   sensor: it is a source, active and asked for by hand, docs/sources.md.)
 - Facts cross the line, packets never do; a password that went by is a flag, never its value. (The ring buffer and
   the captures saved from it stay with the sensor and are raw packets: they hold it.)
-- What is encrypted is not read.
+- What is encrypted is not read, but for the HTTPS of this PC's programs that write their keys to the key log file he
+  turned on (docs/requests.md): read inside its TLS, that is not "in the clear", and its Authorization is no password
+  in the clear.

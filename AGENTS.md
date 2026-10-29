@@ -4,7 +4,7 @@ A readable network spy for one person, on `tshark`, live: turn on one or more ne
 happens and in plain words, which devices are there (name, address, maker, how fast they move data now) and which
 hosts and companies out on the internet they talk to; save the last minutes as a capture. Each network the PC was on (home, the office, a café) is kept apart: a network is
 its router, named by its SSID (`shared/networks.ts`; the sensor keeps where it joined each one). The bar on every page says apart where Argus listens ("Listen on": the interfaces) and which network the pages read ("Showing"); a device is on every network it was heard on, and in one network's list says where else it was. The agent asks the same
-over MCP (`get_hosts`, `get_device`, `list_captures`, `get_day`, `what_happened`). Since 2026-10-26 the home page is a live monitor: who is using the network now and for what, a line each, moving every second; where it listens is a bar of pills on every page (docs/apresentacao.md: why, what was tried and turned down). The first app born on the saga's shared core, [Organon](../Organon) (`@organon/core`, pinned at an exact version in `package.json`).
+over MCP (`get_hosts`, `get_device`, `get_requests`, `list_captures`, `get_day`, `what_happened`). Since 2026-10-26 the home page is a live monitor: who is using the network now and for what, a line each, moving every second; where it listens is a bar of pills on every page (docs/apresentacao.md: why, what was tried and turned down). The first app born on the saga's shared core, [Organon](../Organon) (`@organon/core`, pinned at an exact version in `package.json`).
 
 ## The rule of the core
 
@@ -29,6 +29,15 @@ second, over the core's event stream; the session is written to data/live/ every
 is listened on again after a restart. Saving merges the ring with `mergecap` into data/captures/. The sensor only
 listens: no monitor mode, no ARP spoofing, nothing sent. What is encrypted is not read; on a switched network a PC sees
 mostly its own traffic and the broadcast and multicast of the others. The interface says both, once.
+
+The one exception to "encrypted is not read": the HTTP requests (`server/requests.ts`, part of the sensor; the Requests
+page, `get_requests`; [docs/requests.md](docs/requests.md)). Plain HTTP from any device heard, and HTTPS (HTTP/1.1,
+HTTP/2) only where tshark has the TLS session's keys: `tls.keylog_file`, from `ARGUS_TLS_KEYLOG` or `SSLKEYLOGFILE`
+(only on the real /sys/class/net), which only this PC's programs write. Others' HTTPS stays encrypted and the page counts
+it as such. Metadata only: method, URL whole, a few headers by value, the rest by name, status, size; never a body, of
+Cookie/Set-Cookie/Authorization only that they went; the newest 2000 in memory and data/live, never in the history.
+Turning the key log on is his decision (`scripts/tls-keys.sh on`, a line in ~/.config/environment.d): never turn it on
+for him. Decrypted HTTPS is not "in the clear" (tally's `security` skips frames inside TLS); keep it so.
 
 To see more of the network than passes through this PC, `server/sources.ts` asks other witnesses
 ([docs/sources.md](docs/sources.md)). Passive, every 15 s: this PC's neighbour table (`ip neigh`) and DHCP lease files
@@ -66,8 +75,9 @@ Colour: data is neutral, and without encryption has no colour either: a small op
 - `pnpm gates` (types, `pnpm check:leaks`, build, tests: the dissection against `tests/fixtures/lan.truth.json`, the server, the live
   stream and MCP with a pretend `dumpcap` and `tshark`, the pages in headless Chromium, the dev instance). The tests
   need `tshark`.
-- `pnpm fixtures` rebuilds `tests/fixtures/lan.pcap` and its truth from `scripts/make-fixture.ts`: every packet made
-  by hand, so no capture of anybody's traffic is committed. Real captures live in `data/` (never in Git). The repository
+- `pnpm fixtures` rebuilds `tests/fixtures/lan.pcap`, `move.pcapng` and `web.pcap` (with `web.keys`, its TLS key log)
+  and their truths from `scripts/make-fixture.ts`: every packet made by hand (the TLS in `web.pcap` is real, recorded
+  from Node's TLS over the loopback, for made-up names; it needs `openssl`), so no capture of anybody's traffic is committed. Real captures live in `data/` (never in Git). The repository
   is public: no real name, MAC, address or path of this machine goes in a commit, a test or a picture. Made-up
   networks (the fixture, the demo, the tests) use private addresses only on their LAN, the documentation ranges
   (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24, 2001:db8::/32) out on the internet, and real makers' OUIs with

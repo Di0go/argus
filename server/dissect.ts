@@ -12,6 +12,8 @@ export interface DissectOptions {
   tshark: string;
   /** This machine's own MAC addresses: the device with one of them is "this PC". */
   ownMacs?: string[];
+  /** The TLS key log file to read HTTPS with (server/requests.ts), if any. */
+  keylog?: string;
 }
 
 export class DissectError extends Error {}
@@ -23,7 +25,7 @@ export class DissectError extends Error {}
 export function dissect(file: string, options: DissectOptions): Promise<Dissected> {
   const tally = new Tally({ ownMacs: options.ownMacs ?? [] });
   return new Promise((resolve, reject) => {
-    const child = spawn(options.tshark, ['-r', file, ...fieldArgs()], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(options.tshark, ['-r', file, ...fieldArgs(options.keylog)], { stdio: ['ignore', 'pipe', 'pipe'] });
     let err = '';
     let lines = 0;
     createInterface({ input: child.stdout }).on('line', (line) => {

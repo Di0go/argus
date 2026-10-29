@@ -1,0 +1,117 @@
+{
+  "packets": 62,
+  "hosts": {
+    "router": {
+      "mac": "50:c7:bf:12:34:56",
+      "ip": "192.168.50.1"
+    },
+    "me": {
+      "mac": "3c:a9:f4:10:20:30",
+      "ip": "192.168.50.10"
+    },
+    "phone": {
+      "mac": "3c:22:fb:ab:cd:ef",
+      "ip": "192.168.50.23",
+      "name": "Alexs-iPhone"
+    },
+    "news": {
+      "ip": "203.0.113.60",
+      "name": "news.example"
+    },
+    "upload": {
+      "ip": "198.51.100.61",
+      "name": "upload.example"
+    },
+    "shop": {
+      "ip": "203.0.113.70",
+      "name": "shop.example"
+    },
+    "api": {
+      "ip": "203.0.113.71",
+      "name": "api.example"
+    },
+    "mail": {
+      "ip": "203.0.113.72",
+      "name": "mail.example"
+    }
+  },
+  "requests": [
+    {
+      "device": "3c:a9:f4:10:20:30",
+      "method": "GET",
+      "url": "http://news.example/today?lang=pt",
+      "version": "HTTP/1.1",
+      "tls": false,
+      "status": 200,
+      "size": 1234,
+      "cookie": true,
+      "setCookie": true,
+      "contentType": "text/html; charset=utf-8"
+    },
+    {
+      "device": "3c:a9:f4:10:20:30",
+      "method": "GET",
+      "url": "http://news.example/missing",
+      "version": "HTTP/1.1",
+      "tls": false,
+      "status": 404,
+      "size": 15,
+      "contentType": "text/plain"
+    },
+    {
+      "device": "3c:22:fb:ab:cd:ef",
+      "method": "POST",
+      "url": "http://upload.example/api/upload",
+      "version": "HTTP/1.1",
+      "tls": false,
+      "status": 201,
+      "size": 11,
+      "contentType": "application/json"
+    },
+    {
+      "device": "3c:a9:f4:10:20:30",
+      "method": "GET",
+      "url": "https://shop.example/",
+      "version": "HTTP/2",
+      "tls": true,
+      "status": 200,
+      "size": 3000,
+      "contentType": "text/html"
+    },
+    {
+      "device": "3c:a9:f4:10:20:30",
+      "method": "GET",
+      "url": "https://shop.example/cart?item=42",
+      "version": "HTTP/2",
+      "tls": true,
+      "status": 200,
+      "size": 17,
+      "cookie": true,
+      "contentType": "application/json"
+    },
+    {
+      "device": "3c:a9:f4:10:20:30",
+      "method": "POST",
+      "url": "https://shop.example/checkout",
+      "version": "HTTP/2",
+      "tls": true,
+      "status": 303,
+      "authorization": true,
+      "setCookie": true
+    },
+    {
+      "device": "3c:a9:f4:10:20:30",
+      "method": "GET",
+      "url": "https://api.example/v1/status?verbose=1",
+      "version": "HTTP/1.1",
+      "tls": true,
+      "status": 200,
+      "size": 15,
+      "contentType": "application/json"
+    }
+  ],
+  "unread": {
+    "device": "3c:22:fb:ab:cd:ef",
+    "host": "203.0.113.72"
+  }
+}

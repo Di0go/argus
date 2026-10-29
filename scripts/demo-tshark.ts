@@ -7,7 +7,9 @@
 // hears the house as a sensor on the router would (a mirror port): the TV on Netflix, a phone on Instagram and then
 // on a WhatsApp call, a tablet on YouTube asking Google's DNS directly, the office PC updating Windows, a speaker on
 // Spotify, a printer posting scans over plain HTTP with a password, and this PC on a call and a build; on docker0, a
-// few containers at work. The devices also say what they are (DHCP, mDNS, User-Agent). Every name, address, MAC and
+// few containers at work. The devices also say what they are (DHCP, mDNS, User-Agent). Every second or so a web request
+// goes by (server/requests.ts): plain HTTP from the office PC, the printer and the phone, and this PC's HTTPS as tshark
+// gives it with the keys (HTTP/2 inside TLS), the demo's key log being made up too. Every name, address, MAC, path and
 // password is invented. Asked anything else (-r, a file), it is the real tshark.
 //
 // It touches no network and writes no packets: the ring buffer folder it is given gets the test fixture, so saving a
@@ -212,6 +214,7 @@ function house(iface: string) {
   };
   announce();
   setInterval(announce, 30_000);
+  web(out, toRouter, fromRouter);
 
   // Then the traffic, a tenth of a second at a time: each host's share rises and falls on its own slow wave, with
   // bursts, as a stream buffers and a build downloads.
@@ -249,6 +252,62 @@ function house(iface: string) {
   }, 100);
   process.on('SIGTERM', () => process.exit(0));
   process.on('SIGINT', () => process.exit(0));
+}
+
+/**
+ * The web requests that go by: plain HTTP from the house (the whole request is there to read), and this PC's HTTPS,
+ * read inside TLS as tshark does with the keys (HTTP/2: its frames' types and streams, its headers by name and value).
+ */
+type Ask = { by: Home; ip: string; method: string; url: string; status: number; size: number; type: string; h2?: boolean; extra?: [string, string][] };
+const ASKS: Ask[] = [
+  { by: ME, ip: '198.51.100.10', method: 'POST', url: 'https://api.anthropic.com/v1/messages', status: 200, size: 4_812, type: 'application/json', h2: true, extra: [['content-type', 'application/json'], ['authorization', 'x']] },
+  { by: ME, ip: '198.51.100.4', method: 'GET', url: 'https://github.com/notifications?query=is%3Aunread', status: 200, size: 61_440, type: 'text/html; charset=utf-8', h2: true, extra: [['cookie', 'x']] },
+  { by: ME, ip: '198.51.100.42', method: 'GET', url: 'https://www.theguardian.com/international', status: 200, size: 182_304, type: 'text/html; charset=utf-8', h2: true },
+  { by: ME, ip: '203.0.113.3', method: 'GET', url: 'https://fonts.gstatic.com/s/inter/v18/inter-latin.woff2', status: 200, size: 48_256, type: 'font/woff2', h2: true, extra: [['referer', 'https://www.theguardian.com/']] },
+  { by: ME, ip: '198.51.100.35', method: 'GET', url: 'https://registry.npmjs.org/svelte', status: 304, size: 0, type: 'application/json', h2: true },
+  { by: ME, ip: '203.0.113.162', method: 'GET', url: 'https://outlook.office.com/mail/inbox', status: 302, size: 0, type: 'text/html', h2: true, extra: [['cookie', 'x']] },
+  { by: ME, ip: '198.51.100.229', method: 'GET', url: 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js', status: 200, size: 205_824, type: 'application/javascript', h2: true },
+  { by: OFFICE, ip: '203.0.113.141', method: 'GET', url: 'http://ctldl.windowsupdate.com/msdownload/update/v3/static/trustedr/en/authrootstl.cab', status: 200, size: 18_022, type: 'application/vnd.ms-cab-compressed' },
+  { by: PRINTER, ip: '198.51.100.77', method: 'POST', url: 'http://scan.printhub.example/scan/upload?job=118', status: 201, size: 31, type: 'application/json', extra: [['authorization', 'x']] },
+  { by: PHONE, ip: '203.0.113.30', method: 'GET', url: 'http://captive.apple.com/hotspot-detect.html', status: 200, size: 68, type: 'text/html' },
+  { by: TABLET, ip: '203.0.113.131', method: 'GET', url: 'http://app-measurement.com/config/app/1:000000000000:android:0000?platform=android', status: 404, size: 0, type: 'text/plain' },
+];
+
+function web(out: (f: Frame) => void, toRouter: (d: Home) => Frame, fromRouter: (d: Home) => Frame) {
+  let frame = 1_000_000;
+  let stream = 9_000;
+  const streams = new Map<string, { tcp: number; next: number }>();
+  let i = 0;
+  setInterval(() => {
+    const a = ASKS[i++ % ASKS.length]!;
+    const u = new URL(a.url);
+    const port = a.h2 ? 443 : 80;
+    const sport = 40_000 + (i % 200);
+    const ip = { 'ip.src': a.by.ip, 'ip.dst': a.ip };
+    const back = { 'ip.src': a.ip, 'ip.dst': a.by.ip };
+    const ua = a.by.ua ?? (a.by === ME ? 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0' : a.by === OFFICE ? 'Microsoft-CryptoAPI/10.0' : 'HP-ChaiSOE/1.0');
+    const asked = String(++frame);
+    if (a.h2) {
+      const s = streams.get(a.ip) ?? { tcp: ++stream, next: 1 };
+      streams.set(a.ip, s);
+      const id = String(s.next);
+      s.next += 2;
+      const layers = 'eth:ethertype:ip:tcp:tls:http2';
+      const req: [string, string][] = [[':method', a.method], [':scheme', 'https'], [':authority', u.host], [':path', u.pathname + u.search], ['user-agent', ua], ...(a.extra ?? [])];
+      out({ ...toRouter(a.by), 'frame.len': '320', ...ip, ...tcp(sport, port), 'frame.protocols': layers, 'frame.number': asked, 'tcp.stream': String(s.tcp), 'http2.type': '1', 'http2.streamid': id, 'http2.length': '120', 'http2.header.name': req.map(([k]) => k), 'http2.header.value': req.map(([, v]) => v) });
+      const res: [string, string][] = [[':status', String(a.status)], ['content-type', a.type], ['server', 'demo'], ...(a.status === 302 ? ([['location', '/mail/']] as [string, string][]) : [])];
+      setTimeout(() => {
+        out({ ...fromRouter(a.by), 'frame.len': '1400', ...back, ...tcp(port, sport), 'frame.protocols': layers, 'frame.number': String(++frame), 'tcp.stream': String(s.tcp), 'http2.type': a.size ? ['1', '0'] : '1', 'http2.streamid': a.size ? [id, id] : id, 'http2.length': a.size ? ['60', String(a.size)] : '60', 'http2.header.name': res.map(([k]) => k), 'http2.header.value': res.map(([, v]) => v) });
+      }, 40 + Math.round(Math.random() * 300));
+      return;
+    }
+    const layers = 'eth:ethertype:ip:tcp:http';
+    const lines = [`Host: ${u.host}\\r\\n`, `User-Agent: ${ua}\\r\\n`, ...(a.extra ?? []).map(([k]) => `${k[0]!.toUpperCase()}${k.slice(1)}: x\\r\\n`)];
+    out({ ...toRouter(a.by), 'frame.len': '420', ...ip, ...tcp(sport, port), 'frame.protocols': layers, 'frame.number': asked, 'http.request.method': a.method, 'http.request.full_uri': a.url, 'http.request.version': 'HTTP/1.1', 'http.request.line': lines, 'http.host': u.host, 'http.user_agent': ua, ...((a.extra ?? []).some(([k]) => k === 'authorization') ? { 'http.authorization': 'Basic ZGVtbzpkZW1v' } : {}) });
+    setTimeout(() => {
+      out({ ...fromRouter(a.by), 'frame.len': '900', ...back, ...tcp(port, sport), 'frame.protocols': layers, 'frame.number': String(++frame), 'http.response.code': String(a.status), 'http.response.phrase': a.status === 200 ? 'OK' : a.status === 201 ? 'Created' : 'Not Found', 'http.request_in': asked, 'http.response.line': [`Content-Type: ${a.type}\\r\\n`, `Content-Length: ${a.size}\\r\\n`] });
+    }, 60 + Math.round(Math.random() * 400));
+  }, 1100);
 }
 
 /** docker0: the containers say where they are (ARP), the app asks its database and cache, and the PC asks the app. */

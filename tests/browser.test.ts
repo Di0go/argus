@@ -609,3 +609,68 @@ test('Listening stopped: the home page says so, and shows nothing of before as i
   assert.deepEqual(errors, []);
   await p.close();
 });
+
+test('Requests: they arrive live, plain HTTP and HTTPS read with its keys, by device, domain and method; whole at 1440 and on a phone', { skip: !CHROMIUM }, async () => {
+  const web = JSON.parse(readFileSync(path.join(ROOT, 'tests/fixtures/web.truth.json'), 'utf8'));
+  const fake = await fakeCapture();
+  const ts = await fakeTshark(path.join(ROOT, 'tests/fixtures/web.pcap'));
+  const own = await startServer(ROOT, {
+    env: { TSHARK: ts.tshark, DUMPCAP: fake.dumpcap, SYS_NET: fake.sysNet, EMIT_MS: '250', TLS_KEYLOG: path.join(ROOT, 'tests/fixtures/web.keys') },
+  });
+  try {
+    const { p, errors } = await page();
+    await p.goto(own.base);
+    await p.getByRole('navigation', { name: 'Places' }).getByRole('link', { name: 'Requests' }).click();
+    await p.getByRole('heading', { name: 'Requests', level: 1 }).waitFor();
+    const rows = p.getByRole('table', { name: 'Requests' }).locator('tbody tr.req');
+    assert.equal(await rows.count(), 0);
+    // Listening begins with the page open: the requests come in without a reload.
+    await fetch(`${own.base}/api/live/wlan0`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: true }) });
+    await p.waitForFunction((n) => document.querySelectorAll('table[aria-label="Requests"] tbody tr.req').length === n, web.requests.length, { timeout: 20_000 });
+    await p.getByText("Reading this PC's HTTPS").waitFor();
+    assert.match(await p.locator('.unread').innerText(), /1 of other devices/);
+    // HTTPS read with its keys is a closed lock; plain HTTP the open padlock, as everywhere.
+    assert.equal(await rows.locator('[aria-label="HTTPS read with its keys"]').count(), web.requests.filter((r: { tls: boolean }) => r.tls).length);
+    assert.equal(await rows.locator('.clear-tag').count(), web.requests.filter((r: { tls: boolean }) => !r.tls).length);
+    // By method, by domain, by device; the address follows.
+    await p.getByRole('combobox', { name: 'Method' }).selectOption('POST');
+    assert.equal(await rows.count(), 2);
+    assert.match(p.url(), /method=POST/);
+    await p.getByRole('combobox', { name: 'Domain' }).fill('shop.example');
+    assert.equal(await rows.count(), 1);
+    await p.getByRole('combobox', { name: 'Method' }).selectOption('');
+    assert.equal(await rows.count(), 3);
+    await p.getByRole('combobox', { name: 'Domain' }).fill('');
+    await p.getByRole('combobox', { name: 'Device' }).selectOption(web.hosts.phone.mac);
+    assert.equal(await rows.count(), 1);
+    await p.getByRole('combobox', { name: 'Device' }).selectOption('');
+    // A line opens to what was kept of it: the whole address, the headers kept, a cookie that went but not its value.
+    await rows.filter({ hasText: '/cart?item=42' }).getByRole('button').click();
+    const detail = p.locator('tr.detail');
+    await detail.getByText('https://shop.example/cart?item=42').waitFor();
+    assert.match(await detail.innerText(), /cookie\s+sent; its value is not kept/);
+    assert.doesNotMatch(await p.locator('main').innerText(), /made-up/);
+    // A reload keeps the filter it was left with.
+    await p.getByRole('combobox', { name: 'Method' }).selectOption('GET');
+    await p.reload();
+    await p.waitForFunction(() => document.querySelectorAll('table[aria-label="Requests"] tbody tr.req').length > 0);
+    assert.equal(await rows.count(), web.requests.filter((r: { method: string }) => r.method === 'GET').length);
+    assert.deepEqual(errors, []);
+    await p.close();
+    // On a phone: every line, nothing wider than the screen.
+    const phone = await page({ width: 390, height: 844 });
+    await phone.p.goto(`${own.base}/#/requests`);
+    await phone.p.waitForFunction((n) => document.querySelectorAll('table[aria-label="Requests"] tbody tr.req').length === n, web.requests.length);
+    const wide = await phone.p.evaluate(() => document.documentElement.scrollWidth);
+    assert.ok(wide <= 390, `${wide} px wide`);
+    const box = await phone.p.getByRole('table', { name: 'Requests' }).boundingBox();
+    assert.ok(box && box.x + box.width <= 390, JSON.stringify(box));
+    // The address takes the room the hidden columns leave: its host is there to read, not squeezed to nothing.
+    const host = await phone.p.locator('tbody tr.req .h').first().boundingBox();
+    assert.ok(host && host.width > 80, `the host is ${host?.width} px wide`);
+    assert.deepEqual(phone.errors, []);
+    await phone.p.close();
+  } finally {
+    await own.stop();
+  }
+});

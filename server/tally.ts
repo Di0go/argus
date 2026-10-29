@@ -31,7 +31,8 @@
 import type { Link } from '@organon/core/shared/entities';
 import { CLEAR, tlsVersion } from '../shared/security.ts';
 import { serviceOf, serviceOfProtocol } from '../shared/services.ts';
-import type { Conversation, Device, Heard, NameSource, Network, Remote, Segment } from '../shared/types.ts';
+import type { Conversation, Device, Heard, HttpRequest, NameSource, Network, Remote, Segment } from '../shared/types.ts';
+import { REQUEST_FIELDS, Requests } from './requests.ts';
 
 export const FIELDS = [
   'frame.time_epoch',
@@ -83,6 +84,8 @@ export const FIELDS = [
   'tls.handshake.extensions.supported_version',
   'tls.handshake.ja4',
   'dns.ptr.domain_name',
+  // The HTTP requests that went by, in the clear or inside TLS read with its keys (server/requests.ts).
+  ...REQUEST_FIELDS,
 ] as const;
 type Field = (typeof FIELDS)[number];
 /** Between a field's repeats, in tshark's output (-E aggregator). */
@@ -132,9 +135,13 @@ export function useFields(known: Set<string>): Field[] {
   return known.size ? missing : [];
 }
 
-/** tshark's arguments for the fields, one line per frame, tab between fields. */
-export function fieldArgs(): string[] {
-  const args = ['-n', '-T', 'fields', '-E', 'separator=/t', '-E', 'occurrence=a', '-E', `aggregator=${SEP}`, '-E', 'quote=n'];
+/**
+ * tshark's arguments for the fields, one line per frame, tab between fields; with `keylog`, the TLS key log file it
+ * reads the sessions' keys from (it need not exist yet: tshark reads it as it grows), so what is inside the TLS of the
+ * programs that write it is dissected too (server/requests.ts).
+ */
+export function fieldArgs(keylog?: string): string[] {
+  const args = [...(keylog ? ['-o', `tls.keylog_file:${keylog}`] : []), '-n', '-T', 'fields', '-E', 'separator=/t', '-E', 'occurrence=a', '-E', `aggregator=${SEP}`, '-E', 'quote=n'];
   for (const f of asked) args.push('-e', f);
   return args;
 }
@@ -166,6 +173,8 @@ export interface Dissected {
   listening?: string[];
   /** The server's reading of the stays (shared/networks.ts): never the sensor's. */
   networks?: Network[];
+  /** The HTTP requests read, oldest first (server/requests.ts). */
+  requests?: HttpRequest[];
 }
 
 /** One way of a conversation: from a MAC and address to a MAC and address. */
@@ -198,6 +207,8 @@ interface Flow {
   /** TLS was seen in it (STARTTLS turns a mail conversation safe), and the version the server agreed. */
   tlsSeen?: boolean;
   tls?: string;
+  /** Inside its TLS was dissected, with the session's keys: HTTP was read in it. */
+  read?: boolean;
 }
 
 /** A device as counted so far: everything but what depends on which MAC is the router. */
@@ -215,6 +226,8 @@ export interface TallyOptions {
   coarse?: { step: number; count: number };
   /** Each device's day, coarser than the network's (10 minutes a bucket): 500 devices heard once a minute stay small. */
   deviceCoarse?: { step: number; count: number };
+  /** The HTTP requests kept, the newest (server/requests.ts). */
+  maxRequests?: number;
 }
 
 /**
@@ -334,6 +347,7 @@ export class Tally {
   /** Each interface's last minutes, for how fast each network moves now (not kept across restarts: it is only now). */
   private readonly fineByInterface = new Map<string, Series>();
   private readonly options: Required<Omit<TallyOptions, 'ownMacs'>>;
+  readonly requests: Requests;
 
   constructor(options: TallyOptions = {}) {
     this.own = new Set((options.ownMacs ?? []).map((m) => m.toLowerCase()));
@@ -344,7 +358,9 @@ export class Tally {
       fine: options.fine ?? { step: 1, count: 600 },
       coarse: options.coarse ?? { step: 60, count: 1440 },
       deviceCoarse: options.deviceCoarse ?? { step: 600, count: 144 },
+      maxRequests: options.maxRequests ?? 2000,
     };
+    this.requests = new Requests(this.options.maxRequests);
     this.fine = new Series(this.options.fine.step, this.options.fine.count);
     this.coarse = new Series(this.options.coarse.step, this.options.coarse.count);
   }
@@ -453,6 +469,24 @@ export class Tally {
       }
       f.protocol ??= frameProtocol(r);
       this.security(r, f, sender);
+      const layers = r['frame.protocols'][0]?.split(':') ?? [];
+      if (layers.includes('http') || layers.includes('http2')) {
+        if (layers.includes('tls')) f.read = true;
+        const port = (k: Field) => Number(r[k][0]) || undefined;
+        this.requests.add((k) => r[k as Field] ?? [], {
+          time,
+          iface,
+          segment: seg.id,
+          sender: sender?.id,
+          // The one that answered is named only when it is here (a NAS): out there it is the router's MAC that carried it.
+          receiver: ipDst && isLocal(ipDst) ? receiver?.id : undefined,
+          ipSrc,
+          ipDst,
+          srcPort: port('tcp.srcport'),
+          dstPort: port('tcp.dstport'),
+          layers,
+        });
+      }
     }
 
     // ARP: a MAC saying which address is its own.
@@ -515,12 +549,15 @@ export class Tally {
    */
   private security(r: Row, f: Flow, sender: Counted | undefined) {
     const layers = r['frame.protocols'][0]?.split(':') ?? [];
-    if (layers.includes('tls')) f.tlsSeen = true;
-    const clear = layers.map((l) => CLEAR[l]).find(Boolean);
+    // Inside TLS read with its keys (HTTPS decrypted) is not in the clear, and a login in it went encrypted.
+    const inTls = layers.includes('tls');
+    if (inTls) f.tlsSeen = true;
+    const clear = inTls ? undefined : layers.map((l) => CLEAR[l]).find(Boolean);
     if (clear && !f.clear) f.clear = clear;
     if (
-      r['http.authorization'].length ||
-      [...r['ftp.request.command'], ...r['pop.request.command'], ...r['imap.request.command'], ...r['smtp.req.command']].some((c) => LOGIN.test(c))
+      !inTls &&
+      (r['http.authorization'].length ||
+        [...r['ftp.request.command'], ...r['pop.request.command'], ...r['imap.request.command'], ...r['smtp.req.command']].some((c) => LOGIN.test(c)))
     )
       f.credentials = true;
     const types = r['tls.handshake.type'];
@@ -711,6 +748,7 @@ export class Tally {
       // In the clear unless TLS was seen in it (a mail conversation that went on to STARTTLS).
       if (f.clear && !f.tlsSeen) c.clear = { proto: f.clear, ...(f.credentials || c.clear?.credentials ? { credentials: true } : {}) };
       if (f.tls) c.tls = f.tls;
+      if (f.read) c.read = true;
       if (out) c.sent += f.bytes;
       else c.received += f.bytes;
       c.packets += f.packets;
@@ -806,6 +844,8 @@ export class Tally {
       links: [...links.values()],
       conversations: [...conversations.values()],
       segments: this.segments.map((g) => ({ ...g, vias: g.vias.map((v) => ({ ...v })), ...(g.ssids ? { ssids: { ...g.ssids } } : {}) })),
+      // Copies: the server reads them (their network) without touching what the sensor keeps.
+      requests: this.requests.all().map((q) => ({ ...q })),
     };
   }
 
@@ -858,6 +898,7 @@ export class Tally {
       current: Object.fromEntries([...this.current].map(([iface, g]) => [iface, g.id])),
       counts: Object.fromEntries(this.counts),
       own: [...this.own],
+      requests: this.requests.save(),
     };
   }
 
@@ -875,6 +916,7 @@ export class Tally {
     if (!d.sentThrough) for (const [iface, macs] of t.gateways()) for (const mac of macs) t.sentThrough.set(`${iface}|${mac}`, new Set(Array.from({ length: WAY_OUT_HOSTS }, (_, i) => `kept ${i}`)));
     for (const [k, v] of d.dnsNames) t.dnsNames.set(k, v);
     t.addOwn(d.own ?? []);
+    if (Array.isArray(d.requests)) t.requests.load(d.requests);
     if (d.segments) {
       t.segments = d.segments;
       for (const [iface, n] of Object.entries(d.counts ?? {})) t.counts.set(iface, n);
@@ -1061,6 +1103,8 @@ export interface TallyData {
   counts?: Record<string, number>;
   /** The MACs that were this machine's (a Wi-Fi's made-up one stays its own after it changes). */
   own?: string[];
+  /** The HTTP requests kept (server/requests.ts); absent in a session kept before they were read. */
+  requests?: HttpRequest[];
 }
 
 function flowKey(f: Pick<Flow, 'iface' | 'segment' | 'src' | 'dst' | 'ipSrc' | 'ipDst' | 'service'>): string {

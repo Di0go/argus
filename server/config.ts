@@ -37,7 +37,7 @@ export const RING = {
   emitEvery: int('EMIT_MS', 1000),
   /** How often the system is asked which SSID each Wi-Fi is on, and this machine's MACs (ARGUS_POLL_MS). */
   pollEvery: int('POLL_MS', 5000),
-  tally: { maxFlows: int('MAX_FLOWS', 20_000), maxDevices: int('MAX_DEVICES', 500) },
+  tally: { maxFlows: int('MAX_FLOWS', 20_000), maxDevices: int('MAX_DEVICES', 500), maxRequests: int('MAX_REQUESTS', 2000) },
 };
 /** The day kept (server/history.ts): how many days (ARGUS_HISTORY_DAYS), at most how many MB (ARGUS_HISTORY_MB), and
  * how often the session is looked at, in milliseconds (ARGUS_HISTORY_MS). */
@@ -51,6 +51,13 @@ export const SYS_NET = app.env('SYS_NET') ?? '/sys/class/net';
  * /sys/class/net. Where the interfaces are made up (the tests, the demo) the real Wi-Fi's name must never be asked.
  */
 export const IW = app.env('IW') ?? (SYS_NET === '/sys/class/net' ? 'iw' : undefined);
+/**
+ * The TLS key log file tshark reads the sessions' keys from, to read HTTPS (server/requests.ts, docs/requests.md):
+ * ARGUS_TLS_KEYLOG, else SSLKEYLOGFILE, the variable the browsers and curl write their keys to when it is set (Argus's
+ * service gets the session's environment, ~/.config/environment.d, as they do). Only on the real /sys/class/net: the
+ * tests and the demo set their own, and the real one must never be read there. Unset: HTTPS is not read.
+ */
+export const KEYLOG = app.env('TLS_KEYLOG') ?? (SYS_NET === '/sys/class/net' ? process.env.SSLKEYLOGFILE || undefined : undefined);
 /** A recording brought in as a capture when there is none yet (pnpm dev uses the fixture). */
 export const SEED_PCAP = app.env('SEED_PCAP');
 

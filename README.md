@@ -96,13 +96,20 @@ Everything links to everything: a device to the companies it uses, a company to 
 an interface to what was heard on it. Search finds any of them (Ctrl+K), hovering a name shows its card, and a
 right-click copies its address or MAC.
 
+**Requests.** The web requests that go by, live: who asked, the method, the whole address, the headers worth reading,
+the answer's status and size, how long it took; by device, by domain and by method. Plain HTTP from any device heard;
+HTTPS only from the programs on this PC that write their TLS keys (Firefox, Chromium and curl, once `SSLKEYLOGFILE` is
+on: `scripts/tls-keys.sh`). Never a body, and of cookies and logins only that they went. What could be read, of whom
+and with which keys, and why the others' HTTPS stays encrypted: [docs/requests.md](docs/requests.md).
+
 **Captures.** The last minutes of each interface stay on disk in a bounded ring buffer. Save them, and they become a
 capture you can open again as it was, or in Wireshark.
 
 ## What it cannot see
 
 Argus listens: no monitor mode, nobody's traffic changed. What is encrypted is not read; you see who talks to whom,
-when and how much. And on an ordinary home network (a router, a switch), a PC hears mostly its own traffic and what the
+when and how much. The one exception is this PC's own HTTPS, when you turn on the key log for its browsers: other
+devices' keys are on them, and their HTTPS stays as it came. And on an ordinary home network (a router, a switch), a PC hears mostly its own traffic and what the
 others announce to everyone, not what they say to each other or to the internet. The page says so too, once.
 
 To find the devices it cannot hear, it reads this PC's neighbour table and any DHCP lease file on it (local reads,

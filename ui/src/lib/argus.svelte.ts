@@ -19,10 +19,12 @@ import type {
   Device,
   Here,
   HostsView,
+  HttpRequest,
   Interface,
   LiveView,
   Network,
   Remote,
+  RequestsView,
   SeriesData,
   Session,
   Site,
@@ -110,6 +112,13 @@ class Argus {
   private seen = new Map<string, [number, number][]>();
   /** When each device was first seen by this page, to mark newcomers for a while. */
   private firstHere = new Map<string, number>();
+  /**
+   * The HTTP requests read (server/requests.ts), loaded when the Requests page first asks, then kept current from the
+   * live stream; and what the server says of the keys and of what could not be read, asked again now and then.
+   */
+  requests = $state<Record<string, HttpRequest>>({});
+  requestsLoaded = $state(false);
+  requestsInfo = $state<Omit<RequestsView, 'requests'> | null>(null);
   /** Saved captures' views, loaded when first looked at. */
   private views = $state<Record<string, HostsView>>({});
   private asked = new Set<string>();
@@ -142,6 +151,8 @@ class Argus {
       this.byDevice = view.byDevice;
       this.byInterface = view.byInterface ?? {};
       this.measure(true);
+      // Connected again (or begun again): the requests the server has now, if the page shows them.
+      if (this.requestsLoaded) void this.loadRequests().catch(() => {});
       return { build: state.build, seq: view.seq };
     },
     apply: (e) => this.apply(e),
@@ -201,6 +212,15 @@ class Argus {
       this.captureProblem[id] = (err as Error).message;
       this.asked.delete(id);
     }
+  }
+
+  /** The live session's requests, whole (the newest the server keeps), with the keys' state and what was not read. */
+  async loadRequests(): Promise<void> {
+    const v = await getJson<RequestsView>('/api/requests?limit=2000');
+    const { requests, ...info } = v;
+    this.requests = Object.fromEntries(requests.map((r) => [r.id, r]));
+    this.requestsInfo = info;
+    this.requestsLoaded = true;
   }
 
   async listen(id: string, on: boolean): Promise<string> {
@@ -267,7 +287,10 @@ class Argus {
   }
 
   private apply(e: ArgusEvent) {
-    if (e.type === 'reset') return void this.live.refresh();
+    if (e.type === 'reset') {
+      this.requests = {};
+      return void this.live.refresh();
+    }
     if (e.type === 'captures') {
       this.captures = e.captures;
       return;
@@ -279,6 +302,13 @@ class Argus {
     }
     this.session = e.session;
     if (e.networks) this.networks = e.networks;
+    if (e.requests?.length && this.requestsLoaded) {
+      for (const r of e.requests) this.requests[r.id] = r;
+      // As many as the server keeps: the oldest go (ids begin with their time, so they sort by it).
+      const max = this.requestsInfo?.max ?? 2000;
+      const ids = Object.keys(this.requests);
+      if (ids.length > max) for (const id of ids.sort(byTime).slice(0, ids.length - max)) delete this.requests[id];
+    }
     // Only what changed comes: laid over what the page has, in the order it had (the table keeps its own order).
     if (e.devices.length || e.goneDevices.length) {
       const by = new Map(this.devices.map((d) => [d.id, d]));
@@ -357,6 +387,13 @@ class Argus {
     );
     return { kind, capture, devices, remotes, sites, links, conversations, graph };
   }
+}
+
+/** Request ids ("<ms>-<n>") in the order they were seen. */
+function byTime(a: string, b: string): number {
+  const [ta, na] = a.split('-').map(Number);
+  const [tb, nb] = b.split('-').map(Number);
+  return ta! - tb! || na! - nb!;
 }
 
 /** Rises at once, falls by half each second: a meter that reads, not one that flickers. */

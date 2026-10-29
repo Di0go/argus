@@ -19,6 +19,7 @@
 
 import { type ChildProcess, execFile, spawn } from 'node:child_process';
 import { copyFile, mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
@@ -26,7 +27,8 @@ import type { EventHub } from '@organon/core/server/events';
 import type { Store } from '@organon/core/server/store';
 import { isObject } from '@organon/core/server/store';
 import type { Link } from '@organon/core/shared/entities';
-import type { Conversation, Device, LiveEvent, LiveView, Listening, Network, Remote, Session } from '../shared/types.ts';
+import { matches, type RequestFilter, unreadOf } from '../shared/requests.ts';
+import type { Conversation, Device, KeyLog, LiveEvent, LiveView, Listening, Network, Remote, RequestsView, Session } from '../shared/types.ts';
 import { type Dissected, fieldArgs, parseLine, Tally, type TallyData, type TallyOptions } from './tally.ts';
 
 export interface LiveOptions {
@@ -55,7 +57,12 @@ export interface LiveOptions {
   ringFiles?: number;
   ringFileMB?: number;
   ringSeconds?: number;
-  tally?: Pick<TallyOptions, 'maxFlows' | 'maxDevices'>;
+  tally?: Pick<TallyOptions, 'maxFlows' | 'maxDevices' | 'maxRequests'>;
+  /**
+   * The TLS key log file tshark reads the sessions' keys from, so what the programs that write it sent over HTTPS is
+   * read (server/requests.ts); none: HTTPS stays as it came, encrypted.
+   */
+  keylog?: string;
   /** Milliseconds between events to the page (1000), and between writes of the session to disk (60 000). */
   emitEvery?: number;
   saveEvery?: number;
@@ -112,6 +119,7 @@ export class Live {
       saveEvery: 60_000,
       pollEvery: 5000,
       tally: undefined,
+      keylog: '',
       ...options,
     };
     this.tally = this.newTally();
@@ -239,6 +247,26 @@ export class Live {
     return { devices: this.withRates(v.devices), remotes: v.remotes, links: v.links, conversations: v.conversations, networks: v.networks ?? [] };
   }
 
+  /** The HTTP requests read (server/requests.ts), newest first, of the filter; and what could not be read. */
+  async requests(f: RequestFilter = {}, limit = 500): Promise<RequestsView> {
+    const v = this.facts();
+    const all = v.requests ?? [];
+    const out: RequestsView['requests'] = [];
+    for (let i = all.length - 1; i >= 0 && out.length < limit; i--) if (matches(all[i]!, f)) out.push(all[i]!);
+    const talks = f.networks ? v.conversations.filter((c) => c.network && f.networks!.has(c.network)) : v.conversations;
+    return { requests: out, total: all.length, max: this.tally.requests.max, keys: await this.keys(), unread: unreadOf(talks, f.device) };
+  }
+
+  /** The key log file: whether there is one and is being written, never what it holds. */
+  async keys(): Promise<KeyLog> {
+    if (!this.o.keylog) return { exists: false };
+    const s = await stat(this.o.keylog).catch(() => undefined);
+    // Said with ~ for the home folder, as he would write it (and no home path in a picture of the page).
+    const home = homedir();
+    const file = home && this.o.keylog.startsWith(`${home}/`) ? `~${this.o.keylog.slice(home.length)}` : this.o.keylog;
+    return s?.isFile() ? { file, exists: true, bytes: s.size, modified: s.mtimeMs / 1000 } : { file, exists: false };
+  }
+
   /** This machine's MACs, every one the session saw it have (a capture saved from it is read with them). */
   ownMacs(): string[] {
     return this.tally.ownMacs();
@@ -343,7 +371,7 @@ export class Live {
       '-l',
       '-M',
       '100000',
-      ...fieldArgs(),
+      ...fieldArgs(this.o.keylog || undefined),
     ];
     l.state.status = 'starting';
     l.state.error = undefined;
@@ -446,6 +474,9 @@ export class Live {
     );
     const remotes = changed(v.remotes, this.sentRemotes, (r) => `${r.bytesSent + r.bytesReceived}:${r.lastSeen}:${r.names.length}`);
     const conversations = changed(v.conversations, this.sentConversations, (c) => `${c.sent}:${c.received}:${c.last}:${c.app?.app ?? ''}:${c.app?.activity ?? ''}`);
+    // The requests read or answered since the last event, as the server read them (their network).
+    const fresh = new Set(this.tally.requests.changed().map((r) => r.id));
+    const requests = fresh.size ? (v.requests ?? []).filter((r) => fresh.has(r.id)) : [];
     const links: Link[] = [];
     const current = new Map<string, number>();
     for (const l of v.links) {
@@ -470,6 +501,7 @@ export class Live {
       total: { fine: this.tally.fine.tail(5), coarse: this.tally.coarse.tail(2) },
       byDevice: this.tally.recentByDevice(5),
       byInterface: this.tally.byInterface(5),
+      ...(requests.length ? { requests } : {}),
     };
     this.o.events.send(event);
   }

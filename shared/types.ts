@@ -242,12 +242,90 @@ export interface Conversation {
   clear?: { proto: string; credentials?: boolean; harmless?: boolean };
   /** The TLS version it agreed ("1.0" … "1.3"), when its handshake was seen. */
   tls?: string;
+  /** Inside its TLS was read, with the session's keys (a key log file): its HTTP requests are in server/requests.ts. */
+  read?: boolean;
   /** The sensor's fact: the stay it was in (the server joins a network's stays into one, and drops it). */
   segment?: string;
   /** The network it was on (shared/networks.ts). */
   network?: string;
   /** Its stay was just joined: which network it is on is not known yet (the history waits for it). */
   pending?: boolean;
+}
+
+/**
+ * One HTTP request and its answer, as read off the wire (server/requests.ts): plain HTTP from any device heard, and
+ * HTTPS only where tshark had the TLS session's keys (a key log file: this PC's programs that write one). Metadata
+ * only: the request line, a few headers, the status, the size; never a body, and of Cookie, Set-Cookie and
+ * Authorization only that they went by. The URL is kept whole, query and all: a token in it is kept too, in memory
+ * and in data/live (never in the history).
+ */
+export interface HttpRequest {
+  /** Unique in the session: when, in milliseconds, and a counter. */
+  id: string;
+  /** Epoch seconds the request was seen. */
+  time: number;
+  iface: string;
+  /** The sensor's fact: the stay it was in (the server says its network, and drops it). */
+  segment?: string;
+  /** The network it was on (shared/networks.ts). */
+  network?: string;
+  /** The device here that asked (its id), and the one that answered when it is here too (a NAS, a printer). */
+  device?: string;
+  server?: string;
+  /** The server's address and port. */
+  ip?: string;
+  port?: number;
+  /** The name asked for: Host, or HTTP/2's :authority, without the port. */
+  host: string;
+  method: string;
+  /** scheme://host[:port]/path?query, as asked; cut at 2000 characters. */
+  url: string;
+  /** "HTTP/1.1", "HTTP/2". */
+  version: string;
+  /** Read inside TLS with the session's keys (HTTPS); else it went in the clear. */
+  tls: boolean;
+  /** The request's headers he would look at, by name in lower case (user-agent, referer, content-type, content-length…). */
+  headers: Record<string, string>;
+  /** Every header name it carried, values not kept but for those in `headers`. */
+  names: string[];
+  /** Cookie and Authorization went with it: that they did, never what they said. */
+  cookie?: boolean;
+  authorization?: boolean;
+  response?: HttpResponse;
+}
+
+export interface HttpResponse {
+  status: number;
+  phrase?: string;
+  /** Epoch seconds the answer began. */
+  time: number;
+  /** content-type, server, location, content-length. */
+  headers: Record<string, string>;
+  names: string[];
+  /** The body's size in bytes: its Content-Length, else what came (HTTP/2's DATA, HTTP/1's chunks). */
+  size?: number;
+  setCookie?: boolean;
+}
+
+/** Where the keys to read HTTPS come from (a key log file, SSLKEYLOGFILE), and whether there is one now. */
+export interface KeyLog {
+  /** The file tshark is told to read; absent when none is set. */
+  file?: string;
+  exists: boolean;
+  /** Its size and when it was last written: whether the programs are writing to it. Never its contents. */
+  bytes?: number;
+  modified?: number;
+}
+
+/** GET /api/requests: the requests kept, newest first, and what could not be read. */
+export interface RequestsView {
+  requests: HttpRequest[];
+  /** How many there are before the filter, and the ceiling kept. */
+  total: number;
+  max: number;
+  keys: KeyLog;
+  /** TLS conversations of the networks shown in which no request was read: by the device that held them. */
+  unread: { device: string; conversations: number; bytes: number }[];
 }
 
 export interface HostsView {
@@ -257,6 +335,8 @@ export interface HostsView {
   links: Link[];
   conversations: Conversation[];
   networks?: Network[];
+  /** The HTTP requests read in it (server/requests.ts). */
+  requests?: HttpRequest[];
 }
 
 export type ArgusEntity = Device | Remote | Site | Interface;
@@ -405,6 +485,8 @@ export interface LiveEvent {
   total: { fine: SeriesData; coarse: SeriesData };
   byDevice: Record<string, SeriesData>;
   byInterface: Record<string, SeriesData>;
+  /** HTTP requests read since the last event, or whose answer came since (whole: laid over by id). */
+  requests?: HttpRequest[];
 }
 
 /** The session began again: the page loads it whole. */

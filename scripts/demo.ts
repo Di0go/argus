@@ -8,7 +8,7 @@
 //   pnpm demo          then http://localhost:4950
 
 import { spawn } from 'node:child_process';
-import { chmodSync, mkdirSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fakeRouter } from '../tests/fake-router.ts';
 import { fakeCapture } from '../tests/helpers.ts';
@@ -27,6 +27,9 @@ rmSync(`${ssidFile}.scanned`, { force: true });
 rmSync(path.join(DEMO, 'router-keys.json'), { force: true });
 mkdirSync(path.join(DEMO, 'data'), { recursive: true });
 mkdirSync(path.join(DEMO, 'state'), { recursive: true });
+// A key log as the browsers write one, made up: the demo's HTTPS is read (scripts/demo-tshark.ts), and the page says from where.
+const keys = path.join(DEMO, 'tls-keys.log');
+writeFileSync(keys, '# made up for the demo: no real key\n');
 const fake = await fakeCapture();
 /** The made-up router's password, to type on the Scan page. */
 const DEMO_ROUTER_PASSWORD = 'willow-demo';
@@ -58,6 +61,7 @@ const server = spawn(process.execPath, ['server/index.ts'], {
     ARGUS_ROUTER_URL: router.base,
     ARGUS_ROUTER_KEYS: path.join(DEMO, 'router-keys.json'),
     ARGUS_LEASES: 'none',
+    ARGUS_TLS_KEYLOG: keys,
     ARGUS_SOURCES_MS: '3000',
   },
 });
