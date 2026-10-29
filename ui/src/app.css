@@ -130,3 +130,27 @@ html.focus .stage > .top {
     top: 50px;
   }
 }
+
+/* Room to breathe, on every page (2026-10-29: «as coisas precisam de respirar mais»): the core's tables are dense
+   for a list of records; Argus's rows carry a name over a line under it, so they get more air, between rows and
+   between columns, and the headings over the sections stand further from what they head. */
+.records th {
+  padding: 9px 18px 9px 0;
+}
+
+.records td {
+  padding: 11px 18px 11px 0;
+}
+
+.records th:last-child,
+.records td:last-child {
+  padding-right: 0;
+}
+
+.page-lede {
+  line-height: 1.65;
+}
+
+.section-title {
+  margin-bottom: 18px;
+}

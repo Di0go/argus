@@ -442,7 +442,7 @@
     border-radius: var(--radius);
     background: var(--b1);
     font-size: 0.84rem;
-    line-height: 1.5;
+    line-height: 1.6;
     color: var(--fg-2);
   }
 
@@ -467,7 +467,7 @@
     max-width: 72ch;
     margin: 4px 0 10px;
     font-size: 0.82rem;
-    line-height: 1.45;
+    line-height: 1.6;
     color: var(--fg-2);
   }
 

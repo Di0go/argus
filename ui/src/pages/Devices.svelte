@@ -66,7 +66,7 @@
   const count = (s: SourceState) => (s.on ? `${s.found} found` : 'off');
 </script>
 
-<div class="page">
+<div class="page wide">
   <header class="page-head">
     <h1 class="page-title">Devices</h1>
     <p class="page-lede">
@@ -150,6 +150,12 @@
 </div>
 
 <style>
+  /* The table of devices takes the screen there is (the core stops pages at --page-w, 1600px): on a wide one the
+     names and makers show whole. The notes under it keep their measure. */
+  .page.wide {
+    max-width: 2400px;
+  }
+
   .controls {
     display: flex;
     align-items: center;
@@ -198,9 +204,9 @@
 
   .note {
     max-width: 72ch;
-    margin: 6px 0 10px;
+    margin: 8px 0 14px;
     font-size: 0.82rem;
-    line-height: 1.45;
+    line-height: 1.6;
     color: var(--fg-2);
   }
 
@@ -213,14 +219,14 @@
   }
 
   .sources li {
-    padding: 6px 0;
+    padding: 10px 0;
     border-top: 1px solid var(--rule);
   }
 
   .why {
     display: block;
     color: var(--fg-2);
-    line-height: 1.4;
+    line-height: 1.55;
   }
 
   .active-tag {
